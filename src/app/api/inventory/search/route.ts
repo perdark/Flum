@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
     ];
 
     if (status) {
-      conditions.push(eq(inventoryItems.status, status));
+      conditions.push(eq(inventoryItems.status, status as "available" | "reserved" | "sold" | "expired"));
     }
 
     // Get total count

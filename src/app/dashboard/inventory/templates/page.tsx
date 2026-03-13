@@ -247,7 +247,7 @@ function CreateTemplateModal({ onClose, onCreate }: CreateTemplateModalProps) {
     try {
       await onCreate({
         name: name.trim(),
-        description: description.trim() || null,
+        description: description.trim() || "",
         fieldsSchema: fields,
       });
     } finally {

@@ -16,6 +16,7 @@ interface Product {
   stockCount: number;
   templateName: string | null;
   inventoryTemplateId: string | null;
+  templateFields?: TemplateField[];
 }
 
 interface SellItem {

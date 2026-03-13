@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (status) {
-      conditions.push(eq(inventoryItems.status, status));
+      conditions.push(eq(inventoryItems.status, status as "available" | "reserved" | "sold" | "expired"));
     }
 
     // Get total count (need to join products to filter deleted products)
@@ -199,7 +199,7 @@ export async function POST(request: NextRequest) {
           templateId: product.inventoryTemplateId!,
           batchId: finalBatchId || null,
           values,
-          status: "available",
+          status: "available" as const,
         }))
       )
       .returning();

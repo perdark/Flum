@@ -200,7 +200,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create platform
-    const [newPlatform] = await db
+    const newPlatforms = await db
       .insert(platforms)
       .values({
         name: name.trim(),
@@ -209,6 +209,8 @@ export async function POST(request: NextRequest) {
         isActive: true,
       })
       .returning();
+
+    const newPlatform = (newPlatforms as any[])[0];
 
     // Log activity
     await logActivity({

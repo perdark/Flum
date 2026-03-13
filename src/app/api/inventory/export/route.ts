@@ -77,7 +77,7 @@ export async function GET(request: NextRequest) {
     // Data rows
     for (const item of inventory) {
       const row = fieldNames.map((name: string) => {
-        const value = item.values?.[name];
+        const value = (item.values as Record<string, unknown> | null)?.[name];
         // Escape quotes and wrap in quotes for CSV
         if (format === "csv") {
           const strValue = String(value ?? "");

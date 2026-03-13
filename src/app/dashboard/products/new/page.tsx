@@ -79,7 +79,7 @@ export default function NewProductPage() {
 
   const updateImage = (index: number, field: keyof Image, value: string) => {
     const newImages = [...images];
-    newImages[index][field] = value;
+    (newImages[index] as any)[field] = value;
     setImages(newImages);
   };
 

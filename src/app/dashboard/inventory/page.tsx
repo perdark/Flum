@@ -13,6 +13,7 @@ interface Platform {
   id: string;
   name: string;
   parentId: string | null;
+  depth?: number;
 }
 
 interface Product {
@@ -109,13 +110,14 @@ export default function InventoryPage() {
 
   const flattenPlatforms = (
     nodes: any[],
-    prefix = ""
-  ): Array<{ id: string; name: string; depth: number }> => {
-    const result: Array<{ id: string; name: string; depth: number }> = [];
+    prefix = "",
+    depth = 0
+  ): Platform[] => {
+    const result: Platform[] = [];
     for (const node of nodes) {
-      result.push({ id: node.id, name: prefix + node.name, depth: prefix.length / 2 });
+      result.push({ id: node.id, name: prefix + node.name, parentId: null, depth });
       if (node.children && node.children.length > 0) {
-        result.push(...flattenPlatforms(node.children, prefix + node.name + " / "));
+        result.push(...flattenPlatforms(node.children, prefix + node.name + " / ", depth + 1));
       }
     }
     return result;
@@ -267,7 +269,7 @@ export default function InventoryPage() {
                 <option value="">All Platforms</option>
                 {platforms.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {"\u00A0".repeat(p.depth * 2) + p.name}
+                    {"\u00A0".repeat((p.depth || 0) * 2) + p.name}
                   </option>
                 ))}
               </select>

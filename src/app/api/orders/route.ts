@@ -41,23 +41,23 @@ export async function GET(request: NextRequest) {
         or(
           like(orders.customerEmail, `%${search}%`),
           like(orders.customerName || "", `%${search}%`)
-        )
+        )!
       );
     }
 
     if (status) {
-      conditions.push(eq(orders.status, status));
+      conditions.push(eq(orders.status, status as "pending" | "completed" | "cancelled" | "refunded"));
     }
 
     if (fulfillmentStatus) {
-      conditions.push(eq(orders.fulfillmentStatus, fulfillmentStatus));
+      conditions.push(eq(orders.fulfillmentStatus, fulfillmentStatus as "pending" | "processing" | "delivered" | "failed"));
     }
 
     // Claim filtering
     if (claimStatus) {
       switch (claimStatus) {
         case "unclaimed":
-          conditions.push(or(isNull(orders.claimedBy), sql`claim_expires_at < NOW()`));
+          conditions.push(or(isNull(orders.claimedBy), sql`claim_expires_at < NOW()`)!);
           break;
         case "mine":
           conditions.push(eq(orders.claimedBy, user.id));
@@ -66,7 +66,7 @@ export async function GET(request: NextRequest) {
           conditions.push(and(
             sql`${orders.claimedBy} != ${user.id}`,
             sql`claim_expires_at >= NOW()`
-          ));
+          )!);
           break;
         // 'any' - no filter needed
       }

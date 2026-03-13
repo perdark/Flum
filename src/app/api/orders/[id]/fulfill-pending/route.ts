@@ -263,7 +263,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     // Log activity
     await logActivity({
       userId: user.id,
-      action: result.allFulfilled ? "order_fulfilled" : "order_partially_fulfilled",
+      action: result.allFulfilled ? "order_completed" : "order_claimed",
       entity: "order",
       entityId: orderId,
       metadata: {

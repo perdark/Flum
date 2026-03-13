@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
         or(
           like(products.name, `%${search}%`),
           like(products.slug, `%${search}%`)
-        )
+        )!
       );
     }
 

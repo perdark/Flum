@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
         or(
           like(products.name, `%${search}%`),
           like(products.description || "", `%${search}%`)
-        )
+        )!
       );
     }
 
@@ -81,7 +81,13 @@ export async function GET(request: NextRequest) {
     const productIds = productsList.map((p) => p.id);
 
     // Only query related data if we have products
-    let platformLinksList: typeof productPlatformLinks.$inferSelect[] = [];
+    let platformLinksList: Array<{
+      id: string;
+      productId: string;
+      platformId: string;
+      platformName: string;
+      platformParentId: string | null;
+    }> = [];
     let imagesList: typeof productImages.$inferSelect[] = [];
 
     if (productIds.length > 0) {

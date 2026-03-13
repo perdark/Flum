@@ -117,7 +117,7 @@ export function AnalyticsDashboard() {
               >
                 <div>
                   <p className="font-medium text-slate-300">{product.name}</p>
-                  <p className="text-sm text-slate-500">{product.totalSold} sold</p>
+                  <p className="text-sm text-slate-500">{product.sold} sold</p>
                 </div>
                 <p className="font-semibold text-white">
                   {formatCurrency(product.revenue)}
@@ -133,18 +133,13 @@ export function AnalyticsDashboard() {
             Low Stock Products
           </h3>
           <div className="space-y-3">
-            {data.products.lowStock.length > 0 ? (
-              data.products.lowStock.map((product) => (
-                <div
-                  key={product.id}
-                  className="flex items-center justify-between py-2 border-b border-slate-800 last:border-0"
-                >
-                  <p className="font-medium text-slate-300">{product.name}</p>
-                  <span className="px-2 py-1 bg-red-950 text-red-400 border border-red-900 text-sm rounded">
-                    {product.stockCount} left
-                  </span>
-                </div>
-              ))
+            {data.products.lowStock > 0 ? (
+              <p className="text-slate-300">
+                <span className="px-2 py-1 bg-red-950 text-red-400 border border-red-900 text-sm rounded">
+                  {data.products.lowStock}
+                </span>{" "}
+                products are low on stock
+              </p>
             ) : (
               <p className="text-slate-500">All products are well stocked!</p>
             )}

@@ -96,7 +96,7 @@ export function InventorySearchResults({ results, query }: InventorySearchResult
                     <div
                       className="text-sm text-slate-300"
                       dangerouslySetInnerHTML={{
-                        __html: highlightMatch(item.values?.[field] ?? ""),
+                        __html: highlightMatch(String(item.values?.[field] ?? "")),
                       }}
                     />
                   </td>

@@ -7,9 +7,9 @@
 
 import { getDb } from "@/db";
 import { activityLogs, users } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 import type { ActivityAction } from "@/types";
-import headers from "next/headers";
+import { headers } from "next/headers";
 
 // ============================================================================
 // ACTIVITY LOGGING SERVICE
@@ -80,7 +80,7 @@ export async function getRecentActivity(limit: number = 50) {
     })
     .from(activityLogs)
     .leftJoin(users, eq(activityLogs.userId, users.id))
-    .orderBy((activityLogs, { desc }) => [desc(activityLogs.createdAt)])
+    .orderBy(desc(activityLogs.createdAt))
     .limit(limit);
 
   return logs.map((log) => ({
@@ -115,13 +115,13 @@ export async function getActivityForEntity(
   return db
     .select()
     .from(activityLogs)
-    .where((activityLogs, { and, eq }) =>
+    .where(
       and(
         eq(activityLogs.entity, entity),
         eq(activityLogs.entityId, entityId)
       )
     )
-    .orderBy((activityLogs, { desc }) => [desc(activityLogs.createdAt)])
+    .orderBy(desc(activityLogs.createdAt))
     .limit(limit);
 }
 
@@ -138,7 +138,7 @@ export async function getActivityForUser(
     .select()
     .from(activityLogs)
     .where(eq(activityLogs.userId, userId))
-    .orderBy((activityLogs, { desc }) => [desc(activityLogs.createdAt)])
+    .orderBy(desc(activityLogs.createdAt))
     .limit(limit);
 }
 

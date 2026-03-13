@@ -27,18 +27,13 @@ export function getDb() {
     globalForDb.pool = new Pool({
       connectionString: process.env.DATABASE_URL,
       max: 10,
-      idleTimeout: 20,
+      idleTimeoutMillis: 20000,
       connectionTimeoutMillis: 30000, // Increased from 5s to 30s for serverless environments
-      idleInTransactionSessionTimeout: 60000, // Kill idle transactions after 60s
-      // Test the connection on checkout to detect stale connections
-      validate: (client) => {
-        // Ensure the client is still connected
-        return client.query('SELECT 1').then(() => true).catch(() => false);
-      },
+      idle_in_transaction_session_timeout: 60000, // Kill idle transactions after 60s
     });
 
     // Handle pool errors
-    globalForDb.pool.on('error', (err) => {
+    globalForDb.pool.on('error', (err: Error) => {
       console.error('Unexpected database pool error:', err);
     });
   }

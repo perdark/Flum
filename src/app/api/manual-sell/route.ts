@@ -519,7 +519,7 @@ export async function POST(request: NextRequest) {
       } else {
         await logActivity({
           userId: user.id,
-          action: "order_created_pending",
+          action: "order_created",
           entity: "order",
           entityId: order.id,
           metadata: {

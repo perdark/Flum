@@ -66,7 +66,7 @@ export async function getSession(): Promise<{
       token: sessions.token,
     })
     .from(sessions)
-    .where(and(eq(sessions.token, token, gt(sessions.expiresAt, new Date()))))
+    .where(and(eq(sessions.token, token), gt(sessions.expiresAt, new Date())))
     .limit(1);
 
   if (!session[0]) {

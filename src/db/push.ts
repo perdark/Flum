@@ -9,6 +9,7 @@
 import "dotenv/config";
 import { neon, neonConfig } from "@neondatabase/serverless";
 import { hashPassword } from "../utils/security";
+// @ts-ignore - ws module doesn't have type definitions
 import ws from "ws";
 
 neonConfig.webSocketConstructor = ws;

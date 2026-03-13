@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
 
       // Use FOR UPDATE SKIP LOCKED to safely get next pending order
       const result = await db.transaction(async (tx) => {
-        const [order] = await tx.execute(
+        const orderResult = await tx.execute(
           sql`
             UPDATE orders
             SET claimed_by = ${user.id},
@@ -90,11 +90,11 @@ export async function POST(request: NextRequest) {
           `
         );
 
-        if (!order || !order.rows || order.rows.length === 0) {
+        if (!orderResult.rows || orderResult.rows.length === 0) {
           return null;
         }
 
-        const claimedOrder = order.rows[0] as any;
+        const claimedOrder = orderResult.rows[0] as any;
 
         // Log activity
         await logActivity({
