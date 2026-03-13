@@ -14,16 +14,21 @@ import { PERMISSIONS } from "@/types";
 import { eq, and, sql, isNull } from "drizzle-orm";
 import { logActivity } from "@/services/activityLog";
 
+type RouteContext = {
+  params: Promise<{ id: string }>;
+};
+
 // ============================================================================
 // GET /api/platforms/[id] - Get platform details
 // ============================================================================
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: RouteContext
 ) {
   try {
     const user = await requirePermission(PERMISSIONS.VIEW_PRODUCTS);
+    const { id } = await context.params;
 
     const db = getDb();
 
@@ -32,7 +37,7 @@ export async function GET(
       .from(platforms)
       .where(
         and(
-          eq(platforms.id, params.id),
+          eq(platforms.id, id),
           sql`${platforms.deletedAt} IS NULL`
         )
       )
@@ -49,7 +54,7 @@ export async function GET(
     const [countResult] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(productPlatformLinks)
-      .where(eq(productPlatformLinks.platformId, params.id));
+      .where(eq(productPlatformLinks.platformId, id));
 
     return NextResponse.json({
       success: true,
@@ -88,10 +93,11 @@ export async function GET(
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: RouteContext
 ) {
   try {
     const user = await requirePermission(PERMISSIONS.MANAGE_PRODUCTS);
+    const { id } = await context.params;
 
     const body = await request.json();
     const { name, parentId, sortOrder, isActive } = body;
@@ -104,7 +110,7 @@ export async function PUT(
       .from(platforms)
       .where(
         and(
-          eq(platforms.id, params.id),
+          eq(platforms.id, id),
           sql`${platforms.deletedAt} IS NULL`
         )
       )
@@ -118,7 +124,7 @@ export async function PUT(
     }
 
     // Validate parentId if provided (can't set self as parent)
-    if (parentId && parentId === params.id) {
+    if (parentId && parentId === id) {
       return NextResponse.json(
         { success: false, error: "Cannot set platform as its own parent" },
         { status: 400 }
@@ -128,7 +134,7 @@ export async function PUT(
     // Check for circular reference
     if (parentId && parentId !== existing.parentId) {
       let currentId = parentId;
-      const visited = new Set<string>([params.id]);
+      const visited = new Set<string>([id]);
 
       while (currentId) {
         if (visited.has(currentId)) {
@@ -168,7 +174,7 @@ export async function PUT(
             eq(platforms.name, targetName),
             targetParentId ? eq(platforms.parentId, targetParentId) : isNull(platforms.parentId),
             sql`${platforms.deletedAt} IS NULL`,
-            sql`${platforms.id} != ${params.id}`
+            sql`${platforms.id} != ${id}`
           )
         )
         .limit(1);
@@ -195,7 +201,7 @@ export async function PUT(
     const [updated] = await db
       .update(platforms)
       .set(updateData)
-      .where(eq(platforms.id, params.id))
+      .where(eq(platforms.id, id))
       .returning();
 
     // Log activity
@@ -203,7 +209,7 @@ export async function PUT(
       userId: user.id,
       action: "platform_updated",
       entity: "platform",
-      entityId: params.id,
+      entityId: id,
       metadata: {
         changes: {
           name: name !== undefined && name !== existing.name ? { from: existing.name, to: name } : undefined,
@@ -247,10 +253,11 @@ export async function PUT(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: RouteContext
 ) {
   try {
     const user = await requirePermission(PERMISSIONS.MANAGE_PRODUCTS);
+    const { id } = await context.params;
 
     const db = getDb();
 
@@ -260,7 +267,7 @@ export async function DELETE(
       .from(platforms)
       .where(
         and(
-          eq(platforms.id, params.id),
+          eq(platforms.id, id),
           sql`${platforms.deletedAt} IS NULL`
         )
       )
@@ -279,7 +286,7 @@ export async function DELETE(
       .from(platforms)
       .where(
         and(
-          eq(platforms.parentId, params.id),
+          eq(platforms.parentId, id),
           sql`${platforms.deletedAt} IS NULL`
         )
       );
@@ -295,7 +302,7 @@ export async function DELETE(
     const [productCount] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(productPlatformLinks)
-      .where(eq(productPlatformLinks.platformId, params.id));
+      .where(eq(productPlatformLinks.platformId, id));
 
     if (productCount && productCount.count > 0) {
       return NextResponse.json(
@@ -312,20 +319,20 @@ export async function DELETE(
         deletedAt: new Date(),
         updatedAt: new Date(),
       })
-      .where(eq(platforms.id, params.id));
+      .where(eq(platforms.id, id));
 
     // Log activity
     await logActivity({
       userId: user.id,
       action: "platform_deleted",
       entity: "platform",
-      entityId: params.id,
+      entityId: id,
       metadata: { name: existing.name },
     });
 
     return NextResponse.json({
       success: true,
-      data: { id: params.id },
+      data: { id },
     });
   } catch (error) {
     if (error instanceof Error) {
