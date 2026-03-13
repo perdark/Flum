@@ -1,6 +1,8 @@
 /**
  * Platform Detail API Routes
  *
+ * Updated: 2025-03-13 - Next.js 16 compatibility fix
+ *
  * GET /api/platforms/[id] - Get platform details
  * PUT /api/platforms/[id] - Update platform
  * DELETE /api/platforms/[id] - Soft delete platform
