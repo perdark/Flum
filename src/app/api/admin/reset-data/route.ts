@@ -15,7 +15,7 @@ import { PERMISSIONS } from "@/types";
 export async function POST(request: NextRequest) {
   try {
     // Only admins can reset data
-    const user = await requirePermission(PERMISSIONS.MANAGE_USERS);
+    const user = await requirePermission(PERMISSIONS.MANAGE_STAFF);
     if (user.role !== "admin") {
       return NextResponse.json(
         { success: false, error: "Only admins can reset database" },
