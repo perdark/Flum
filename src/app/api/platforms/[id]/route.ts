@@ -1,7 +1,7 @@
 /**
  * Platform Detail API Routes
  *
- * Updated: 2025-03-13 - Next.js 16 compatibility fix
+ * Updated: 2025-03-13 14:05 - Complete rewrite for Next.js 16
  *
  * GET /api/platforms/[id] - Get platform details
  * PUT /api/platforms/[id] - Update platform
