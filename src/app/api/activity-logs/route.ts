@@ -9,7 +9,7 @@ import { getDb } from "@/db";
 import { activityLogs, users } from "@/db/schema";
 import { requirePermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
-import { eq, and, sql, desc, like } from "drizzle-orm";
+import { eq, and, sql, desc, like, type SQL } from "drizzle-orm";
 import { getRecentActivity } from "@/services/activityLog";
 
 // ============================================================================
@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
     const db = getDb();
 
     // Build conditions
-    const conditions: unknown[] = [];
+    const conditions: SQL[] = [];
 
     if (action) {
       conditions.push(eq(activityLogs.action, action));
@@ -46,15 +46,20 @@ export async function GET(request: NextRequest) {
     }
 
     // Get total count
-    const countResult = await db
+    const countQuery = db
       .select({ count: sql<number>`count(*)::int` })
-      .from(activityLogs)
-      .where(conditions.length > 0 ? and(...conditions) : undefined);
+      .from(activityLogs);
+
+    if (conditions.length > 0) {
+      countQuery.where(and(...conditions));
+    }
+
+    const countResult = await countQuery;
 
     const total = countResult[0]?.count || 0;
 
     // Get logs with user details
-    const logs = await db
+    const logsQuery = db
       .select({
         id: activityLogs.id,
         userId: activityLogs.userId,
@@ -70,10 +75,15 @@ export async function GET(request: NextRequest) {
       })
       .from(activityLogs)
       .leftJoin(users, eq(activityLogs.userId, users.id))
-      .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(activityLogs.createdAt))
       .limit(limit)
       .offset(offset);
+
+    if (conditions.length > 0) {
+      logsQuery.where(and(...conditions));
+    }
+
+    const logs = await logsQuery;
 
     return NextResponse.json({
       success: true,
