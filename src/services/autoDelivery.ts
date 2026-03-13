@@ -19,7 +19,7 @@ import { logInventorySold, logOrderCompleted } from "./activityLog";
 
 // ============================================================================
 // AUTO-DELIVERY SERVICE
-// ============================================================================()
+// ============================================================================
 
 export interface DeliveryItem {
   productId: string;
@@ -288,7 +288,7 @@ export async function reserveInventory(
     Date.now() + durationMinutes * 60 * 1000
   );
 
-  const result = await db.transaction(async (tx) => {
+  const result: string[] = await db.transaction(async (tx) => {
     // Find and lock available inventory
     const available = await tx.execute(
       sql`
@@ -310,7 +310,7 @@ export async function reserveInventory(
       `
     );
 
-    return (result.rows as Array<{ id: string }>).map((r) => r.id);
+    return (available.rows as Array<{ id: string }>).map((r) => r.id);
   });
 
   return result;

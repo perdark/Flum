@@ -91,7 +91,7 @@ export const platforms = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     name: varchar("name", { length: 100 }).notNull(),
-    parentId: uuid("parent_id").references(() => platforms.id, { onDelete: "restrict" }),
+    parentId: uuid("parent_id").references((): any => platforms.id, { onDelete: "restrict" }),
     sortOrder: integer("sort_order").notNull().default(0),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -345,7 +345,7 @@ export const orders = pgTable(
     }).notNull().default("pending"),
     // Auto-delivery tracking
     fulfillmentStatus: varchar("fulfillment_status", {
-      enum: ["pending", "processing", "delivered", "failed"],
+      enum: ["pending", "processing", "delivered", "partial", "failed"],
     }).notNull().default("pending"),
     deliveredAt: timestamp("delivered_at"),
     // Staff who processed the order
