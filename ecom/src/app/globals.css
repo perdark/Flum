@@ -1,0 +1,382 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================
+   FULMEN EMPIRE DESIGN SYSTEM
+   ============================================ */
+
+@layer base {
+  * {
+    @apply box-border;
+    padding: 0;
+    margin: 0;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  body {
+    @apply bg-background text-text;
+    line-height: 1.6;
+    overflow-x: hidden;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Improved Typography */
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-semibold tracking-tight;
+    line-height: 1.2;
+  }
+
+  h1 { @apply text-4xl md:text-5xl lg:text-6xl; }
+  h2 { @apply text-3xl md:text-4xl lg:text-5xl; }
+  h3 { @apply text-2xl md:text-3xl; }
+  h4 { @apply text-xl md:text-2xl; }
+  h5 { @apply text-lg md:text-xl; }
+  h6 { @apply text-base md:text-lg; }
+
+  /* Focus Styles */
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-primary;
+  }
+
+  /* Selection */
+  ::selection {
+    @apply bg-primary text-white;
+  }
+}
+
+/* ============================================
+   CUSTOM PROPERTIES
+   ============================================ */
+@layer theme {
+  :root {
+    --radius-sm: 0.375rem;
+    --radius-md: 0.5rem;
+    --radius-lg: 0.75rem;
+    --radius-xl: 1rem;
+    --radius-2xl: 1.5rem;
+    --radius-full: 9999px;
+
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+    --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+    --shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.25);
+
+    --shadow-primary: 0 4px 14px 0 rgba(0, 102, 255, 0.39);
+  }
+}
+
+/* ============================================
+   PROFESSIONAL EFFECTS
+   ============================================ */
+@layer utilities {
+  .shadow-primary {
+    box-shadow: var(--shadow-primary);
+  }
+
+  .text-shadow-sm {
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  }
+
+  /* Smooth Fade In */
+  .fade-in {
+    animation: fadeIn 0.4s ease-out forwards;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+/* ============================================
+   CUSTOM SCROLLBAR
+   ============================================ */
+@layer utilities {
+  /* Webkit Scrollbar */
+  .custom-scrollbar::-webkit-scrollbar {
+    @apply w-2.5 h-2.5;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    @apply bg-background-lighter rounded-full;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-card-hover rounded-full border-2 border-background-lighter;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    @apply bg-primary;
+  }
+
+  /* Firefox Scrollbar */
+  .custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: #2A3A9A #2A3A9A;
+  }
+
+  /* Global Scrollbar */
+  ::-webkit-scrollbar {
+    @apply w-2.5 h-2.5;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: #161E54;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-background-lighter rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-primary;
+  }
+}
+
+/* ============================================
+   GRADIENT BACKGROUNDS
+   ============================================ */
+@layer utilities {
+  .gradient-primary {
+    background: linear-gradient(135deg, #0066FF 0%, #0044BB 100%);
+  }
+
+  .gradient-dark {
+    background: linear-gradient(180deg, #0F1629 0%, #090E1A 100%);
+  }
+
+  .gradient-radial {
+    background: radial-gradient(circle at center, var(--tw-gradient-stops));
+  }
+
+  .gradient-conic {
+    background: conic-gradient(from 180deg at 50% 50%, var(--tw-gradient-stops));
+  }
+
+  /* Glass Effect */
+  .glass {
+    @apply bg-background/50 backdrop-blur-md border border-border/50;
+  }
+
+  .glass-strong {
+    @apply bg-background/80 backdrop-blur-lg border border-border;
+  }
+}
+/* ============================================
+   CARD STYLES
+   ============================================ */
+@layer components {
+  .card {
+    @apply bg-card rounded-xl border border-border shadow-sm;
+    transition: all 0.2s ease-in-out;
+  }
+
+  .card:hover {
+    @apply border-primary/50;
+    transform: translateY(-2px);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+  }
+
+  .card-interactive {
+    @apply cursor-pointer;
+  }
+
+  .card-interactive:hover {
+    @apply shadow-md;
+  }
+}
+/* ============================================
+   HOVER EFFECTS
+   ============================================ */
+@layer utilities {
+  .hover-lift {
+    @apply transition-transform duration-200;
+  }
+
+  .hover-lift:hover {
+    @apply -translate-y-1;
+  }
+}
+
+/* ============================================
+   RTL SUPPORT
+   ============================================ */
+@layer base {
+  [dir="rtl"] {
+    direction: rtl;
+  }
+
+  [dir="rtl"] .rtl-flip {
+    transform: scaleX(-1);
+  }
+
+  [dir="rtl"] .rtl-rotate {
+    transform: rotate(180deg);
+  }
+
+  [dir="rtl"] .rtl-space-flip > * + * {
+    @apply mr-0 ml-4;
+  }
+}
+
+/* ============================================
+   ANIMATION UTILITIES
+   ============================================ */
+@layer utilities {
+  /* Staggered Animation Delays */
+  .delay-100 { animation-delay: 100ms; }
+  .delay-200 { animation-delay: 200ms; }
+  .delay-300 { animation-delay: 300ms; }
+  .delay-400 { animation-delay: 400ms; }
+  .delay-500 { animation-delay: 500ms; }
+
+  /* Easing Utilities */
+  .ease-out-expo {
+    transition-timing-function: cubic-bezier(0.19, 1, 0.22, 1);
+  }
+
+  .ease-in-out-quart {
+    transition-timing-function: cubic-bezier(0.77, 0, 0.175, 1);
+  }
+
+  /* Text Gradients */
+  .text-gradient {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(135deg, #0052FF 0%, #FFC241 100%);
+  }
+
+  .text-gradient-primary {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(135deg, #0052FF 0%, #00D4FF 100%);
+  }
+
+  .text-gradient-accent {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(135deg, #FFC241 0%, #FF6E00 100%);
+  }
+}
+
+/* ============================================
+   LOADING STATES
+   ============================================ */
+@layer utilities {
+  /* Skeleton Loading */
+  .skeleton {
+    @apply animate-pulse bg-background-lighter rounded;
+  }
+
+  /* Spinner */
+  .spinner {
+    @apply inline-block w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin;
+  }
+
+  .spinner-lg {
+    @apply w-8 h-8 border-3;
+  }
+
+  /* Shimmer Effect */
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      #2A3A9A 0%,
+      #3A4ABA 50%,
+      #2A3A9A 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+}
+
+/* ============================================
+   PLATFORM-SPECIFIC STYLES
+   ============================================ */
+@layer components {
+  /* Platform Gradients */
+  .platform-steam {
+    background: linear-gradient(135deg, #1B2838 0%, #171A21 100%);
+  }
+
+  .platform-playstation {
+    background: linear-gradient(135deg, #003791 0%, #00205B 100%);
+  }
+
+  .platform-xbox {
+    background: linear-gradient(135deg, #107C10 0%, #0E5F0E 100%);
+  }
+
+  .platform-nintendo {
+    background: linear-gradient(135deg, #E60012 0%, #B3000E 100%);
+  }
+
+  .platform-netflix {
+    background: linear-gradient(135deg, #E50914 0%, #B20710 100%);
+  }
+
+  .platform-spotify {
+    background: linear-gradient(135deg, #1DB954 0%, #169C46 100%);
+  }
+}
+
+/* ============================================
+   RESPONSIVE UTILITIES
+   ============================================ */
+@layer utilities {
+  /* Hide Scrollbar */
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Safe Area */
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .safe-left {
+    padding-left: env(safe-area-inset-left);
+  }
+
+  .safe-right {
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
+/* ============================================
+   PRINT STYLES
+   ============================================ */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  body {
+    @apply bg-white text-black;
+  }
+}

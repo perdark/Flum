@@ -1,0 +1,82 @@
+C:\Users\USER\Desktop\RaadFun\SSS\dashboard_next\src\app\api\inventory\export\route.ts
+  Line 68: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+C:\Users\USER\Desktop\RaadFun\SSS\dashboard_next\src\app\api\manual-sell\route.ts
+  Line 59: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 61: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 110: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 113: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 184: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 224: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+C:\Users\USER\Desktop\RaadFun\SSS\dashboard_next\src\app\api\orders\[id]\add-inventory\route.ts
+  Line 189: prefer-const - 'updatedDeliveredIds' is never reassigned. Use 'const' instead.
+C:\Users\USER\Desktop\RaadFun\SSS\dashboard_next\src\app\api\orders\[id]\route.ts
+  Line 275: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+C:\Users\USER\Desktop\RaadFun\SSS\dashboard_next\src\app\api\orders\claim\route.ts
+  Line 97: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+C:\Users\USER\Desktop\RaadFun\SSS\dashboard_next\src\app\api\orders\route.ts
+  Line 131: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+C:\Users\USER\Desktop\RaadFun\SSS\dashboard_next\src\app\api\platforms\[id]\route.ts
+  Line 193: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+C:\Users\USER\Desktop\RaadFun\SSS\dashboard_next\src\app\api\platforms\route.ts
+  Line 51: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 52: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 213: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+C:\Users\USER\Desktop\RaadFun\SSS\dashboard_next\src\app\api\products\summary\route.ts
+  Line 97: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 126: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+C:\Users\USER\Desktop\RaadFun\SSS\dashboard_next\src\app\dashboard\inventory\page.tsx
+  Line 112: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 152: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+C:\Users\USER\Desktop\RaadFun\SSS\dashboard_next\src\app\dashboard\inventory\search\page.tsx
+  Line 15: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 123: react/no-unescaped-entities - `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.
+  Line 123: react/no-unescaped-entities - `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.
+C:\Users\USER\Desktop\RaadFun\SSS\dashboard_next\src\app\dashboard\manual-sell\[id]\page.tsx
+  Line 23: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 243: react/no-unescaped-entities - `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.
+  Line 243: react/no-unescaped-entities - `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.
+C:\Users\USER\Desktop\RaadFun\SSS\dashboard_next\src\app\dashboard\manual-sell\page.tsx
+  Line 63: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 87: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 111: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 117: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 127: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 312: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 595: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 603: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 609: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 831: react/no-unescaped-entities - `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.
+  Line 831: react/no-unescaped-entities - `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.
+C:\Users\USER\Desktop\RaadFun\SSS\dashboard_next\src\app\dashboard\page.tsx
+  Line 196: react/no-unescaped-entities - `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.
+C:\Users\USER\Desktop\RaadFun\SSS\dashboard_next\src\app\dashboard\products\[id]\page.tsx
+  Line 139: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 210: react/no-unescaped-entities - `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.
+  Line 210: react/no-unescaped-entities - `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.
+C:\Users\USER\Desktop\RaadFun\SSS\dashboard_next\src\app\dashboard\products\new\page.tsx
+  Line 82: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+C:\Users\USER\Desktop\RaadFun\SSS\dashboard_next\src\components\dashboard\OrdersTable.tsx
+  Line 59: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 114: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 119: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+C:\Users\USER\Desktop\RaadFun\SSS\dashboard_next\src\components\dashboard\PlatformModal.tsx
+  Line 46: react-hooks/set-state-in-effect - Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\Users\USER\Desktop\RaadFun\SSS\dashboard_next\src\components\dashboard\PlatformModal.tsx:46:7
+  44 |   useEffect(() => {
+  45 |     if (platform) {
+> 46 |       setName(platform.name);
+     |       ^^^^^^^ Avoid calling setState() directly within an effect
+  47 |       setParentId(platform.parentId);
+  48 |       setSortOrder(platform.sortOrder);
+  49 |       setIsActive(platform.isActive);
+C:\Users\USER\Desktop\RaadFun\SSS\dashboard_next\src\db\push.ts
+  Line 12: @typescript-eslint/ban-ts-comment - Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free.
+C:\Users\USER\Desktop\RaadFun\SSS\dashboard_next\src\db\schema.ts
+  Line 75: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.

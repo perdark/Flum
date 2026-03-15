@@ -1,0 +1,234 @@
+C:\Users\USER\Desktop\RaadFun\SSS\ecom\src\app\[locale]\layout.tsx
+  Line 24: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 28: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 32: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 34: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+C:\Users\USER\Desktop\RaadFun\SSS\ecom\src\app\[locale]\platforms\[slug]\page.tsx
+  Line 147: prefer-const - 'sorted' is never reassigned. Use 'const' instead.
+C:\Users\USER\Desktop\RaadFun\SSS\ecom\src\app\api\cart\route.ts
+  Line 122: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+C:\Users\USER\Desktop\RaadFun\SSS\ecom\src\app\api\orders\route.ts
+  Line 101: prefer-const - 'subtotal' is never reassigned. Use 'const' instead.
+  Line 326: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+C:\Users\USER\Desktop\RaadFun\SSS\ecom\src\app\api\platforms\[slug]\route.ts
+  Line 47: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 93: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+C:\Users\USER\Desktop\RaadFun\SSS\ecom\src\app\api\platforms\route.ts
+  Line 44: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 45: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 96: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 103: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+C:\Users\USER\Desktop\RaadFun\SSS\ecom\src\app\api\products\route.ts
+  Line 26: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 127: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 133: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+C:\Users\USER\Desktop\RaadFun\SSS\ecom\src\app\api\wishlist\route.ts
+  Line 64: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+C:\Users\USER\Desktop\RaadFun\SSS\ecom\src\components\store\featured-products.tsx
+  Line 93: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 94: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+C:\Users\USER\Desktop\RaadFun\SSS\ecom\src\components\store\navbar.tsx
+  Line 56: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 72: react-hooks/set-state-in-effect - Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\Users\USER\Desktop\RaadFun\SSS\ecom\src\components\store\navbar.tsx:72:7
+  70 |     const savedCurrency = localStorage.getItem('currency') as CurrencyCode;
+  71 |     if (savedCurrency) {
+> 72 |       setCurrency(savedCurrency);
+     |       ^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  73 |     }
+  74 |   }, []);
+  75 |
+C:\Users\USER\Desktop\RaadFun\SSS\ecom\src\components\store\platforms-list.tsx
+  Line 63: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+C:\Users\USER\Desktop\RaadFun\SSS\ecom\src\components\store\product-card.tsx
+  Line 167: react-hooks/static-components - Error: Cannot create components during render
+
+Components created during render will reset their state each time they are created. Declare components outside of render.
+
+C:\Users\USER\Desktop\RaadFun\SSS\ecom\src\components\store\product-card.tsx:167:18
+  165 |             ) : (
+  166 |               <div className="w-full h-full flex items-center justify-center text-3xl">
+> 167 |                 <PlatformIcon />
+      |                  ^^^^^^^^^^^^ This component is created during render
+  168 |               </div>
+  169 |             )}
+  170 |           </div>
+
+C:\Users\USER\Desktop\RaadFun\SSS\ecom\src\components\store\product-card.tsx:78:24
+   76 |
+   77 |   // Platform Icon Component
+>  78 |   const PlatformIcon = () => {
+      |                        ^^^^^^^
+>  79 |     const platformIcons: Record<string, string> = {
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+>  80 |       steam: '­ƒÄ«',
+      ÔÇª
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+>  98 |     return <span className="text-lg">{icon}</span>;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+>  99 |   };
+      | ^^^^ The component is created during render here
+  100 |
+  101 |   // Delivery Type Badge
+  102 |   const DeliveryBadge = () => {
+  Line 181: react-hooks/static-components - Error: Cannot create components during render
+
+Components created during render will reset their state each time they are created. Declare components outside of render.
+
+C:\Users\USER\Desktop\RaadFun\SSS\ecom\src\components\store\product-card.tsx:181:18
+  179 |                   </span>
+  180 |                 )}
+> 181 |                 <DeliveryBadge />
+      |                  ^^^^^^^^^^^^^ This component is created during render
+  182 |               </div>
+  183 |               <h3 className="font-semibold text-sm line-clamp-1 group-hover:text-primary transition-colors">
+  184 |                 {getLocalizedValue(product.name, product.nameAr, locale)}
+
+C:\Users\USER\Desktop\RaadFun\SSS\ecom\src\components\store\product-card.tsx:102:25
+  100 |
+  101 |   // Delivery Type Badge
+> 102 |   const DeliveryBadge = () => {
+      |                         ^^^^^^^
+> 103 |     if (!product.deliveryType) return null;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 104 |
+      ÔÇª
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 142 |     );
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 143 |   };
+      | ^^^^ The component is created during render here
+  144 |
+  145 |   // Card Content based on variant
+  146 |   if (variant === 'compact') {
+  Line 233: react-hooks/static-components - Error: Cannot create components during render
+
+Components created during render will reset their state each time they are created. Declare components outside of render.
+
+C:\Users\USER\Desktop\RaadFun\SSS\ecom\src\components\store\product-card.tsx:233:20
+  231 |               ) : (
+  232 |                 <div className="text-7xl transition-transform duration-500 group-hover:scale-110">
+> 233 |                   <PlatformIcon />
+      |                    ^^^^^^^^^^^^ This component is created during render
+  234 |                 </div>
+  235 |               )}
+  236 |             </div>
+
+C:\Users\USER\Desktop\RaadFun\SSS\ecom\src\components\store\product-card.tsx:78:24
+   76 |
+   77 |   // Platform Icon Component
+>  78 |   const PlatformIcon = () => {
+      |                        ^^^^^^^
+>  79 |     const platformIcons: Record<string, string> = {
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+>  80 |       steam: '­ƒÄ«',
+      ÔÇª
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+>  98 |     return <span className="text-lg">{icon}</span>;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+>  99 |   };
+      | ^^^^ The component is created during render here
+  100 |
+  101 |   // Delivery Type Badge
+  102 |   const DeliveryBadge = () => {
+  Line 329: react-hooks/static-components - Error: Cannot create components during render
+
+Components created during render will reset their state each time they are created. Declare components outside of render.
+
+C:\Users\USER\Desktop\RaadFun\SSS\ecom\src\components\store\product-card.tsx:329:18
+  327 |             >
+  328 |               <div className="w-10 h-10 rounded-lg bg-background/80 backdrop-blur-sm flex items-center justify-center border border-border/50">
+> 329 |                 <PlatformIcon />
+      |                  ^^^^^^^^^^^^ This component is created during render
+  330 |               </div>
+  331 |             </div>
+  332 |
+
+C:\Users\USER\Desktop\RaadFun\SSS\ecom\src\components\store\product-card.tsx:78:24
+   76 |
+   77 |   // Platform Icon Component
+>  78 |   const PlatformIcon = () => {
+      |                        ^^^^^^^
+>  79 |     const platformIcons: Record<string, string> = {
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+>  80 |       steam: '­ƒÄ«',
+      ÔÇª
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+>  98 |     return <span className="text-lg">{icon}</span>;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+>  99 |   };
+      | ^^^^ The component is created during render here
+  100 |
+  101 |   // Delivery Type Badge
+  102 |   const DeliveryBadge = () => {
+  Line 360: react-hooks/static-components - Error: Cannot create components during render
+
+Components created during render will reset their state each time they are created. Declare components outside of render.
+
+C:\Users\USER\Desktop\RaadFun\SSS\ecom\src\components\store\product-card.tsx:360:16
+  358 |                 </span>
+  359 |               )}
+> 360 |               <DeliveryBadge />
+      |                ^^^^^^^^^^^^^ This component is created during render
+  361 |             </div>
+  362 |
+  363 |             {/* Title */}
+
+C:\Users\USER\Desktop\RaadFun\SSS\ecom\src\components\store\product-card.tsx:102:25
+  100 |
+  101 |   // Delivery Type Badge
+> 102 |   const DeliveryBadge = () => {
+      |                         ^^^^^^^
+> 103 |     if (!product.deliveryType) return null;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 104 |
+      ÔÇª
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 142 |     );
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 143 |   };
+      | ^^^^ The component is created during render here
+  144 |
+  145 |   // Card Content based on variant
+  146 |   if (variant === 'compact') {
+C:\Users\USER\Desktop\RaadFun\SSS\ecom\src\lib\api-client.ts
+  Line 253: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 291: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 308: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 322: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 355: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 369: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 395: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 447: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 466: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 480: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 492: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+C:\Users\USER\Desktop\RaadFun\SSS\ecom\src\lib\db\schema-complete.ts
+  Line 51: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 75: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 81: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 108: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 111: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 165: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 191: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 285: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 355: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 392: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 576: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 617: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 658: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 659: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+  Line 660: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+C:\Users\USER\Desktop\RaadFun\SSS\ecom\src\lib\db\schema.ts
+  Line 75: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+C:\Users\USER\Desktop\RaadFun\SSS\ecom\src\lib\i18n.ts
+  Line 36: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.
+C:\Users\USER\Desktop\RaadFun\SSS\ecom\src\middleware.ts
+  Line 38: @typescript-eslint/no-explicit-any - Unexpected any. Specify a different type.

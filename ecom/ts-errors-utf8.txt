@@ -1,0 +1,54 @@
+﻿src/app/[locale]/checkout/page.tsx(116,19): error TS2322: Type '{ type: "email"; label: string; placeholder: string; required: true; }' is not assignable to type 'IntrinsicAttributes & InputProps & RefAttributes<HTMLInputElement>'.
+  Property 'label' does not exist on type 'IntrinsicAttributes & InputProps & RefAttributes<HTMLInputElement>'.
+src/app/[locale]/products/page.tsx(368,42): error TS2345: Argument of type '{ category: string; platform: string | undefined; minPrice: number | undefined; maxPrice: number | undefined; minRating: number | undefined; }' is not assignable to parameter of type 'Record<string, string | undefined>'.
+  Property 'minPrice' is incompatible with index signature.
+    Type 'number | undefined' is not assignable to type 'string | undefined'.
+      Type 'number' is not assignable to type 'string'.
+src/app/[locale]/products/page.tsx(403,42): error TS2345: Argument of type '{ platform: string; category: string | undefined; minPrice: number | undefined; maxPrice: number | undefined; minRating: number | undefined; }' is not assignable to parameter of type 'Record<string, string | undefined>'.
+  Property 'minPrice' is incompatible with index signature.
+    Type 'number | undefined' is not assignable to type 'string | undefined'.
+      Type 'number' is not assignable to type 'string'.
+src/app/[locale]/products/page.tsx(441,44): error TS2345: Argument of type '{ minPrice: string; maxPrice: string; category: string | undefined; platform: string | undefined; minRating: number | undefined; }' is not assignable to parameter of type 'Record<string, string | undefined>'.
+  Property 'minRating' is incompatible with index signature.
+    Type 'number | undefined' is not assignable to type 'string | undefined'.
+      Type 'number' is not assignable to type 'string'.
+src/app/[locale]/products/page.tsx(472,42): error TS2345: Argument of type '{ minRating: string; category: string | undefined; platform: string | undefined; minPrice: number | undefined; maxPrice: number | undefined; }' is not assignable to parameter of type 'Record<string, string | undefined>'.
+  Property 'minPrice' is incompatible with index signature.
+    Type 'number | undefined' is not assignable to type 'string | undefined'.
+      Type 'number' is not assignable to type 'string'.
+src/app/[locale]/products/page.tsx(531,55): error TS2345: Argument of type '{ sort: string; category: string | undefined; platform: string | undefined; minPrice: number | undefined; maxPrice: number | undefined; minRating: number | undefined; }' is not assignable to parameter of type 'Record<string, string | undefined>'.
+  Property 'minPrice' is incompatible with index signature.
+    Type 'number | undefined' is not assignable to type 'string | undefined'.
+      Type 'number' is not assignable to type 'string'.
+src/app/[locale]/products/page.tsx(564,42): error TS2345: Argument of type '{ category: string; platform: string | undefined; minPrice: number | undefined; maxPrice: number | undefined; minRating: number | undefined; }' is not assignable to parameter of type 'Record<string, string | undefined>'.
+  Property 'minPrice' is incompatible with index signature.
+    Type 'number | undefined' is not assignable to type 'string | undefined'.
+      Type 'number' is not assignable to type 'string'.
+src/app/[locale]/products/page.tsx(574,42): error TS2345: Argument of type '{ platform: string; category: string | undefined; minPrice: number | undefined; maxPrice: number | undefined; minRating: number | undefined; }' is not assignable to parameter of type 'Record<string, string | undefined>'.
+  Property 'minPrice' is incompatible with index signature.
+    Type 'number | undefined' is not assignable to type 'string | undefined'.
+      Type 'number' is not assignable to type 'string'.
+src/app/[locale]/products/page.tsx(583,38): error TS2345: Argument of type '{ minPrice: string; maxPrice: string; category: string | undefined; platform: string | undefined; minRating: number | undefined; }' is not assignable to parameter of type 'Record<string, string | undefined>'.
+  Property 'minRating' is incompatible with index signature.
+    Type 'number | undefined' is not assignable to type 'string | undefined'.
+      Type 'number' is not assignable to type 'string'.
+src/app/[locale]/products/page.tsx(592,42): error TS2345: Argument of type '{ minRating: string; category: string | undefined; platform: string | undefined; minPrice: number | undefined; maxPrice: number | undefined; }' is not assignable to parameter of type 'Record<string, string | undefined>'.
+  Property 'minPrice' is incompatible with index signature.
+    Type 'number | undefined' is not assignable to type 'string | undefined'.
+      Type 'number' is not assignable to type 'string'.
+src/app/api/cart/route.ts(212,43): error TS2531: Object is possibly 'null'.
+src/app/api/cart/route.ts(313,57): error TS2531: Object is possibly 'null'.
+src/app/api/platforms/[slug]/route.ts(47,9): error TS7034: Variable 'productsData' implicitly has type 'any[]' in some locations where its type cannot be determined.
+src/app/api/platforms/[slug]/route.ts(139,15): error TS7005: Variable 'productsData' implicitly has an 'any[]' type.
+src/components/store/featured-products.tsx(74,13): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/components/store/featured-products.tsx(82,13): error TS2322: Type '{ name: string; nameAr: string | undefined; slug: string; } | undefined' is not assignable to type 'Platform'.
+  Type 'undefined' is not assignable to type 'Platform'.
+src/components/store/featured-products.tsx(92,13): error TS2322: Type 'number | undefined' is not assignable to type 'number'.
+  Type 'undefined' is not assignable to type 'number'.
+src/components/store/platforms-list.tsx(16,7): error TS2322: Type 'string[]' is not assignable to type 'Record<string, string>'.
+  Index signature for type 'string' is missing in type 'string[]'.
+src/components/store/platforms-list.tsx(50,33): error TS2363: The right-hand side of an arithmetic operation must be of type 'any', 'number', 'bigint' or an enum type.
+src/lib/db/schema-complete.ts(64,14): error TS7022: 'platforms' implicitly has type 'any' because it does not have a type annotation and is referenced directly or indirectly in its own initializer.
+src/lib/db/schema-complete.ts(74,42): error TS7024: Function implicitly has return type 'any' because it does not have a return type annotation and is referenced directly or indirectly in one of its return expressions.
+src/lib/db/schema-complete.ts(535,61): error TS2339: Property 'unique' does not exist on type 'IndexBuilder'.
