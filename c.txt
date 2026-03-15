@@ -1,0 +1,2 @@
+Now implement the project step by step starting from database and APIs.
+Do not generate everything at once.

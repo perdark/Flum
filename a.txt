@@ -1,0 +1,245 @@
+You are a senior backend architect.
+
+Your task is to design a **production-grade database architecture** for a digital products e-commerce store called **Fulmen Empire**.
+
+The store will be built using:
+
+Next.js
+React
+TypeScript
+Neon PostgreSQL
+Drizzle ORM
+
+The store sells **digital products only**.
+
+The database must support **1000+ products** and scale further.
+
+---
+
+# Key Requirements
+
+Products may include:
+
+game keys
+digital accounts
+subscriptions
+digital services
+
+Each product may have:
+
+multiple images
+video trailer
+reviews
+multiple platforms
+
+---
+
+# Platforms System
+
+Platforms use a **tree hierarchy**.
+
+Example:
+
+Gaming
+Steam
+Xbox
+PlayStation
+
+Subscriptions
+Netflix
+Spotify
+
+AI Tools
+ChatGPT
+Midjourney
+
+Products can belong to **multiple platforms simultaneously**.
+
+---
+
+# Product Delivery Types
+
+Products may use one of these delivery methods:
+
+auto key delivery
+auto account delivery
+manual delivery
+contact delivery
+
+The database must support flexible delivery logic.
+
+---
+
+# Orders System
+
+Orders must include:
+
+order id
+user id
+product items
+payment method
+delivery method
+status
+
+Order statuses:
+
+pending
+processing
+delivered
+cancelled
+
+---
+
+# Points System
+
+The store has a reward system.
+
+Each product may grant points.
+
+Users accumulate points when orders complete.
+
+Points can later be used for:
+
+discounts
+special offers
+
+Points cannot be withdrawn as money.
+
+---
+
+# Reviews System
+
+Users can submit reviews.
+
+Each review includes:
+
+rating
+comment
+date
+
+Reviews require **admin approval** before becoming visible.
+
+Review statuses:
+
+pending
+approved
+rejected
+
+---
+
+# Wishlist System
+
+Users can add products to wishlist.
+
+---
+
+# Cart System
+
+Support persistent carts for users.
+
+Guest carts may also exist temporarily.
+
+---
+
+# Offers System
+
+Products may participate in offers such as:
+
+discount
+bonus points
+limited-time offers
+
+Offers are controlled by the admin dashboard.
+
+---
+
+# Multi Currency
+
+Products may have prices stored in base currency but must support multi-currency display.
+
+---
+
+# Multi Language
+
+Products should support Arabic and English fields.
+
+Example:
+
+title_ar
+title_en
+description_ar
+description_en
+
+---
+
+# Product Media
+
+Products may have:
+
+multiple images
+optional video trailer
+
+---
+
+# Recommendations
+
+The system must support future recommendation logic based on:
+
+same platform
+same category
+popular products
+user behavior
+
+Design schema to support this later.
+
+---
+
+# Required Tables
+
+Design optimized tables including (but not limited to):
+
+users
+roles
+products
+product_images
+product_videos
+platforms
+product_platforms
+categories (optional if needed)
+orders
+order_items
+reviews
+wishlists
+cart_items
+points_transactions
+offers
+offer_products
+
+---
+
+# Performance
+
+Design indexes for:
+
+search
+platform browsing
+recommendations
+orders
+
+Use proper foreign keys and constraints.
+
+---
+
+# Output Required
+
+Provide:
+
+1. Full database schema design
+2. Table descriptions
+3. Key relationships
+4. Index strategy
+5. Drizzle ORM schema example
+
+Focus on scalability and clean design.
+
+End.

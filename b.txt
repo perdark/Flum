@@ -1,0 +1,227 @@
+You are a senior full-stack engineer.
+
+Your task is to build an **Admin Dashboard** for a digital products store called **Fulmen Empire**.
+
+The dashboard must connect to the same database used by the storefront.
+
+Tech stack:
+
+Next.js
+React
+TypeScript
+Tailwind
+Drizzle ORM
+Neon PostgreSQL
+
+The dashboard must be production-ready and scalable.
+
+---
+
+# Visual Identity
+
+The UI must follow the **Fulmen Empire visual identity**.
+
+If design assets or brand guidelines are provided, follow them strictly.
+
+If not provided yet, place clear comments in the code where colors, logos, and images can later be inserted.
+
+Example:
+
+// TODO: apply Fulmen brand colors here
+
+---
+
+# Dashboard Layout
+
+The dashboard should include:
+
+Sidebar navigation
+Topbar with notifications
+Responsive layout
+
+Sections:
+
+Overview
+Products
+Orders
+Platforms
+Reviews
+Offers
+Users
+Settings
+
+---
+
+# Overview Page
+
+Display statistics such as:
+
+total orders
+revenue
+active products
+recent orders
+
+Include charts.
+
+---
+
+# Products Management
+
+Admins must be able to:
+
+create products
+edit products
+delete products
+
+Product fields:
+
+title_ar
+title_en
+description_ar
+description_en
+price
+points_reward
+
+Media:
+
+multiple images
+optional video trailer
+
+Delivery types:
+
+auto key
+auto account
+manual delivery
+contact delivery
+
+Products can belong to **multiple platforms**.
+
+---
+
+# Platforms Management
+
+Platforms must support a **hierarchical tree system**.
+
+Example:
+
+Gaming
+Steam
+Xbox
+PlayStation
+
+Admins can:
+
+create platform
+edit platform
+delete platform
+
+---
+
+# Orders Management
+
+Display orders with statuses:
+
+pending
+processing
+delivered
+cancelled
+
+Admins must be able to:
+
+view order details
+change order status
+
+---
+
+# Reviews Moderation
+
+Users can submit reviews from the storefront.
+
+Reviews must not appear publicly until approved.
+
+Admin actions:
+
+approve review
+reject review
+
+---
+
+# Offers System
+
+Admins can create offers such as:
+
+discount
+bonus points
+limited-time deals
+
+Offers can apply to:
+
+single products
+multiple products
+
+---
+
+# Notifications
+
+Dashboard notifications for:
+
+new order
+new review
+order updates
+
+Notifications should also trigger email alerts.
+
+---
+
+# Roles System
+
+Support multiple roles:
+
+admin
+staff
+
+Permissions should control access to certain sections.
+
+---
+
+# Media Handling
+
+Images will be stored via URL.
+
+These URLs may come from:
+
+cloud storage
+local storage
+
+Admins paste image URLs when creating products.
+
+---
+
+# Multi Language
+
+Dashboard inputs must support:
+
+Arabic
+English
+
+---
+
+# Security
+
+Protect routes so only authenticated admins can access the dashboard.
+
+Use role-based access control.
+
+---
+
+# Output
+
+Provide:
+
+project structure
+core components
+API routes
+Drizzle schema usage
+example UI components
+
+Focus on maintainability and scalability.
