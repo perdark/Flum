@@ -22,7 +22,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { FeaturedProducts } from '@/components/store/featured-products';
-import { PlatformsList } from '@/components/store/platforms-list';
+import { CategoriesList } from '@/components/store/categories-list';
 import { cn, getLocalizedValue } from '@/lib/utils';
 import type { Locale } from '@/lib/i18n';
 
@@ -40,13 +40,13 @@ export async function generateMetadata({
       : 'Fulmen Empire - Digital Products Store',
     description: locale === 'ar'
       ? 'أفضل متجر للمنتجات الرقمية. ألعاب، اشتراكات، برامج، والمزيد من أفضل المنصات.'
-      : 'Best digital products store. Games, subscriptions, software, and more from top platforms.',
+      : 'Best digital products store. Games, subscriptions, software, and more from top categories.',
   };
 }
 
-// Featured products and platforms are now loaded from API via client components
+// Featured products and categories are now loaded from API via client components
 
-// Platforms are now loaded from API via PlatformsList component
+// Categories are now loaded from API via CategoriesList component
 
 const FEATURES = [
   {
@@ -134,7 +134,7 @@ export default async function HomePage({ params }: HomePageProps) {
           {/* Heading */}
           <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight mb-6">
             <span className="text-text">
-              {locale === 'ar' ? 'أفضل منصة ' : 'The Premier Platform '}
+              {locale === 'ar' ? 'أفضل منصة ' : 'The Premier Category '}
               <br className="hidden md:block" />
             </span>
             <span className="text-primary-light">
@@ -157,9 +157,9 @@ export default async function HomePage({ params }: HomePageProps) {
                 <ArrowRight className={cn('w-4 h-4', isRTL && 'rotate-180')} />
               </Button>
             </Link>
-            <Link href={`/${locale}/platforms`}>
+            <Link href={`/${locale}/categories`}>
               <Button size="lg" variant="outline" className="w-full sm:w-auto px-8 gap-2 rounded-lg bg-card border-border hover:bg-border transition-colors duration-200">
-                {locale === 'ar' ? 'تصفح المنصات' : 'View Platforms'}
+                {locale === 'ar' ? 'تصفح المنصات' : 'View Categories'}
               </Button>
             </Link>
           </div>
@@ -196,7 +196,7 @@ export default async function HomePage({ params }: HomePageProps) {
           <div className="mb-12 text-center md:text-left">
             <Badge variant="outline" className="mb-4 shadow-sm backdrop-blur-sm">
               <Shield className="w-4 h-4 mr-2 text-primary" />
-              {locale === 'ar' ? 'مميزات المنصة' : 'Platform Features'}
+              {locale === 'ar' ? 'مميزات المنصة' : 'Category Features'}
             </Badge>
             <h2 className="text-3xl md:text-4xl font-bold">
               {locale === 'ar' ? 'مصمم للسرعة والموثوقية' : 'Engineered for Speed & Reliability'}
@@ -295,29 +295,29 @@ export default async function HomePage({ params }: HomePageProps) {
         </div>
       </section>
 
-      {/* Browse by Platform */}
+      {/* Browse by Category */}
       <section className="py-20">
         <div className="container mx-auto px-4">
           <div className="text-center mb-12">
             <Badge variant="outline" className="mb-4">
-              {locale === 'ar' ? 'المنصات' : 'Platforms'}
+              {locale === 'ar' ? 'المنصات' : 'Categories'}
             </Badge>
             <h2 className="text-3xl md:text-4xl font-bold mb-4">
-              {locale === 'ar' ? 'تصفح حسب المنصة' : 'Browse by Platform'}
+              {locale === 'ar' ? 'تصفح حسب المنصة' : 'Browse by Category'}
             </h2>
             <p className="text-text-muted max-w-2xl mx-auto">
               {locale === 'ar'
                 ? 'اختر منصتك المفضلة واكتشف مجموعة واسعة من المنتجات الرقمية'
-                : 'Choose your favorite platform and discover a wide range of digital products'}
+                : 'Choose your favorite category and discover a wide range of digital products'}
             </p>
           </div>
 
-          <PlatformsList locale={locale} limit={6} />
+          <CategoriesList locale={locale} limit={6} />
 
           <div className="text-center mt-12">
-            <Link href={`/${locale}/platforms`}>
+            <Link href={`/${locale}/categories`}>
               <Button variant="outline" size="lg" className="gap-2">
-                {locale === 'ar' ? 'عرض جميع المنصات' : 'View All Platforms'}
+                {locale === 'ar' ? 'عرض جميع المنصات' : 'View All Categories'}
                 <ArrowRight className={cn('w-5 h-5', isRTL && 'rotate-180')} />
               </Button>
             </Link>
@@ -346,7 +346,7 @@ export default async function HomePage({ params }: HomePageProps) {
                 <p className="text-lg text-text-muted mb-8">
                   {locale === 'ar'
                     ? 'ارتقِ بإنتاجية فريقك مع خططنا السنوية التي توفر لك الوصول الكامل لجميع المنصات بأفضل الأسعار الممكنة.'
-                    : 'Elevate your team’s productivity. Upgrade to an annual plan and get unrestricted access across all core platforms.'}
+                    : 'Elevate your team’s productivity. Upgrade to an annual plan and get unrestricted access across all core categories.'}
                 </p>
 
                 <div className="flex flex-wrap justify-center md:justify-start gap-4">

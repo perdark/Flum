@@ -1,26 +1,30 @@
-import { Metadata } from 'next';
-import Link from 'next/link';
-import { CreditCard, MessageCircle, Lock, ArrowRight } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
-import { PriceDisplay, CurrencyDisplay } from '@/components/ui/currency-display';
-import { Input } from '@/components/ui/input';
-import { cn } from '@/lib/utils';
-import type { Locale } from '@/lib/i18n';
+"use client";
 
-interface CheckoutPageProps {
-  params: Promise<{ locale: string }>;
-}
+/**
+ * Checkout Page
+ *
+ * Page for completing an order with promo code and points redemption
+ */
 
-// Mock order data
+import { useState, useEffect } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { CreditCard, MessageCircle, Lock, ArrowRight, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import { PriceDisplay, CurrencyDisplay } from "@/components/ui/currency-display";
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
+
+// Mock order items - in real app, these would come from cart
 const ORDER_ITEMS = [
   {
     id: '1',
     name: 'Elden Ring',
     nameAr: 'إلدن رينج',
-    platform: 'Steam',
-    platformAr: 'ستيم',
+    category: 'Steam',
+    categoryAr: 'ستيم',
     price: 59.99,
     quantity: 1,
     deliveryType: 'auto_key',
@@ -29,29 +33,127 @@ const ORDER_ITEMS = [
     id: '2',
     name: 'Netflix Premium 1 Month',
     nameAr: 'نتفليكس بريميوم شهر',
-    platform: 'Netflix',
-    platformAr: 'نتفليكس',
+    category: 'Netflix',
+    categoryAr: 'نتفليكس',
     price: 15.99,
     quantity: 2,
     deliveryType: 'auto_account',
   },
 ];
 
-export async function generateMetadata({ params }: CheckoutPageProps): Promise<Metadata> {
-  const { locale } = await params;
-  return {
-    title: locale === 'ar' ? 'إتمام الشراء' : 'Checkout',
-  };
-};
+interface CouponData {
+  couponId: string;
+  code: string;
+  description: string | null;
+  discountType: string;
+  discountValue: string;
+  discountAmount: string;
+}
 
-export default async function CheckoutPage({ params }: CheckoutPageProps) {
-  const { locale } = await params;
+export default function CheckoutPage({ params }: { params: Promise<{ locale: string }> }) {
+  const router = useRouter();
+  const [locale, setLocale] = useState("en");
+
+  useEffect(() => {
+    params.then(p => setLocale(p.locale));
+  }, [params]);
+
   const isRTL = locale === 'ar';
 
-  const subtotal = ORDER_ITEMS.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const tax = 0;
-  const total = subtotal + tax;
-  const pointsEarned = Math.floor(total);
+  // Order totals state
+  const [subtotal, setSubtotal] = useState(ORDER_ITEMS.reduce((sum, item) => sum + item.price * item.quantity, 0));
+  const [tax] = useState(0);
+  const [discount, setDiscount] = useState(0);
+  const [pointsRedemption, setPointsRedemption] = useState(0);
+  const [total, setTotal] = useState(subtotal + tax);
+
+  // Points state
+  const [userPoints, setUserPoints] = useState(250);
+  const [pointsToRedeem, setPointsToRedeem] = useState(0);
+  const [pointsValue, setPointsValue] = useState(0); // in dollars, 100 points = $1
+
+  // Coupon state
+  const [couponCode, setCouponCode] = useState("");
+  const [appliedCoupon, setAppliedCoupon] = useState<CouponData | null>(null);
+  const [couponLoading, setCouponLoading] = useState(false);
+  const [couponError, setCouponError] = useState("");
+
+  // Points exchange rate (from settings)
+  const POINTS_PER_DOLLAR = 100;
+
+  // Recalculate totals when values change
+  useEffect(() => {
+    const newTotal = subtotal + tax - discount - pointsRedemption;
+    setTotal(Math.max(0, newTotal));
+  }, [subtotal, tax, discount, pointsRedemption]);
+
+  const handleApplyCoupon = async () => {
+    if (!couponCode.trim()) {
+      setCouponError("Please enter a coupon code");
+      return;
+    }
+
+    setCouponLoading(true);
+    setCouponError("");
+
+    try {
+      const res = await fetch("/api/coupons/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: couponCode.trim(),
+          subtotal: subtotal,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        const couponDiscount = parseFloat(data.data.discountAmount);
+        setDiscount(couponDiscount);
+        setAppliedCoupon(data.data);
+        setCouponError("");
+        setCouponCode("");
+      } else {
+        setCouponError(data.error || "Invalid coupon code");
+      }
+    } catch (err) {
+      setCouponError("Failed to validate coupon");
+    } finally {
+      setCouponLoading(false);
+    }
+  };
+
+  const handleRemoveCoupon = () => {
+    setDiscount(0);
+    setAppliedCoupon(null);
+  };
+
+  const handleRedeemPointsChange = (points: number) => {
+    const maxPoints = Math.min(points, userPoints);
+    setPointsToRedeem(maxPoints);
+
+    // Calculate dollar value (100 points = $1)
+    const dollarValue = maxPoints / POINTS_PER_DOLLAR;
+    setPointsValue(dollarValue);
+
+    // Cap at current total
+    const cappedValue = Math.min(dollarValue, total + discount);
+    setPointsRedemption(cappedValue);
+  };
+
+  const handleTogglePoints = () => {
+    if (pointsToRedeem > 0) {
+      handleRedeemPointsChange(0);
+    } else {
+      // Redeem maximum possible points (up to order total)
+      const maxPointsForOrder = Math.floor((total - discount) * POINTS_PER_DOLLAR);
+      const pointsToUse = Math.min(userPoints, maxPointsForOrder);
+      handleRedeemPointsChange(pointsToUse);
+    }
+  };
+
+  const pointsEarned = Math.floor(total); // 1 point per $1 spent
 
   return (
     <div className="min-h-screen py-8">
@@ -235,26 +337,69 @@ export default async function CheckoutPage({ params }: CheckoutPageProps) {
                   {locale === 'ar' ? 'استخدم نقاطك' : 'Use Your Points'}
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <p className="text-sm text-text-muted mb-4">
+              <CardContent className="space-y-4">
+                <p className="text-sm text-text-muted">
                   {locale === 'ar'
-                    ? 'لديك 250 نقطة متاحة. كل 100 نقطة = $1 خصم'
-                    : 'You have 250 points available. 100 points = $1 discount'}
+                    ? `لديك ${userPoints} نقطة متاحة. كل ${POINTS_PER_DOLLAR} نقطة = $1 خصم`
+                    : `You have ${userPoints} points available. ${POINTS_PER_DOLLAR} points = $1 discount`
+                  }
                 </p>
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    placeholder="0"
-                    max={250}
-                    className="w-24"
-                  />
-                  <span className="text-sm text-text-muted">
-                    {locale === 'ar' ? 'نقطة' : 'points'}
-                  </span>
-                  <Button variant="outline" size="sm">
-                    {locale === 'ar' ? 'تطبيق' : 'Apply'}
-                  </Button>
+
+                {/* Redeem Points Checkbox */}
+                <div className="flex items-center justify-between p-3 bg-slate-800 rounded-lg border border-slate-700">
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      id="redeemPoints"
+                      checked={pointsToRedeem > 0}
+                      onChange={handleTogglePoints}
+                      className="w-5 h-5 rounded border-slate-600 bg-slate-700 text-blue-600 focus:ring-2 focus:ring-blue-500"
+                    />
+                    <label htmlFor="redeemPoints" className="text-sm text-white cursor-pointer">
+                      {locale === 'ar' ? 'استبدال النقاط' : 'Redeem Points'}
+                    </label>
+                  </div>
+                  <div className="text-right">
+                    {pointsToRedeem > 0 && (
+                      <span className="text-accent-amber font-semibold">
+                        -${pointsRedemption.toFixed(2)}
+                      </span>
+                    )}
+                  </div>
                 </div>
+
+                {/* Points Input (conditional) */}
+                {pointsToRedeem > 0 && (
+                  <div className="p-3 bg-accent-amber/10 border border-accent-amber/30 rounded-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm text-text-muted">
+                        {locale === 'ar' ? 'النقاط المستخدمة' : 'Points to use'}
+                      </span>
+                      <span className="text-sm text-white font-medium">{pointsToRedeem} ⚡</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min="0"
+                        max={Math.min(userPoints, Math.floor((total - discount) * POINTS_PER_DOLLAR))}
+                        value={pointsToRedeem}
+                        onChange={(e) => handleRedeemPointsChange(parseInt(e.target.value))}
+                        className="flex-1"
+                      />
+                      <Input
+                        type="number"
+                        min="0"
+                        max={userPoints}
+                        value={pointsToRedeem}
+                        onChange={(e) => handleRedeemPointsChange(parseInt(e.target.value) || 0)}
+                        className="w-20"
+                      />
+                    </div>
+                    <div className="text-xs text-text-muted mt-1">
+                      {locale === 'ar' ? 'قيمة الخصم' : 'Discount value'}: ${pointsRedemption.toFixed(2)}
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -280,7 +425,7 @@ export default async function CheckoutPage({ params }: CheckoutPageProps) {
                           {isRTL ? item.nameAr : item.name}
                         </h4>
                         <p className="text-xs text-text-muted">
-                          {isRTL ? item.platformAr : item.platform}
+                          {isRTL ? item.categoryAr : item.category}
                         </p>
                         <div className="flex items-center justify-between mt-1">
                           <span className="text-sm text-text-muted">×{item.quantity}</span>
@@ -293,6 +438,56 @@ export default async function CheckoutPage({ params }: CheckoutPageProps) {
 
                 <Separator />
 
+                {/* Coupon Code */}
+                <div>
+                  <label className="text-sm font-medium mb-2 block">
+                    {locale === 'ar' ? 'كود الخصم' : 'Promo Code'}
+                  </label>
+                  {appliedCoupon ? (
+                    <div className="flex items-center gap-2 p-3 bg-green-500/20 border border-green-500/30 rounded-lg">
+                      <span className="text-green-400">✓</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white font-medium truncate">{appliedCoupon.code}</p>
+                        <p className="text-xs text-green-400">
+                          {locale === 'ar' ? 'خصم' : 'Discount'}: -${discount.toFixed(2)}
+                        </p>
+                      </div>
+                      <button
+                        onClick={handleRemoveCoupon}
+                        className="p-1 hover:bg-green-500/20 rounded text-green-400"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <Input
+                        type="text"
+                        value={couponCode}
+                        onChange={(e) => setCouponCode(e.target.value)}
+                        placeholder={locale === 'ar' ? 'كود الخصم' : 'Promo code'}
+                        onKeyDown={(e) => e.key === "Enter" && handleApplyCoupon()}
+                        className="flex-1"
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleApplyCoupon}
+                        disabled={couponLoading}
+                      >
+                        {couponLoading ? (
+                          "..."
+                        ) : locale === 'ar' ? 'تطبيق' : 'Apply'}
+                      </Button>
+                    </div>
+                  )}
+                  {couponError && (
+                    <p className="text-xs text-red-400">{couponError}</p>
+                  )}
+                </div>
+
+                <Separator />
+
                 {/* Totals */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-sm">
@@ -301,6 +496,22 @@ export default async function CheckoutPage({ params }: CheckoutPageProps) {
                     </span>
                     <CurrencyDisplay amount={subtotal} />
                   </div>
+                  {discount > 0 && (
+                    <div className="flex items-center justify-between text-sm text-green-400">
+                      <span>
+                        {locale === 'ar' ? 'الخصم' : 'Discount'}
+                      </span>
+                      <span>-${discount.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {pointsRedemption > 0 && (
+                    <div className="flex items-center justify-between text-sm text-accent-amber">
+                      <span>
+                        {locale === 'ar' ? 'النقاط' : 'Points'}
+                      </span>
+                      <span>-${pointsRedemption.toFixed(2)}</span>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-text-muted">
                       {locale === 'ar' ? 'الضريبة' : 'Tax'}

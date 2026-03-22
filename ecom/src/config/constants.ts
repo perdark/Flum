@@ -82,7 +82,7 @@ export const CACHE_KEYS = {
 export const ROUTES = {
   HOME: '/',
   PRODUCTS: '/products',
-  PLATFORMS: '/platforms',
+  CATEGORIES: '/categories',
   CART: '/cart',
   CHECKOUT: '/checkout',
   WISHLIST: '/wishlist',
@@ -97,11 +97,11 @@ export const API_ROUTES = {
   // Products
   PRODUCTS: '/api/products',
   PRODUCT_BY_SLUG: '/api/products/slug',
-  PRODUCT_PLATFORMS: '/api/products/platforms',
+  PRODUCT_CATEGORIES: '/api/products/categories',
 
-  // Platforms
-  PLATFORMS: '/api/platforms',
-  PLATFORM_TREE: '/api/platforms/tree',
+  // Categories
+  CATEGORIES: '/api/categories',
+  CATEGORY_TREE: '/api/categories/tree',
 
   // Cart
   CART: '/api/cart',

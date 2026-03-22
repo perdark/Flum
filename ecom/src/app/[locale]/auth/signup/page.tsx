@@ -57,8 +57,8 @@ export default async function SignupPage({ params }: SignupPageProps) {
         <div className="w-full max-w-md space-y-8 animate-slide-up">
           {/* Logo */}
           <div className="text-center">
-            <Logo variant="full" href={`/${locale}`} className="mx-auto mb-6" />
-            <h1 className="text-2xl md:text-3xl font-bold mb-2">
+            {/* <Logo variant="full" href={`/${locale}`} className="mx-auto mb-6" /> */}
+            <h1 className="text-2xl md:text-3xl font-bold mb-2 mt-16">
               {locale === 'ar' ? 'أنشئ حساباً جديداً' : 'Create an account'}
             </h1>
             <p className="text-text-muted">

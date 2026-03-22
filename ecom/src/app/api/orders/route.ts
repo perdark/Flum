@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
       .select({
         id: cartItems.id,
         productId: cartItems.productId,
-        platformId: cartItems.platformId,
+        categoryId: cartItems.categoryId,
         quantity: cartItems.quantity,
         price: cartItems.price,
         productName: products.name,
@@ -222,10 +222,10 @@ export async function POST(request: NextRequest) {
       await db.insert(orderItems).values({
         orderId: order.id,
         productId: item.productId,
-        platformId: item.platformId,
+        categoryId: item.categoryId,
         productName: item.productName,
         productSlug: item.productSlug,
-        platformName: null, // Could be populated if needed
+        categoryName: null, // Could be populated if needed
         deliveryType: item.productDeliveryType,
         price: item.price?.toString() || "0",
         quantity: item.quantity,

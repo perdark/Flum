@@ -307,31 +307,31 @@
 }
 
 /* ============================================
-   PLATFORM-SPECIFIC STYLES
+   CATEGORY-SPECIFIC STYLES
    ============================================ */
 @layer components {
-  /* Platform Gradients */
-  .platform-steam {
+  /* Category Gradients */
+  .category-steam {
     background: linear-gradient(135deg, #1B2838 0%, #171A21 100%);
   }
 
-  .platform-playstation {
+  .category-playstation {
     background: linear-gradient(135deg, #003791 0%, #00205B 100%);
   }
 
-  .platform-xbox {
+  .category-xbox {
     background: linear-gradient(135deg, #107C10 0%, #0E5F0E 100%);
   }
 
-  .platform-nintendo {
+  .category-nintendo {
     background: linear-gradient(135deg, #E60012 0%, #B3000E 100%);
   }
 
-  .platform-netflix {
+  .category-netflix {
     background: linear-gradient(135deg, #E50914 0%, #B20710 100%);
   }
 
-  .platform-spotify {
+  .category-spotify {
     background: linear-gradient(135deg, #1DB954 0%, #169C46 100%);
   }
 }

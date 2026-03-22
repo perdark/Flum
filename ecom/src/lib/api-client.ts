@@ -48,20 +48,20 @@ export interface Product {
     alt?: string;
     sortOrder: number;
   }>;
-  platforms: Array<{
-    platformId: string;
-    platformName: string;
-    platformNameAr?: string;
-    platformSlug: string;
-    platformIcon?: string;
-    platformPrice?: string | null;
+  categories: Array<{
+    categoryId: string;
+    categoryName: string;
+    categoryNameAr?: string;
+    categorySlug: string;
+    categoryIcon?: string;
+    categoryPrice?: string | null;
     isPrimary?: boolean;
   }>;
   categoryId?: string;
   createdAt?: Date;
 }
 
-export interface Platform {
+export interface Category {
   id: string;
   name: string;
   nameAr?: string;
@@ -71,7 +71,7 @@ export interface Platform {
   banner?: string;
   parentId?: string;
   sortOrder: number;
-  children?: Platform[];
+  children?: Category[];
 }
 
 export interface CartItem {
@@ -96,7 +96,7 @@ export interface CartItem {
       sortOrder: number;
     }>;
   };
-  platform?: {
+  category?: {
     id: string;
     name: string;
     nameAr?: string;
@@ -117,7 +117,7 @@ export interface Cart {
 export interface WishlistItem {
   id: string;
   productId: string;
-  platformId?: string;
+  categoryId?: string;
   priceAlert?: string | null;
   createdAt: Date;
   product: {
@@ -161,7 +161,7 @@ export interface Order {
     productId: string;
     productName: string;
     productSlug: string;
-    platformName?: string;
+    categoryName?: string;
     deliveryType: string;
     price: string;
     quantity: number;
@@ -178,7 +178,6 @@ export async function getProducts(params?: {
   page?: number;
   limit?: number;
   category?: string;
-  platform?: string;
   search?: string;
   featured?: boolean;
   sort?: string;
@@ -188,7 +187,7 @@ export async function getProducts(params?: {
   if (params?.page) searchParams.set('page', params.page.toString());
   if (params?.limit) searchParams.set('limit', params.limit.toString());
   if (params?.category) searchParams.set('category', params.category);
-  if (params?.platform) searchParams.set('platform', params.platform);
+  if (params?.category) searchParams.set('category', params.category);
   if (params?.search) searchParams.set('search', params.search);
   if (params?.featured) searchParams.set('featured', 'true');
   if (params?.sort) searchParams.set('sort', params.sort);
@@ -221,29 +220,29 @@ export async function getProductBySlug(
 }
 
 // ============================================================================
-// PLATFORMS API
+// CATEGORIES API
 // ============================================================================
 
-export async function getPlatforms(params?: {
+export async function getCategories(params?: {
   locale?: string;
   includeChildren?: boolean;
-}): Promise<ApiResponse<Platform[]>> {
+}): Promise<ApiResponse<Category[]>> {
   const searchParams = new URLSearchParams();
   if (params?.locale) searchParams.set('locale', params.locale);
   if (params?.includeChildren) searchParams.set('asTree', 'true');
 
-  const response = await fetch(`${API_BASE_URL}/api/platforms?${searchParams}`, {
+  const response = await fetch(`${API_BASE_URL}/api/categories?${searchParams}`, {
     next: { revalidate: 300 },
   });
 
   if (!response.ok) {
-    return { success: false, error: 'Failed to fetch platforms' };
+    return { success: false, error: 'Failed to fetch categories' };
   }
 
   return response.json();
 }
 
-export async function getPlatformBySlug(
+export async function getCategoryBySlug(
   slug: string,
   params?: {
     locale?: string;
@@ -256,12 +255,12 @@ export async function getPlatformBySlug(
   if (params?.page) searchParams.set('page', params.page.toString());
   if (params?.limit) searchParams.set('limit', params.limit.toString());
 
-  const response = await fetch(`${API_BASE_URL}/api/platforms/${slug}?${searchParams}`, {
+  const response = await fetch(`${API_BASE_URL}/api/categories/${slug}?${searchParams}`, {
     next: { revalidate: 60 },
   });
 
   if (!response.ok) {
-    return { success: false, error: 'Failed to fetch platform' };
+    return { success: false, error: 'Failed to fetch category' };
   }
 
   return response.json();
@@ -286,7 +285,7 @@ export async function getCart(locale?: string): Promise<ApiResponse<Cart>> {
 
 export async function addToCart(data: {
   productId: string;
-  platformId?: string;
+  categoryId?: string;
   quantity?: number;
 }): Promise<ApiResponse<any>> {
   const response = await fetch(`${API_BASE_URL}/api/cart`, {
@@ -350,7 +349,7 @@ export async function getWishlist(locale?: string): Promise<ApiResponse<Wishlist
 
 export async function addToWishlist(data: {
   productId: string;
-  platformId?: string;
+  categoryId?: string;
   priceAlert?: string;
 }): Promise<ApiResponse<any>> {
   const response = await fetch(`${API_BASE_URL}/api/wishlist`, {

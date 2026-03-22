@@ -1,0 +1,9 @@
+﻿src/app/api/currencies/[id]/route.ts(156,7): error TS2322: Type '"currency_updated"' is not assignable to type 'ActivityAction'.
+src/app/api/currencies/[id]/route.ts(244,7): error TS2322: Type '"currency_deleted"' is not assignable to type 'ActivityAction'.
+src/app/api/currencies/route.ts(140,7): error TS2322: Type '"currency_created"' is not assignable to type 'ActivityAction'.
+src/app/api/store-settings/route.ts(191,7): error TS2322: Type '"settings_updated"' is not assignable to type 'ActivityAction'.
+src/app/dashboard/settings/page.tsx(106,69): error TS2339: Property 'isActive' does not exist on type 'Currency'.
+src/seed.ts(636,22): error TS2339: Property 'appliesTo' does not exist on type '{ name: string; slug: string; nameAr: string; description: string; descriptionAr: string; type: string; value: string; minPurchase: string; maxDiscount: string; startDate: string; endDate: string; banner: string; applicableTo: string; }'.
+src/services/activityLog.ts(307,5): error TS2322: Type '"platform_created"' is not assignable to type 'ActivityAction'.
+src/services/activityLog.ts(321,5): error TS2322: Type '"platform_updated"' is not assignable to type 'ActivityAction'.
+src/services/activityLog.ts(335,5): error TS2322: Type '"platform_deleted"' is not assignable to type 'ActivityAction'.

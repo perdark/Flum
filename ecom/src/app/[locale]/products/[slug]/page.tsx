@@ -36,7 +36,7 @@ const getProduct = (slug: string) => {
     isFeatured: boolean;
     videoUrl?: string;
     images: string[];
-    platforms: Array<{
+    categories: Array<{
       id: string;
       name: string;
       nameAr: string;
@@ -70,7 +70,7 @@ const getProduct = (slug: string) => {
       isFeatured: true,
       videoUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
       images: ['/elden-ring-1.jpg', '/elden-ring-2.jpg', '/elden-ring-3.jpg', '/elden-ring-4.jpg'],
-      platforms: [
+      categories: [
         { id: 'steam', name: 'Steam', nameAr: 'ستيم', slug: 'steam', price: 59.99, isPrimary: true },
         { id: 'playstation', name: 'PlayStation', nameAr: 'بلايستيشن', slug: 'playstation', price: 59.99, isPrimary: false },
         { id: 'xbox', name: 'Xbox', nameAr: 'إكس بوكس', slug: 'xbox', price: 59.99, isPrimary: false },
@@ -80,7 +80,7 @@ const getProduct = (slug: string) => {
         'Publisher': 'Bandai Namco Entertainment',
         'Release Date': 'February 25, 2022',
         'Genre': 'Action RPG',
-        'Platform': 'PC, PlayStation, Xbox',
+        'Category': 'PC, PlayStation, Xbox',
         'Region': 'Global',
       },
       category: { name: 'Games', nameAr: 'ألعاب', slug: 'games' },
@@ -91,7 +91,7 @@ const getProduct = (slug: string) => {
 };
 
 // Mock related products
-const getRelatedProducts = (productSlug: string, platformSlug: string) => {
+const getRelatedProducts = (productSlug: string, categorySlug: string) => {
   return [
     {
       id: '2',
@@ -103,7 +103,7 @@ const getRelatedProducts = (productSlug: string, platformSlug: string) => {
       rating: 4.7,
       ratingCount: 3200,
       image: '/placeholder-game2.jpg',
-      platform: { name: 'Steam', nameAr: 'ستيم', slug: 'steam' },
+      category: { name: 'Steam', nameAr: 'ستيم', slug: 'steam' },
     },
     {
       id: '3',
@@ -114,7 +114,7 @@ const getRelatedProducts = (productSlug: string, platformSlug: string) => {
       rating: 4.8,
       ratingCount: 1800,
       image: '/placeholder-game3.jpg',
-      platform: { name: 'Steam', nameAr: 'ستيم', slug: 'steam' },
+      category: { name: 'Steam', nameAr: 'ستيم', slug: 'steam' },
     },
     {
       id: '4',
@@ -125,7 +125,7 @@ const getRelatedProducts = (productSlug: string, platformSlug: string) => {
       rating: 4.9,
       ratingCount: 2400,
       image: '/placeholder-game4.jpg',
-      platform: { name: 'PlayStation', nameAr: 'بلايستيشن', slug: 'playstation' },
+      category: { name: 'PlayStation', nameAr: 'بلايستيشن', slug: 'playstation' },
     },
   ];
 };
@@ -159,7 +159,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
     notFound();
   }
 
-  const relatedProducts = getRelatedProducts(slug, product.platforms[0]?.slug || '');
+  const relatedProducts = getRelatedProducts(slug, product.categories[0]?.slug || '');
   const isRTL = locale === 'ar';
   const discount = product.compareAtPrice
     ? calculateDiscount(product.compareAtPrice, product.price)
@@ -211,8 +211,8 @@ export default async function ProductPage({ params }: ProductPageProps) {
             {locale === 'ar' ? 'المنتجات' : 'Products'}
           </Link>
           <span>{isRTL ? '←' : '→'}</span>
-          <Link href={`/${locale}/platforms/${product.platforms[0]?.slug}`} className="hover:text-primary">
-            {isRTL ? product.platforms[0]?.nameAr : product.platforms[0]?.name}
+          <Link href={`/${locale}/categories/${product.categories[0]?.slug}`} className="hover:text-primary">
+            {isRTL ? product.categories[0]?.nameAr : product.categories[0]?.name}
           </Link>
           <span>{isRTL ? '←' : '→'}</span>
           <span className="text-text">{isRTL ? product.nameAr : product.name}</span>
@@ -301,24 +301,24 @@ export default async function ProductPage({ params }: ProductPageProps) {
               </CardContent>
             </Card>
 
-            {/* Platform Selector */}
-            {product.platforms.length > 1 && (
+            {/* Category Selector */}
+            {product.categories.length > 1 && (
               <div>
                 <label className="text-sm font-medium mb-2 block">
-                  {locale === 'ar' ? 'اختر المنصة:' : 'Select Platform:'}
+                  {locale === 'ar' ? 'اختر المنصة:' : 'Select Category:'}
                 </label>
                 <div className="flex flex-wrap gap-2">
-                  {product.platforms.map((platform) => (
+                  {product.categories.map((category) => (
                     <button
-                      key={platform.id}
+                      key={category.id}
                       className={cn(
                         'px-4 py-2 rounded-lg border-2 transition-all',
-                        platform.isPrimary
+                        category.isPrimary
                           ? 'border-primary bg-primary/20 text-primary'
                           : 'border-border hover:border-primary/50'
                       )}
                     >
-                      {isRTL ? platform.nameAr : platform.name}
+                      {isRTL ? category.nameAr : category.name}
                     </button>
                   ))}
                 </div>

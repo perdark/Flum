@@ -26,7 +26,7 @@ import { RatingStars } from '@/components/ui/rating-stars';
 import { PriceDisplay } from '@/components/ui/currency-display';
 import { cn, getLocalizedValue } from '@/lib/utils';
 
-interface Platform {
+interface Category {
   name: string;
   nameAr: string;
   slug: string;
@@ -42,7 +42,7 @@ interface Product {
   compareAtPrice?: number;
   rating: number;
   ratingCount: number;
-  platform: Platform;
+  category: Category;
   isNew?: boolean;
   isFeatured?: boolean;
   onSale?: boolean;
@@ -62,9 +62,9 @@ interface ProductCardProps {
   variant?: 'default' | 'compact' | 'featured';
 }
 
-// Extracted Platform Icon Component
-function PlatformIcon({ platform }: { platform?: Platform }) {
-  const platformIcons: Record<string, React.ReactNode> = {
+// Extracted Category Icon Component
+function CategoryIcon({ category }: { category?: Category }) {
+  const categoryIcons: Record<string, React.ReactNode> = {
     steam: <Gamepad2 className="w-6 h-6" />,
     playstation: <Gamepad className="w-6 h-6" />,
     ps: <Gamepad className="w-6 h-6" />,
@@ -79,8 +79,8 @@ function PlatformIcon({ platform }: { platform?: Platform }) {
   };
 
   const icon =
-    (platform?.slug && platformIcons[platform.slug.toLowerCase()]) ||
-    platformIcons.default;
+    (category?.slug && categoryIcons[category.slug.toLowerCase()]) ||
+    categoryIcons.default;
 
   return <span className="text-primary flex items-center justify-center">{icon}</span>;
 }
@@ -170,7 +170,7 @@ export function ProductCard({
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center bg-background border border-border">
-                <PlatformIcon platform={product.platform} />
+                <CategoryIcon category={product.category} />
               </div>
             )}
           </div>
@@ -179,9 +179,9 @@ export function ProductCard({
           <div className="flex-1 min-w-0 flex flex-col justify-between">
             <div>
               <div className="flex items-center gap-2 mb-1">
-                {product.platform && (
+                {product.category && (
                   <span className="text-xs text-primary">
-                    {getLocalizedValue(product.platform.name, product.platform.nameAr, locale)}
+                    {getLocalizedValue(product.category.name, product.category.nameAr, locale)}
                   </span>
                 )}
                 <DeliveryBadge type={product.deliveryType} locale={locale} />
@@ -236,7 +236,7 @@ export function ProductCard({
                 />
               ) : (
                 <div className="flex items-center justify-center w-full h-full bg-background border border-border">
-                  <PlatformIcon platform={product.platform} />
+                  <CategoryIcon category={product.category} />
                 </div>
               )}
             </div>
@@ -324,7 +324,7 @@ export function ProductCard({
               </div>
             </div>
 
-            {/* Platform Badge */}
+            {/* Category Badge */}
             <div
               className={cn(
                 'absolute top-3 z-20',
@@ -332,7 +332,7 @@ export function ProductCard({
               )}
             >
               <div className="w-10 h-10 rounded-lg bg-card flex items-center justify-center border border-border">
-                <PlatformIcon platform={product.platform} />
+                <CategoryIcon category={product.category} />
               </div>
             </div>
 
@@ -356,11 +356,11 @@ export function ProductCard({
 
           {/* Content Section */}
           <div className="p-4">
-            {/* Platform & Delivery */}
+            {/* Category & Delivery */}
             <div className="flex items-center justify-between mb-2">
-              {product.platform && (
+              {product.category && (
                 <span className="text-xs text-primary font-medium">
-                  {getLocalizedValue(product.platform.name, product.platform.nameAr, locale)}
+                  {getLocalizedValue(product.category.name, product.category.nameAr, locale)}
                 </span>
               )}
               <DeliveryBadge type={product.deliveryType} locale={locale} />

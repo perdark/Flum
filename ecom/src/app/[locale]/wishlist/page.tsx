@@ -26,9 +26,9 @@ const WISHLIST_ITEMS = [
       rating: 4.8,
       ratingCount: 1250,
       image: '/elden-ring.jpg',
-      platform: { name: 'Steam', nameAr: 'ستيم', slug: 'steam' },
+      category: { name: 'Steam', nameAr: 'ستيم', slug: 'steam' },
     },
-    platformId: 'steam',
+    categoryId: 'steam',
     priceAlert: 55,
     addedAt: '2024-03-01',
   },
@@ -43,9 +43,9 @@ const WISHLIST_ITEMS = [
       rating: 4.9,
       ratingCount: 2100,
       image: '/bg3.jpg',
-      platform: { name: 'Steam', nameAr: 'ستيم', slug: 'steam' },
+      category: { name: 'Steam', nameAr: 'ستيم', slug: 'steam' },
     },
-    platformId: 'steam',
+    categoryId: 'steam',
     priceAlert: null,
     addedAt: '2024-03-05',
   },
@@ -60,9 +60,9 @@ const WISHLIST_ITEMS = [
       rating: 4.9,
       ratingCount: 5400,
       image: '/chatgpt.jpg',
-      platform: { name: 'AI', nameAr: 'ذكاء اصطناعي', slug: 'ai' },
+      category: { name: 'AI', nameAr: 'ذكاء اصطناعي', slug: 'ai' },
     },
-    platformId: 'ai',
+    categoryId: 'ai',
     priceAlert: 15,
     addedAt: '2024-03-10',
   },
@@ -190,7 +190,7 @@ function WishlistItem({
 
           {/* Product Info */}
           <div className="text-xs text-primary mb-1">
-            {isRTL ? item.product.platform.nameAr : item.product.platform.name}
+            {isRTL ? item.product.category.nameAr : item.product.category.name}
           </div>
           <h3 className="font-semibold mb-2 line-clamp-2 group-hover:text-primary transition-colors">
             {isRTL ? item.product.nameAr : item.product.name}

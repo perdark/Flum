@@ -22,7 +22,7 @@ export const metadata: Metadata = {
     template: '%s | Fulmen Empire',
     default: 'Fulmen Empire | Premium Digital Products',
   },
-  description: 'The preferred digital marketplace for subscriptions, software, and premium digital products from top platforms.',
+  description: 'The preferred digital marketplace for subscriptions, software, and premium digital products from top categories.',
   category: 'ecommerce',
   openGraph: {
     title: 'Fulmen Empire',

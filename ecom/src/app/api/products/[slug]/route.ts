@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { products, productImages, productPlatforms, platforms, categories, reviews } from "@/lib/db/schema";
+import { products, productImages, productCategories, categories, reviews } from "@/lib/db/schema";
 import { eq, and, desc, sql, avg } from "drizzle-orm";
 
 export async function GET(
@@ -37,35 +37,36 @@ export async function GET(
       .where(eq(productImages.productId, product.id))
       .orderBy(productImages.sortOrder);
 
-    // Get product platforms
-    const platformsData = await db
+    // Get product categories
+    const categoriesMappedData = await db
       .select({
-        productId: productPlatforms.productId,
-        platformId: platforms.id,
-        platformName: platforms.name,
-        platformNameAr: platforms.nameAr,
-        platformSlug: platforms.slug,
-        platformIcon: platforms.icon,
-        platformBanner: platforms.banner,
-        platformPrice: productPlatforms.platformPrice,
-        platformSku: productPlatforms.platformSku,
-        isPrimary: productPlatforms.isPrimary,
+        productId: productCategories.productId,
+        categoryId: categories.id,
+        categoryName: categories.name,
+        categoryNameAr: categories.nameAr,
+        categorySlug: categories.slug,
+        categoryIcon: categories.icon,
+        categoryBanner: categories.banner,
+        categoryPrice: productCategories.categoryPrice,
+        categorySku: productCategories.categorySku,
+        isPrimary: productCategories.isPrimary,
       })
-      .from(productPlatforms)
-      .innerJoin(platforms, eq(productPlatforms.platformId, platforms.id))
-      .where(eq(productPlatforms.productId, product.id));
+      .from(productCategories)
+      .innerJoin(categories, eq(productCategories.categoryId, categories.id))
+      .where(eq(productCategories.productId, product.id));
 
     // Get category
     let categoryData = null;
-    if (product.categoryId) {
-      const category = await db
-        .select()
-        .from(categories)
-        .where(eq(categories.id, product.categoryId))
-        .limit(1);
-      if (category[0]) {
-        categoryData = category[0];
-      }
+    const primaryCategoryMapping = categoriesMappedData.find(c => c.isPrimary);
+    if (primaryCategoryMapping) {
+      categoryData = {
+        id: primaryCategoryMapping.categoryId,
+        name: primaryCategoryMapping.categoryName,
+        nameAr: primaryCategoryMapping.categoryNameAr,
+        slug: primaryCategoryMapping.categorySlug,
+        icon: primaryCategoryMapping.categoryIcon,
+        banner: primaryCategoryMapping.categoryBanner,
+      };
     }
 
     // Get approved reviews
@@ -121,7 +122,7 @@ export async function GET(
       ratingCount: product.ratingCount,
       reviewCount: product.reviewCount,
       images,
-      platforms: platformsData,
+      categories: categoriesMappedData,
       category: categoryData,
       reviews: reviewsData,
       metadata: product.metadata,

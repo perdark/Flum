@@ -79,11 +79,11 @@ export function FeaturedProducts({
               : undefined,
             rating: parseFloat(product.averageRating || '0'),
             ratingCount: product.reviewCount || 0,
-            platform: product.platforms?.[0]
+            category: product.categories?.[0]
               ? {
-                  name: product.platforms[0].platformName,
-                  nameAr: product.platforms[0].platformNameAr || '',
-                  slug: product.platforms[0].platformSlug,
+                  name: product.categories[0].categoryName,
+                  nameAr: product.categories[0].categoryNameAr || '',
+                  slug: product.categories[0].categorySlug,
                 }
               : { name: 'Unknown', nameAr: 'غير معروف', slug: 'unknown' },
             isNew: product.isNew,

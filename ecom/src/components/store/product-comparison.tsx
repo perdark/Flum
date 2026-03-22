@@ -17,7 +17,7 @@ interface Product {
   compareAtPrice?: number;
   rating: number;
   ratingCount: number;
-  platform: { name: string; nameAr: string; slug: string };
+  category: { name: string; nameAr: string; slug: string };
   deliveryType?: string;
   image?: string;
   features?: string[];
@@ -149,14 +149,14 @@ export function ProductComparison({
       ],
     },
     {
-      title: isRTL ? 'المنصة' : 'Platform',
+      title: isRTL ? 'المنصة' : 'Category',
       items: [
         {
-          label: isRTL ? 'المنصة' : 'Platform',
-          key: 'platform',
+          label: isRTL ? 'المنصة' : 'Category',
+          key: 'category',
           render: (product: Product) => (
             <Badge variant="outline" className="text-sm">
-              {getLocalizedValue(product.platform.name, product.platform.nameAr)}
+              {getLocalizedValue(product.category.name, product.category.nameAr)}
             </Badge>
           ),
         },
@@ -289,9 +289,9 @@ export function ProductComparison({
                       {getLocalizedValue(product.name, product.nameAr)}
                     </Link>
 
-                    {/* Platform Badge */}
+                    {/* Category Badge */}
                     <Badge variant="outline" size="sm" className="mb-3">
-                      {getLocalizedValue(product.platform.name, product.platform.nameAr)}
+                      {getLocalizedValue(product.category.name, product.category.nameAr)}
                     </Badge>
 
                     {/* Add to Cart Button */}

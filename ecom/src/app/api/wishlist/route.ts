@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
       .select({
         id: wishlists.id,
         productId: wishlists.productId,
-        platformId: wishlists.platformId,
+        categoryId: wishlists.categoryId,
         priceAlert: wishlists.priceAlert,
         createdAt: wishlists.createdAt,
         productName: products.name,
@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
     const formattedItems = wishlistItems.map((item) => ({
       id: item.id,
       productId: item.productId,
-      platformId: item.platformId,
+      categoryId: item.categoryId,
       priceAlert: item.priceAlert?.toString() || null,
       createdAt: item.createdAt,
       product: {
@@ -119,7 +119,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { productId, platformId, priceAlert } = body;
+    const { productId, categoryId, priceAlert } = body;
 
     if (!productId) {
       return NextResponse.json(
@@ -167,7 +167,7 @@ export async function POST(request: NextRequest) {
     await db.insert(wishlists).values({
       userId: user.id,
       productId,
-      platformId: platformId || null,
+      categoryId: categoryId || null,
       priceAlert: priceAlert || null,
     });
 

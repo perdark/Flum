@@ -61,32 +61,9 @@ export const sessions = pgTable('sessions', {
 }));
 
 // ============================================================================
-// PLATFORMS (Hierarchical/Tree Structure)
+// CATEGORIES (Hierarchical/Tree Structure)
 // ============================================================================
-
-export const platforms = pgTable('platforms', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  name: varchar('name', { length: 255 }).notNull(),
-  slug: varchar('slug', { length: 255 }).unique().notNull(),
-  nameAr: varchar('name_ar', { length: 255 }),
-  description: text('description'),
-  icon: varchar('icon', { length: 500 }),
-  banner: varchar('banner', { length: 500 }),
-  parentId: uuid('parent_id').references((): any => platforms.id, { onDelete: 'restrict' }),
-  sortOrder: integer('sort_order').default(0),
-  isActive: boolean('is_active').default(true).notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-  deletedAt: timestamp('deleted_at'),
-}, (table) => ({
-  parentIdx: index('platforms_parent_idx').on(table.parentId),
-  slugIdx: index('platforms_slug_idx').on(table.slug),
-  uniqueParentName: index('platforms_unique_parent_name_idx').on(table.parentId, table.name),
-}));
-
-// ============================================================================
-// CATEGORIES
-// ============================================================================
+// Formerly 'platforms' - now unified categories with hierarchical support
 
 export const categories = pgTable('categories', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -95,11 +72,17 @@ export const categories = pgTable('categories', {
   nameAr: varchar('name_ar', { length: 255 }),
   description: text('description'),
   icon: varchar('icon', { length: 500 }),
+  banner: varchar('banner', { length: 500 }),
+  parentId: uuid('parent_id').references((): any => categories.id, { onDelete: 'restrict' }),
+  sortOrder: integer('sort_order').default(0),
   isActive: boolean('is_active').default(true).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at'),
 }, (table) => ({
+  parentIdx: index('categories_parent_idx').on(table.parentId),
   slugIdx: index('categories_slug_idx').on(table.slug),
+  uniqueParentName: index('categories_unique_parent_name_idx').on(table.parentId, table.name),
 }));
 
 // ============================================================================
@@ -116,6 +99,43 @@ export const currencies = pgTable('currencies', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
+
+// ============================================================================
+// STORE SETTINGS
+// ============================================================================
+
+export const storeSettings = pgTable('store_settings', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  storeName: varchar('store_name', { length: 255 }).default('Fulmen Empire').notNull(),
+  description: text('description'),
+  storeUrl: varchar('store_url', { length: 500 }),
+  logoUrl: varchar('logo_url', { length: 500 }),
+  faviconUrl: varchar('favicon_url', { length: 500 }),
+  defaultCurrencyId: uuid('default_currency_id').references(() => currencies.id),
+  defaultLanguage: varchar('default_language', { length: 10 }).default('en').notNull(),
+  contactEmail: varchar('contact_email', { length: 255 }),
+  supportEmail: varchar('support_email', { length: 255 }),
+  supportPhone: varchar('support_phone', { length: 50 }),
+  maintenanceMode: boolean('maintenance_mode').default(false).notNull(),
+  maintenanceMessage: text('maintenance_message'),
+  allowGuestCheckout: boolean('allow_guest_checkout').default(true).notNull(),
+  requireEmailVerification: boolean('require_email_verification').default(false).notNull(),
+  enableReviews: boolean('enable_reviews').default(true).notNull(),
+  autoApproveReviews: boolean('auto_approve_reviews').default(false).notNull(),
+  pointsPerDollar: integer('points_per_dollar').default(10).notNull(),
+  maxPointsRedemption: integer('max_points_redemption').default(1000).notNull(),
+  timezone: varchar('timezone', { length: 50 }).default('UTC').notNull(),
+  dateFormat: varchar('date_format', { length: 20 }).default('MM/DD/YYYY').notNull(),
+  metaTitle: varchar('meta_title', { length: 255 }),
+  metaDescription: text('meta_description'),
+  googleAnalyticsId: varchar('google_analytics_id', { length: 50 }),
+  facebookPixelId: varchar('facebook_pixel_id', { length: 50 }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  // Single row constraint - enforce only one settings record
+  singleRow: index('store_settings_single_row').on(table.id),
+}));
 
 // ============================================================================
 // INVENTORY TEMPLATES (for dynamic inventory fields)
@@ -189,7 +209,6 @@ export const products = pgTable('products', {
   sku: varchar('sku', { length: 100 }).unique(),
   basePrice: decimal('base_price', { precision: 10, scale: 2 }).notNull(),
   compareAtPrice: decimal('compare_at_price', { precision: 10, scale: 2 }),
-  categoryId: uuid('category_id').references(() => categories.id),
   deliveryType: varchar('delivery_type', { length: 50 }).notNull(), // auto_key, auto_account, manual, contact
   inventoryTemplateId: uuid('inventory_template_id').references(() => inventoryTemplates.id),
   isActive: boolean('is_active').default(true).notNull(),
@@ -213,26 +232,26 @@ export const products = pgTable('products', {
   deletedAt: timestamp('deleted_at'),
 }, (table) => ({
   slugIdx: index('products_slug_idx').on(table.slug),
-  categoryIdx: index('products_category_idx').on(table.categoryId),
   activeIdx: index('products_active_idx').on(table.isActive),
   featuredIdx: index('products_featured_idx').on(table.isFeatured),
   ratingIdx: index('products_rating_idx').on(table.averageRating),
   templateIdx: index('products_template_idx').on(table.inventoryTemplateId),
 }));
 
-// Product-Platform Relationship (Many-to-Many)
-export const productPlatforms = pgTable('product_platforms', {
+// Product-Category Relationship (Many-to-Many)
+// Formerly 'product_platforms'
+export const productCategories = pgTable('product_categories', {
   id: uuid('id').defaultRandom().primaryKey(),
   productId: uuid('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
-  platformId: uuid('platform_id').notNull().references(() => platforms.id, { onDelete: 'cascade' }),
-  platformPrice: decimal('platform_price', { precision: 10, scale: 2 }),
-  platformSku: varchar('platform_sku', { length: 100 }),
+  categoryId: uuid('category_id').notNull().references(() => categories.id, { onDelete: 'cascade' }),
+  categoryPrice: decimal('category_price', { precision: 10, scale: 2 }),
+  categorySku: varchar('category_sku', { length: 100 }),
   isPrimary: boolean('is_primary').default(false).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (table) => ({
-  pk: primaryKey({ columns: [table.productId, table.platformId] }),
-  productIdx: index('product_platforms_product_idx').on(table.productId),
-  platformIdx: index('product_platforms_platform_idx').on(table.platformId),
+  pk: primaryKey({ columns: [table.productId, table.categoryId] }),
+  productIdx: index('product_categories_product_idx').on(table.productId),
+  categoryIdx: index('product_categories_category_idx').on(table.categoryId),
 }));
 
 // Product Images
@@ -264,7 +283,7 @@ export const cartItems = pgTable('cart_items', {
   id: uuid('id').defaultRandom().primaryKey(),
   cartId: uuid('cart_id').notNull().references(() => carts.id, { onDelete: 'cascade' }),
   productId: uuid('product_id').notNull().references(() => products.id),
-  platformId: uuid('platform_id').references(() => platforms.id),
+  categoryId: uuid('category_id').references(() => categories.id),
   quantity: integer('quantity').default(1).notNull(),
   price: decimal('price', { precision: 10, scale: 2 }).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -322,10 +341,10 @@ export const orderItems = pgTable('order_items', {
   id: uuid('id').defaultRandom().primaryKey(),
   orderId: uuid('order_id').notNull().references(() => orders.id, { onDelete: 'cascade' }),
   productId: uuid('product_id').notNull().references(() => products.id),
-  platformId: uuid('platform_id').references(() => platforms.id),
+  categoryId: uuid('category_id').references(() => categories.id),
   productName: varchar('product_name', { length: 255 }).notNull(),
   productSlug: varchar('product_slug', { length: 255 }).notNull(),
-  platformName: varchar('platform_name', { length: 255 }),
+  categoryName: varchar('category_name', { length: 255 }),
   deliveryType: varchar('delivery_type', { length: 50 }).notNull(),
   price: decimal('price', { precision: 10, scale: 2 }).notNull(),
   quantity: integer('quantity').default(1).notNull(),
@@ -386,7 +405,7 @@ export const wishlists = pgTable('wishlists', {
   id: uuid('id').defaultRandom().primaryKey(),
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   productId: uuid('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
-  platformId: uuid('platform_id').references(() => platforms.id),
+  categoryId: uuid('category_id').references(() => categories.id),
   priceAlert: decimal('price_alert', { precision: 10, scale: 2 }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (table) => ({
@@ -446,7 +465,7 @@ export const recentlyViewed = pgTable('recently_viewed', {
   userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
   sessionId: varchar('session_id', { length: 255 }),
   productId: uuid('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
-  platformId: uuid('platform_id').references(() => platforms.id),
+  categoryId: uuid('category_id').references(() => categories.id),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (table) => ({
   userIdx: index('recently_viewed_user_idx').on(table.userId),
@@ -598,14 +617,14 @@ export type NewUser = typeof users.$inferInsert;
 export type Session = typeof sessions.$inferSelect;
 export type NewSession = typeof sessions.$inferInsert;
 
-export type Platform = typeof platforms.$inferSelect;
-export type NewPlatform = typeof platforms.$inferInsert;
-
 export type Category = typeof categories.$inferSelect;
 export type NewCategory = typeof categories.$inferInsert;
 
 export type Currency = typeof currencies.$inferSelect;
 export type NewCurrency = typeof currencies.$inferInsert;
+
+export type StoreSettings = typeof storeSettings.$inferSelect;
+export type NewStoreSettings = typeof storeSettings.$inferInsert;
 
 export type InventoryTemplate = typeof inventoryTemplates.$inferSelect;
 export type NewInventoryTemplate = typeof inventoryTemplates.$inferInsert;
@@ -619,8 +638,8 @@ export type NewInventoryItem = typeof inventoryItems.$inferInsert;
 export type Product = typeof products.$inferSelect;
 export type NewProduct = typeof products.$inferInsert;
 
-export type ProductPlatform = typeof productPlatforms.$inferSelect;
-export type NewProductPlatform = typeof productPlatforms.$inferInsert;
+export type ProductCategory = typeof productCategories.$inferSelect;
+export type NewProductCategory = typeof productCategories.$inferInsert;
 
 export type ProductImage = typeof productImages.$inferSelect;
 export type NewProductImage = typeof productImages.$inferInsert;

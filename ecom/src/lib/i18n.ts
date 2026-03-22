@@ -81,7 +81,7 @@ const translationsMap = {
     nav: {
       home: 'Home',
       products: 'Products',
-      platforms: 'Platforms',
+      categories: 'Categories',
       cart: 'Cart',
       wishlist: 'Wishlist',
       profile: 'Profile',
@@ -113,8 +113,8 @@ const translationsMap = {
       outOfStock: 'Out of Stock',
       delivery: 'Delivery',
       pointsReward: 'Earn {points} points',
-      platform: 'Platform',
-      selectPlatform: 'Select Platform',
+      category: 'Category',
+      selectCategory: 'Select Category',
       relatedProducts: 'Related Products',
       alsoBought: 'Customers Also Bought',
       trending: 'Trending Now',
@@ -204,10 +204,10 @@ const translationsMap = {
       download: 'Download',
       deliveryType: 'Delivery Type',
     },
-    // Platform
-    platform: {
-      browseByPlatform: 'Browse by Platform',
-      allPlatforms: 'All Platforms',
+    // Category
+    category: {
+      browseByCategory: 'Browse by Category',
+      allCategories: 'All Categories',
       gaming: 'Gaming',
       subscriptions: 'Subscriptions',
       software: 'Software',
@@ -218,7 +218,6 @@ const translationsMap = {
       priceRange: 'Price Range',
       rating: 'Rating',
       category: 'Category',
-      platform: 'Platform',
       availability: 'Availability',
       inStock: 'In Stock',
       newest: 'Newest',
@@ -296,7 +295,7 @@ const translationsMap = {
     nav: {
       home: 'الرئيسية',
       products: 'المنتجات',
-      platforms: 'المنصات',
+      categories: 'المنصات',
       cart: 'السلة',
       wishlist: 'المفضلة',
       profile: 'الملف الشخصي',
@@ -328,8 +327,8 @@ const translationsMap = {
       outOfStock: 'غير متوفر',
       delivery: 'التوصيل',
       pointsReward: 'اكسب {points} نقطة',
-      platform: 'المنصة',
-      selectPlatform: 'اختر المنصة',
+      category: 'المنصة',
+      selectCategory: 'اختر المنصة',
       relatedProducts: 'منتجات ذات صلة',
       alsoBought: 'اشترى أيضاً',
       trending: 'الرائج الآن',
@@ -419,10 +418,10 @@ const translationsMap = {
       download: 'تحميل',
       deliveryType: 'نوع التوصيل',
     },
-    // Platform
-    platform: {
-      browseByPlatform: 'تصفح حسب المنصة',
-      allPlatforms: 'جميع المنصات',
+    // Category
+    category: {
+      browseByCategory: 'تصفح حسب المنصة',
+      allCategories: 'جميع المنصات',
       gaming: 'الألعاب',
       subscriptions: 'الاشتراكات',
       software: 'البرامج',
@@ -433,7 +432,6 @@ const translationsMap = {
       priceRange: 'نطاق السعر',
       rating: 'التقييم',
       category: 'الفئة',
-      platform: 'المنصة',
       availability: 'التوفر',
       inStock: 'متوفر',
       newest: 'الأحدث',

@@ -32,7 +32,6 @@ const performSearch = (query: string) => {
         rating: 4.8,
         ratingCount: 1250,
         image: '/elden-ring.jpg',
-        platform: { name: 'Steam', nameAr: 'ستيم', slug: 'steam' },
         category: { name: 'Games', nameAr: 'ألعاب', slug: 'games' },
       },
     ],
@@ -238,7 +237,7 @@ export default async function SearchPage({ params, searchParams }: SearchPagePro
                           🎮
                         </div>
                         <div className="text-xs text-primary mb-1">
-                          {isRTL ? product.platform.nameAr : product.platform.name}
+                          {isRTL ? product.category.nameAr : product.category.name}
                         </div>
                         <h3 className="font-medium mb-2 line-clamp-2 group-hover:text-primary">
                           {isRTL ? product.nameAr : product.name}

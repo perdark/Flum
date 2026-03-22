@@ -30,7 +30,7 @@ const FOOTER_SECTIONS: FooterSection[] = [
     titleAr: 'المتجر',
     links: [
       { label: 'All Products', labelAr: 'جميع المنتجات', href: '/products' },
-      { label: 'Platforms', labelAr: 'المنصات', href: '/platforms' },
+      { label: 'Categories', labelAr: 'المنصات', href: '/categories' },
       { label: 'New Arrivals', labelAr: 'وصل حديثاً', href: '/products?sort=newest' },
       { label: 'Special Offers', labelAr: 'عروض خاصة', href: '/offers' },
     ],
@@ -119,7 +119,7 @@ export function Footer({ locale }: FooterProps) {
             <p className="text-text-muted mb-6 max-w-sm">
               {locale === 'ar'
                 ? 'وجهتك الأولى للمنتجات الرقمية. ألعاب، اشتراكات، برامج، والمزيد من أفضل المنصات.'
-                : 'Your first destination for digital products. Games, subscriptions, software, and more from the best platforms.'}
+                : 'Your first destination for digital products. Games, subscriptions, software, and more from the best categories.'}
             </p>
 
             {/* Social Links */}

@@ -34,7 +34,7 @@ const CART_ITEMS = [
       price: 59.99,
       compareAtPrice: 69.99,
       image: '/elden-ring.jpg',
-      platform: { name: 'Steam', nameAr: 'ستيم', slug: 'steam' },
+      category: { name: 'Steam', nameAr: 'ستيم', slug: 'steam' },
       deliveryType: 'auto_key' as const,
     },
     quantity: 1,
@@ -50,7 +50,7 @@ const CART_ITEMS = [
       price: 15.99,
       compareAtPrice: 19.99,
       image: '/netflix.jpg',
-      platform: { name: 'Netflix', nameAr: 'نتفليكس', slug: 'netflix' },
+      category: { name: 'Netflix', nameAr: 'نتفليكس', slug: 'netflix' },
       deliveryType: 'manual' as const,
     },
     quantity: 2,
@@ -65,7 +65,7 @@ const CART_ITEMS = [
       slug: 'chatgpt-plus',
       price: 20,
       image: '/chatgpt.jpg',
-      platform: { name: 'AI', nameAr: 'ذكاء اصطناعي', slug: 'ai' },
+      category: { name: 'AI', nameAr: 'ذكاء اصطناعي', slug: 'ai' },
       deliveryType: 'auto_account' as const,
     },
     quantity: 1,
@@ -84,7 +84,7 @@ const RECOMMENDED_PRODUCTS = [
     compareAtPrice: 59.99,
     rating: 4.6,
     ratingCount: 890,
-    platform: { name: 'PlayStation', nameAr: 'بلايستيشن', slug: 'playstation' },
+    category: { name: 'PlayStation', nameAr: 'بلايستيشن', slug: 'playstation' },
     pointsReward: 50,
     deliveryType: 'auto_key' as const,
   },
@@ -96,7 +96,7 @@ const RECOMMENDED_PRODUCTS = [
     price: 14.99,
     rating: 4.8,
     ratingCount: 2100,
-    platform: { name: 'Xbox', nameAr: 'إكس بوكس', slug: 'xbox' },
+    category: { name: 'Xbox', nameAr: 'إكس بوكس', slug: 'xbox' },
     pointsReward: 15,
     deliveryType: 'auto_key' as const,
   },
@@ -403,9 +403,9 @@ function CartItem({
           >
             <div className="relative w-full sm:w-28 aspect-square sm:aspect-auto sm:h-28 bg-background-lighter rounded-xl overflow-hidden">
               <div className="absolute inset-0 flex items-center justify-center text-4xl">
-                {item.product.platform.slug === 'steam' && '🎮'}
-                {item.product.platform.slug === 'netflix' && '🎬'}
-                {item.product.platform.slug === 'ai' && '🤖'}
+                {item.product.category.slug === 'steam' && '🎮'}
+                {item.product.category.slug === 'netflix' && '🎬'}
+                {item.product.category.slug === 'ai' && '🤖'}
               </div>
               {/* Quantity Badge */}
               <div className="absolute top-2 left-2 px-2 py-1 bg-background/90 backdrop-blur-sm rounded-lg text-xs font-medium">
@@ -421,8 +421,8 @@ function CartItem({
                 <div className="flex items-center gap-2 mb-1">
                   <Badge variant="outline" size="sm">
                     {isRTL
-                      ? item.product.platform.nameAr
-                      : item.product.platform.name}
+                      ? item.product.category.nameAr
+                      : item.product.category.name}
                   </Badge>
                   {item.product.deliveryType === 'auto_key' && (
                     <Badge variant="success" size="sm">
@@ -510,8 +510,8 @@ function RecommendedProduct({
           {/* Image */}
           <div className="relative aspect-square bg-background-lighter rounded-xl overflow-hidden mb-4">
             <div className="absolute inset-0 flex items-center justify-center text-5xl group-hover:scale-110 transition-transform duration-300">
-              {product.platform.slug === 'playstation' && '🎯'}
-              {product.platform.slug === 'xbox' && '🟢'}
+              {product.category.slug === 'playstation' && '🎯'}
+              {product.category.slug === 'xbox' && '🟢'}
             </div>
 
             {/* Quick Add Button */}
@@ -523,7 +523,7 @@ function RecommendedProduct({
           {/* Content */}
           <div className="space-y-2">
             <p className="text-xs text-primary">
-              {isRTL ? product.platform.nameAr : product.platform.name}
+              {isRTL ? product.category.nameAr : product.category.name}
             </p>
             <h3 className="font-semibold line-clamp-2 group-hover:text-primary transition-colors">
               {isRTL ? product.nameAr : product.name}

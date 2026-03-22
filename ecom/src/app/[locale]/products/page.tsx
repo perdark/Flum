@@ -36,7 +36,7 @@ const PRODUCTS = [
     onSale: true,
     pointsReward: 60,
     deliveryType: 'auto_key' as const,
-    platform: { name: 'Steam', nameAr: 'ستيم', slug: 'steam' },
+    category: { name: 'Steam', nameAr: 'ستيم', slug: 'steam' },
   },
   {
     id: '2',
@@ -50,7 +50,7 @@ const PRODUCTS = [
     onSale: true,
     pointsReward: 50,
     deliveryType: 'auto_key' as const,
-    platform: { name: 'Steam', nameAr: 'ستيم', slug: 'steam' },
+    category: { name: 'Steam', nameAr: 'ستيم', slug: 'steam' },
   },
   {
     id: '3',
@@ -63,7 +63,7 @@ const PRODUCTS = [
     isNew: true,
     pointsReward: 60,
     deliveryType: 'auto_key' as const,
-    platform: { name: 'Steam', nameAr: 'ستيم', slug: 'steam' },
+    category: { name: 'Steam', nameAr: 'ستيم', slug: 'steam' },
   },
   {
     id: '4',
@@ -77,7 +77,7 @@ const PRODUCTS = [
     onSale: true,
     pointsReward: 16,
     deliveryType: 'manual' as const,
-    platform: { name: 'Netflix', nameAr: 'نتفليكس', slug: 'netflix' },
+    category: { name: 'Netflix', nameAr: 'نتفليكس', slug: 'netflix' },
   },
   {
     id: '5',
@@ -89,7 +89,7 @@ const PRODUCTS = [
     ratingCount: 1800,
     pointsReward: 30,
     deliveryType: 'auto_account' as const,
-    platform: { name: 'Spotify', nameAr: 'سبوتيفاي', slug: 'spotify' },
+    category: { name: 'Spotify', nameAr: 'سبوتيفاي', slug: 'spotify' },
   },
   {
     id: '6',
@@ -103,7 +103,7 @@ const PRODUCTS = [
     onSale: true,
     pointsReward: 50,
     deliveryType: 'auto_key' as const,
-    platform: { name: 'PlayStation', nameAr: 'بلايستيشن', slug: 'playstation' },
+    category: { name: 'PlayStation', nameAr: 'بلايستيشن', slug: 'playstation' },
   },
   {
     id: '7',
@@ -116,7 +116,7 @@ const PRODUCTS = [
     isFeatured: true,
     pointsReward: 20,
     deliveryType: 'auto_account' as const,
-    platform: { name: 'AI', nameAr: 'ذكاء اصطناعي', slug: 'ai' },
+    category: { name: 'AI', nameAr: 'ذكاء اصطناعي', slug: 'ai' },
   },
   {
     id: '8',
@@ -128,7 +128,7 @@ const PRODUCTS = [
     ratingCount: 650,
     pointsReward: 35,
     deliveryType: 'manual' as const,
-    platform: { name: 'AI', nameAr: 'ذكاء اصطناعي', slug: 'ai' },
+    category: { name: 'AI', nameAr: 'ذكاء اصطناعي', slug: 'ai' },
   },
   {
     id: '9',
@@ -142,7 +142,7 @@ const PRODUCTS = [
     onSale: true,
     pointsReward: 15,
     deliveryType: 'auto_key' as const,
-    platform: { name: 'Xbox', nameAr: 'إكس بوكس', slug: 'xbox' },
+    category: { name: 'Xbox', nameAr: 'إكس بوكس', slug: 'xbox' },
   },
   {
     id: '10',
@@ -154,7 +154,7 @@ const PRODUCTS = [
     ratingCount: 890,
     pointsReward: 20,
     deliveryType: 'auto_key' as const,
-    platform: { name: 'Nintendo', nameAr: 'نينتندو', slug: 'nintendo' },
+    category: { name: 'Nintendo', nameAr: 'نينتندو', slug: 'nintendo' },
   },
   {
     id: '11',
@@ -166,7 +166,7 @@ const PRODUCTS = [
     ratingCount: 1200,
     pointsReward: 55,
     deliveryType: 'auto_account' as const,
-    platform: { name: 'Software', nameAr: 'برمجيات', slug: 'software' },
+    category: { name: 'Software', nameAr: 'برمجيات', slug: 'software' },
   },
   {
     id: '12',
@@ -180,7 +180,7 @@ const PRODUCTS = [
     onSale: true,
     pointsReward: 11,
     deliveryType: 'manual' as const,
-    platform: { name: 'Disney+', nameAr: 'ديزني+', slug: 'disney' },
+    category: { name: 'Disney+', nameAr: 'ديزني+', slug: 'disney' },
   },
 ];
 
@@ -190,14 +190,6 @@ const FILTERS = {
     { id: 'subscriptions', name: 'Subscriptions', nameAr: 'اشتراكات', count: 85, icon: '📺' },
     { id: 'ai-tools', name: 'AI Tools', nameAr: 'أدوات ذكاء اصطناعي', count: 45, icon: '🤖' },
     { id: 'software', name: 'Software', nameAr: 'برمجيات', count: 62, icon: '💻' },
-  ],
-  platforms: [
-    { id: 'steam', name: 'Steam', nameAr: 'ستيم', count: 150, icon: '🎮' },
-    { id: 'playstation', name: 'PlayStation', nameAr: 'بلايستيشن', count: 95, icon: '🎯' },
-    { id: 'xbox', name: 'Xbox', nameAr: 'إكس بوكس', count: 78, icon: '🟢' },
-    { id: 'netflix', name: 'Netflix', nameAr: 'نتفليكس', count: 35, icon: '🎬' },
-    { id: 'spotify', name: 'Spotify', nameAr: 'سبوتيفاي', count: 28, icon: '🎵' },
-    { id: 'ai', name: 'AI Tools', nameAr: 'أدوات ذكاء اصطناعي', count: 45, icon: '🤖' },
   ],
   priceRanges: [
     { id: 'under-25', name: 'Under $25', nameAr: 'أقل من 25$', min: 0, max: 25 },
@@ -238,7 +230,6 @@ export default async function ProductsPage({
   const isRTL = locale === 'ar';
   const sort = (search.sort as string) || 'newest';
   const category = search.category as string | undefined;
-  const platform = search.platform as string | undefined;
   const minPrice = search.minPrice ? Number(search.minPrice) : undefined;
   const maxPrice = search.maxPrice ? Number(search.maxPrice) : undefined;
   const minRating = search.minRating ? Number(search.minRating) : undefined;
@@ -246,10 +237,7 @@ export default async function ProductsPage({
   // Filter products
   let filtered = [...PRODUCTS];
   if (category) {
-    filtered = filtered.filter((p) => p.platform.slug === category);
-  }
-  if (platform) {
-    filtered = filtered.filter((p) => p.platform.slug === platform);
+    filtered = filtered.filter((p) => p.category.slug === category);
   }
   if (minPrice !== undefined) {
     filtered = filtered.filter((p) => p.price >= minPrice);
@@ -292,7 +280,6 @@ export default async function ProductsPage({
 
   const activeFilters = {
     category,
-    platform,
     minPrice: minPrice?.toString(),
     maxPrice: maxPrice?.toString(),
     minRating: minRating?.toString(),
@@ -382,41 +369,6 @@ export default async function ProductsPage({
                           </span>
                           <span className="text-xs text-text-muted bg-background-lighter px-2 py-0.5 rounded-full">
                             {cat.count}
-                          </span>
-                        </Link>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Platforms */}
-                  <div className="pt-4 border-t border-border/50">
-                    <h3 className="font-semibold mb-4 flex items-center gap-2">
-                      <span className="w-8 h-8 rounded-lg bg-accent-amber/10 flex items-center justify-center text-sm">
-                        🎮
-                      </span>
-                      {locale === 'ar' ? 'المنصات' : 'Platforms'}
-                    </h3>
-                    <div className="space-y-2">
-                      {FILTERS.platforms.map((plat) => (
-                        <Link
-                          key={plat.id}
-                          href={buildUrl({
-                            ...activeFilters,
-                            platform: plat.id === platform ? '' : plat.id,
-                          })}
-                          className={cn(
-                            'flex items-center justify-between p-2 rounded-lg transition-colors',
-                            platform === plat.id
-                              ? 'bg-primary/10 text-primary font-medium'
-                              : 'hover:bg-background-lighter'
-                          )}
-                        >
-                          <span className="flex items-center gap-2">
-                            <span>{plat.icon}</span>
-                            <span className="text-sm">{isRTL ? plat.nameAr : plat.name}</span>
-                          </span>
-                          <span className="text-xs text-text-muted bg-background-lighter px-2 py-0.5 rounded-full">
-                            {plat.count}
                           </span>
                         </Link>
                       ))}
@@ -562,16 +514,6 @@ export default async function ProductsPage({
                       ? FILTERS.categories.find((c) => c.id === category)?.nameAr
                       : FILTERS.categories.find((c) => c.id === category)?.name}
                     <Link href={buildUrl({ ...activeFilters, category: '' })}>
-                      <X className="w-3 h-3 hover:text-error" />
-                    </Link>
-                  </Badge>
-                )}
-                {platform && (
-                  <Badge variant="outline" className="gap-1">
-                    {isRTL
-                      ? FILTERS.platforms.find((p) => p.id === platform)?.nameAr
-                      : FILTERS.platforms.find((p) => p.id === platform)?.name}
-                    <Link href={buildUrl({ ...activeFilters, platform: '' })}>
                       <X className="w-3 h-3 hover:text-error" />
                     </Link>
                   </Badge>

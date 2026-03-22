@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { products, productImages, productPlatforms, platforms, categories } from "@/lib/db/schema";
+import { products, productImages, productCategories, categories } from "@/lib/db/schema";
 import { eq, desc, and, sql, like, or, inArray } from "drizzle-orm";
 
 export async function GET(request: NextRequest) {
@@ -14,7 +14,6 @@ export async function GET(request: NextRequest) {
 
     // Filters
     const category = searchParams.get("category");
-    const platform = searchParams.get("platform");
     const search = searchParams.get("search");
     const featured = searchParams.get("featured");
     const sort = searchParams.get("sort") || "createdAt";
@@ -31,8 +30,8 @@ export async function GET(request: NextRequest) {
       conditions.push(eq(products.slug, category)); // category slug
     }
 
-    if (platform) {
-      conditions.push(eq(platforms.slug, platform));
+    if (category) {
+      conditions.push(eq(categories.slug, category));
     }
 
     if (featured === "true") {
@@ -76,11 +75,10 @@ export async function GET(request: NextRequest) {
         ratingCount: products.ratingCount,
         reviewCount: products.reviewCount,
         createdAt: products.createdAt,
-        categoryId: products.categoryId,
       })
       .from(products)
-      .leftJoin(productPlatforms, eq(products.id, productPlatforms.productId))
-      .leftJoin(platforms, eq(productPlatforms.platformId, platforms.id))
+      .leftJoin(productCategories, eq(products.id, productCategories.productId))
+      .leftJoin(categories, eq(productCategories.categoryId, categories.id))
       .where(and(...conditions))
       .orderBy(
         sort === "price_asc"
@@ -105,35 +103,35 @@ export async function GET(request: NextRequest) {
           .where(inArray(productImages.productId, productIds))
       : [];
 
-    // Get platforms for each product
-    const productPlatformsData = productIds.length > 0
+    // Get categories for each product
+    const productCategoriesData = productIds.length > 0
       ? await db
           .select({
-            productId: productPlatforms.productId,
-            platformId: platforms.id,
-            platformName: platforms.name,
-            platformNameAr: platforms.nameAr,
-            platformSlug: platforms.slug,
-            platformIcon: platforms.icon,
-            platformPrice: productPlatforms.platformPrice,
-            isPrimary: productPlatforms.isPrimary,
+            productId: productCategories.productId,
+            categoryId: categories.id,
+            categoryName: categories.name,
+            categoryNameAr: categories.nameAr,
+            categorySlug: categories.slug,
+            categoryIcon: categories.icon,
+            categoryPrice: productCategories.categoryPrice,
+            isPrimary: productCategories.isPrimary,
           })
-          .from(productPlatforms)
-          .innerJoin(platforms, eq(productPlatforms.platformId, platforms.id))
-          .where(inArray(productPlatforms.productId, productIds))
+          .from(productCategories)
+          .innerJoin(categories, eq(productCategories.categoryId, categories.id))
+          .where(inArray(productCategories.productId, productIds))
       : [];
 
-    // Group images and platforms by product
+    // Group images and categories by product
     const imagesByProduct: Record<string, any[]> = {};
     images.forEach((img) => {
       if (!imagesByProduct[img.productId]) imagesByProduct[img.productId] = [];
       imagesByProduct[img.productId].push(img);
     });
 
-    const platformsByProduct: Record<string, any[]> = {};
-    productPlatformsData.forEach((pp) => {
-      if (!platformsByProduct[pp.productId]) platformsByProduct[pp.productId] = [];
-      platformsByProduct[pp.productId].push(pp);
+    const categoriesByProduct: Record<string, any[]> = {};
+    productCategoriesData.forEach((pp) => {
+      if (!categoriesByProduct[pp.productId]) categoriesByProduct[pp.productId] = [];
+      categoriesByProduct[pp.productId].push(pp);
     });
 
     // Format response
@@ -161,8 +159,7 @@ export async function GET(request: NextRequest) {
       ratingCount: product.ratingCount,
       reviewCount: product.reviewCount,
       images: imagesByProduct[product.id] || [],
-      platforms: platformsByProduct[product.id] || [],
-      categoryId: product.categoryId,
+      categories: categoriesByProduct[product.id] || [],
       createdAt: product.createdAt,
     }));
 

@@ -23,7 +23,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { label: 'Products', labelAr: 'المنتجات', href: '/products' },
-  { label: 'Platforms', labelAr: 'المنصات', href: '/platforms' },
+  { label: 'Categories', labelAr: 'المنصات', href: '/categories' },
 ];
 
 export function Navbar({ locale }: NavbarProps) {
@@ -91,7 +91,7 @@ export function Navbar({ locale }: NavbarProps) {
         )}
       >
         {/* Top Bar */}
-        <div className="hidden md:block bg-background-light border-b border-border/30 py-1.5">
+        {/* <div className="hidden md:block bg-background-light border-b border-border/30 py-1.5">
           <div className="container mx-auto px-4 flex items-center justify-between text-xs text-text-muted">
             <p>🎮 {locale === 'ar' ? 'أفضل المنتجات الرقمية' : 'Best Digital Products'}</p>
             <div className="flex items-center gap-4">
@@ -109,7 +109,7 @@ export function Navbar({ locale }: NavbarProps) {
               </Link>
             </div>
           </div>
-        </div>
+        </div> */}
 
         {/* Main Navbar */}
         <div className="container mx-auto px-4">
@@ -130,10 +130,10 @@ export function Navbar({ locale }: NavbarProps) {
                 </Link>
               ))}
 
-              {/* Platforms Dropdown */}
+              {/* Categories Dropdown */}
               <div className="relative group">
                 <button className="text-text-muted hover:text-primary transition-colors font-medium flex items-center gap-1">
-                  {locale === 'ar' ? 'المنصات' : 'Platforms'}
+                  {locale === 'ar' ? 'المنصات' : 'Categories'}
                   <svg
                     className={cn('w-4 h-4 transition-transform', isRTL && 'rotate-180')}
                     fill="none"
@@ -153,25 +153,25 @@ export function Navbar({ locale }: NavbarProps) {
                 <div className="absolute top-full left-0 mt-2 w-48 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300">
                   <div className="bg-card border border-border rounded-lg shadow-xl overflow-hidden">
                     <Link
-                      href={`/${locale}/platforms/gaming`}
+                      href={`/${locale}/categories/gaming`}
                       className="block px-4 py-3 hover:bg-background-lighter transition-colors"
                     >
                       {locale === 'ar' ? 'الألعاب' : 'Gaming'}
                     </Link>
                     <Link
-                      href={`/${locale}/platforms/subscriptions`}
+                      href={`/${locale}/categories/subscriptions`}
                       className="block px-4 py-3 hover:bg-background-lighter transition-colors"
                     >
                       {locale === 'ar' ? 'الاشتراكات' : 'Subscriptions'}
                     </Link>
                     <Link
-                      href={`/${locale}/platforms/ai`}
+                      href={`/${locale}/categories/ai`}
                       className="block px-4 py-3 hover:bg-background-lighter transition-colors"
                     >
                       AI
                     </Link>
                     <Link
-                      href={`/${locale}/platforms`}
+                      href={`/${locale}/categories`}
                       className="block px-4 py-3 hover:bg-background-lighter transition-colors border-t border-border/50 text-primary"
                     >
                       {locale === 'ar' ? 'عرض الكل' : 'View All'}
@@ -312,11 +312,11 @@ export function Navbar({ locale }: NavbarProps) {
               ))}
 
               <Link
-                href={`/${locale}/platforms`}
+                href={`/${locale}/categories`}
                 onClick={() => setIsOpen(false)}
                 className="text-text hover:text-primary transition-colors font-medium py-2"
               >
-                {locale === 'ar' ? 'المنصات' : 'Platforms'}
+                {locale === 'ar' ? 'المنصات' : 'Categories'}
               </Link>
 
               <div className="border-t border-border/50 pt-4 flex flex-col gap-2">

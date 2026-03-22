@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { carts, cartItems, products, productPlatforms, platforms, productImages } from "@/lib/db/schema";
+import { carts, cartItems, products, productCategories, categories, productImages } from "@/lib/db/schema";
 import { eq, and, sql, desc, inArray, isNull } from "drizzle-orm";
 import { getCurrentCustomer, getCustomerSession } from "@/lib/auth";
 import { cookies } from "next/headers";
@@ -98,16 +98,16 @@ export async function GET(request: NextRequest) {
         productDeliveryType: products.deliveryType,
         productCurrentStock: products.currentStock,
         productMaxQuantity: products.maxQuantity,
-        platformId: platforms.id,
-        platformName: platforms.name,
-        platformNameAr: platforms.nameAr,
-        platformSlug: platforms.slug,
-        platformIcon: platforms.icon,
+        categoryId: categories.id,
+        categoryName: categories.name,
+        categoryNameAr: categories.nameAr,
+        categorySlug: categories.slug,
+        categoryIcon: categories.icon,
       })
       .from(cartItems)
       .innerJoin(products, eq(cartItems.productId, products.id))
-      .leftJoin(productPlatforms, eq(cartItems.platformId, productPlatforms.platformId))
-      .leftJoin(platforms, eq(productPlatforms.platformId, platforms.id))
+      .leftJoin(productCategories, eq(cartItems.categoryId, productCategories.categoryId))
+      .leftJoin(categories, eq(productCategories.categoryId, categories.id))
       .where(eq(cartItems.cartId, cart.id));
 
     // Get images for products
@@ -143,12 +143,12 @@ export async function GET(request: NextRequest) {
         maxQuantity: item.productMaxQuantity,
         images: imagesByProduct[item.productId] || [],
       },
-      platform: item.platformId ? {
-        id: item.platformId,
-        name: locale === "ar" && item.platformNameAr ? item.platformNameAr : item.platformName,
-        nameAr: item.platformNameAr,
-        slug: item.platformSlug,
-        icon: item.platformIcon,
+      category: item.categoryId ? {
+        id: item.categoryId,
+        name: locale === "ar" && item.categoryNameAr ? item.categoryNameAr : item.categoryName,
+        nameAr: item.categoryNameAr,
+        slug: item.categorySlug,
+        icon: item.categoryIcon,
       } : null,
     }));
 
@@ -182,7 +182,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { productId, platformId, quantity = 1 } = body;
+    const { productId, categoryId, quantity = 1 } = body;
 
     if (!productId) {
       return NextResponse.json(
@@ -224,7 +224,7 @@ export async function POST(request: NextRequest) {
         and(
           eq(cartItems.cartId, cart.id),
           eq(cartItems.productId, productId),
-          platformId ? eq(cartItems.platformId, platformId) : sql`${cartItems.platformId} IS NULL`
+          categoryId ? eq(cartItems.categoryId, categoryId) : sql`${cartItems.categoryId} IS NULL`
         )
       )
       .limit(1);
@@ -241,7 +241,7 @@ export async function POST(request: NextRequest) {
       await db.insert(cartItems).values({
         cartId: cart.id,
         productId,
-        platformId: platformId || null,
+        categoryId: categoryId || null,
         quantity,
         price: product[0].basePrice,
       });

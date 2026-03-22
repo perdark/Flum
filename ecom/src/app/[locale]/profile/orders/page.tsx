@@ -23,8 +23,8 @@ const ORDERS = [
         id: '1',
         name: 'Elden Ring',
         nameAr: 'إلدن رينج',
-        platform: 'Steam',
-        platformAr: 'ستيم',
+        category: 'Steam',
+        categoryAr: 'ستيم',
         image: '/elden-ring.jpg',
         deliveryType: 'auto_key',
         price: 59.99,
@@ -42,8 +42,8 @@ const ORDERS = [
         id: '4',
         name: 'Netflix Premium 1 Month',
         nameAr: 'نتفليكس بريميوم شهر',
-        platform: 'Netflix',
-        platformAr: 'نتفليكس',
+        category: 'Netflix',
+        categoryAr: 'نتفليكس',
         image: '/netflix.jpg',
         deliveryType: 'auto_account',
         price: 15.99,
@@ -52,8 +52,8 @@ const ORDERS = [
         id: '5',
         name: 'Spotify Premium 3 Months',
         nameAr: 'سبوتيفاي بريميوم 3 أشهر',
-        platform: 'Spotify',
-        platformAr: 'سبوتيفاي',
+        category: 'Spotify',
+        categoryAr: 'سبوتيفاي',
         image: '/spotify.jpg',
         deliveryType: 'auto_account',
         price: 29.99,
@@ -71,8 +71,8 @@ const ORDERS = [
         id: '7',
         name: 'ChatGPT Plus Subscription',
         nameAr: 'اشتراك شات جي بي تي بلس',
-        platform: 'AI',
-        platformAr: 'ذكاء اصطناعي',
+        category: 'AI',
+        categoryAr: 'ذكاء اصطناعي',
         image: '/chatgpt.jpg',
         deliveryType: 'contact',
         price: 20,
@@ -204,7 +204,7 @@ export default async function OrdersPage({ params }: OrdersPageProps) {
                               {isRTL ? item.nameAr : item.name}
                             </h4>
                             <p className="text-sm text-text-muted">
-                              {isRTL ? item.platformAr : item.platform}
+                              {isRTL ? item.categoryAr : item.category}
                             </p>
                           </div>
                           <div className="text-right">
