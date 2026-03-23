@@ -1,6 +1,0 @@
-<arg_value># Skip dashboard when deploying ecom
-dashboard
-dashboard/**
-*.log
-.env.local
-.DS_Store

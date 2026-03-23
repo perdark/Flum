@@ -1,6 +1,0 @@
-.next/dev/types/validator.ts(98,39): error TS2307: Cannot find module '../../../src/app/[locale]/platforms/[slug]/page.js' or its corresponding type declarations.
-.next/dev/types/validator.ts(107,39): error TS2307: Cannot find module '../../../src/app/[locale]/platforms/page.js' or its corresponding type declarations.
-src/app/[locale]/page.tsx(25,31): error TS2307: Cannot find module '@/components/store/categorys-list' or its corresponding type declarations.
-src/app/[locale]/products/page.tsx(240,9): error TS2451: Cannot redeclare block-scoped variable 'category'.
-src/app/[locale]/products/page.tsx(241,9): error TS2451: Cannot redeclare block-scoped variable 'category'.
-src/app/[locale]/products/page.tsx(295,5): error TS1117: An object literal cannot have multiple properties with the same name.
