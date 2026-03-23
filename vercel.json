@@ -1,0 +1,24 @@
+{
+  "installCommand": "npm install",
+  "buildCommand": "npm run build",
+  "projects": [
+    {
+      "name": "ecom-storefront",
+      "root": "ecom",
+      "gitFilter": {
+        "included": ["ecom/**"]
+      },
+      "framework": "nextjs",
+      "outputDirectory": "ecom/.next"
+    },
+    {
+      "name": "dashboard-admin",
+      "root": "dashboard",
+      "gitFilter": {
+        "included": ["dashboard/**"]
+      },
+      "framework": "nextjs",
+      "outputDirectory": "dashboard/.next"
+    }
+  ]
+}
