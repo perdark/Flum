@@ -351,56 +351,6 @@ export async function POST(request: NextRequest) {
         fulfilledOrders: fulfilledOrders.length > 0 ? fulfilledOrders : undefined,
       },
     }, { status: 201 });
-    // Insert remaining inventory items as available
-    const insertedItems = await db
-      .insert(inventoryItems)
-      .values(
-        itemsToCreate.map((values: Record<string, unknown>) => ({
-          productId,
-          templateId: product.inventoryTemplateId!,
-          batchId: finalBatchId || null,
-          values,
-          status: "available" as const,
-        }))
-      )
-      .returning();
-
-    // Update product stock count (only for available items)
-    if (itemsToCreate.length > 0) {
-      await db
-        .update(products)
-        .set({
-          stockCount: sql`${products.stockCount} + ${itemsToCreate.length}`,
-          updatedAt: new Date(),
-        })
-        .where(eq(products.id, productId));
-    }
-
-    // Log activity (log once per batch)
-    await logActivity({
-      userId: user.id,
-      action: "inventory_added",
-      entity: "inventory",
-      entityId: insertedItems[0]?.id || productId,
-      metadata: {
-        productId,
-        productName: product.name,
-        quantity: items.length,
-        batchId: finalBatchId,
-        batchName,
-        fulfilledOrders: fulfilledOrders.length > 0 ? fulfilledOrders : undefined,
-      },
-    });
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        count: items.length,
-        items: insertedItems,
-        batchId: finalBatchId,
-        fulfilledOrders: fulfilledOrders.length > 0 ? fulfilledOrders : undefined,
-      },
-    }, { status: 201 });
   } catch (error) {
     if (error instanceof Error) {
       if (error.message === "UNAUTHORIZED") {
