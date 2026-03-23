@@ -123,6 +123,13 @@ export async function POST(request: NextRequest) {
         const validFrom = new Date(coupon[0].validFrom);
         const validUntil = coupon[0].validUntil ? new Date(coupon[0].validUntil) : null;
 
+        if (now < validFrom) {
+          return NextResponse.json(
+            { error: "Coupon is not yet valid" },
+            { status: 400 }
+          );
+        }
+
         if (validUntil && now > validUntil) {
           return NextResponse.json(
             { error: "Coupon has expired" },
@@ -177,12 +184,6 @@ export async function POST(request: NextRequest) {
         }
 
         couponId = coupon[0].id;
-
-        // Increment coupon usage
-        await db
-          .update(coupons)
-          .set({ usageCount: sql`${coupons.usageCount} + 1` })
-          .where(eq(coupons.id, coupon[0].id));
       }
     }
 
@@ -193,72 +194,84 @@ export async function POST(request: NextRequest) {
     const session = await getCustomerSession();
     const userId = session?.userId || null;
 
-    // Create order
-    const orderResult = await db
-      .insert(orders)
-      .values({
-        orderNumber: generateOrderNumber(),
-        userId,
-        customerEmail,
-        customerName,
-        status: "pending",
-        fulfillmentStatus: "pending",
-        paymentMethod,
-        paymentStatus: "pending",
-        subtotal: subtotal.toString(),
-        discount: discount.toString(),
-        tax: tax.toString(),
-        total: total.toString(),
-        couponId,
-        notes,
-      })
-      .returning();
+    // Execute all DB mutations in a transaction
+    try {
+      const result = await db.transaction(async (tx) => {
+        // Increment coupon usage within transaction
+        if (couponId) {
+          await tx
+            .update(coupons)
+            .set({ usageCount: sql`${coupons.usageCount} + 1` })
+            .where(eq(coupons.id, couponId));
+        }
 
-    const order = orderResult[0];
+        // Create order
+        const orderResult = await tx
+          .insert(orders)
+          .values({
+            orderNumber: generateOrderNumber(),
+            userId,
+            customerEmail,
+            customerName,
+            status: "pending",
+            fulfillmentStatus: "pending",
+            paymentMethod,
+            paymentStatus: "pending",
+            subtotal: subtotal.toString(),
+            discount: discount.toString(),
+            tax: tax.toString(),
+            total: total.toString(),
+            couponId,
+            notes,
+          })
+          .returning();
 
-    // Create order items
-    for (const item of items) {
-      const itemSubtotal = parseFloat(item.price?.toString() || "0") * item.quantity;
-      await db.insert(orderItems).values({
-        orderId: order.id,
-        productId: item.productId,
-        categoryId: item.categoryId,
-        productName: item.productName,
-        productSlug: item.productSlug,
-        categoryName: null, // Could be populated if needed
-        deliveryType: item.productDeliveryType,
-        price: item.price?.toString() || "0",
-        quantity: item.quantity,
-        subtotal: itemSubtotal.toString(),
+        const order = orderResult[0];
+
+        // Create order items
+        for (const item of items) {
+          const itemSubtotal = parseFloat(item.price?.toString() || "0") * item.quantity;
+          await tx.insert(orderItems).values({
+            orderId: order.id,
+            productId: item.productId,
+            productName: item.productName,
+            productSlug: item.productSlug,
+            deliveryType: item.productDeliveryType,
+            price: item.price?.toString() || "0",
+            quantity: item.quantity,
+            subtotal: itemSubtotal.toString(),
+          });
+        }
+
+        // Record coupon usage
+        if (couponId) {
+          await tx.insert(couponUsage).values({
+            couponId,
+            orderId: order.id,
+            customerEmail,
+            discountAmount: discount.toString(),
+          });
+        }
+
+        // Clear cart
+        await tx.delete(cartItems).where(eq(cartItems.cartId, cart.id));
+
+        return order;
       });
-    }
 
-    // Record coupon usage
-    if (couponId) {
-      await db.insert(couponUsage).values({
-        couponId,
-        orderId: order.id,
-        customerEmail,
-        discountAmount: discount.toString(),
+      return NextResponse.json({
+        success: true,
+        data: {
+          id: result.id,
+          orderNumber: result.orderNumber,
+          status: result.status,
+          total: result.total?.toString() || "0",
+          subtotal: result.subtotal?.toString() || "0",
+          discount: result.discount?.toString() || "0",
+        },
       });
-    }
-
-    // Clear cart
-    await db.delete(cartItems).where(eq(cartItems.cartId, cart.id));
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        id: order.id,
-        orderNumber: order.orderNumber,
-        status: order.status,
-        total: order.total?.toString() || "0",
-        subtotal: order.subtotal?.toString() || "0",
-        discount: order.discount?.toString() || "0",
-      },
-    });
-  } catch (error) {
-    console.error("Create order error:", error);
+    } catch (error) {
+      console.error("Create order error:", error);
     return NextResponse.json(
       { error: "Failed to create order" },
       { status: 500 }
@@ -279,8 +292,14 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const page = parseInt(searchParams.get("page") || "1");
-    const limit = parseInt(searchParams.get("limit") || "10");
+    let page = parseInt(searchParams.get("page") || "1");
+    let limit = parseInt(searchParams.get("limit") || "10");
+    
+    // Validate pagination parameters
+    if (isNaN(page) || page < 1) page = 1;
+    if (isNaN(limit) || limit < 1) limit = 10;
+    if (limit > 100) limit = 100; // Cap maximum limit
+    
     const offset = (page - 1) * limit;
 
     const db = getDb();

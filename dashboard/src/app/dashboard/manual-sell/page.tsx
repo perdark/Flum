@@ -14,6 +14,7 @@ interface Product {
   name: string;
   price: string;
   stockCount: number;
+  availableCount: number;
   templateName: string | null;
   inventoryTemplateId: string | null;
   templateFields?: TemplateField[];
@@ -162,7 +163,7 @@ export default function ManualSellPage() {
           productId: product.id,
           quantity,
           productName: product.name,
-          available: product.stockCount,
+          available: (product as any).availableCount || 0,
         },
       ]);
     }
@@ -479,7 +480,7 @@ function ProductCard({
     <div className="bg-slate-900 rounded-lg p-4 border border-slate-700">
       <div className="flex justify-between items-start mb-2">
         <h3 className="font-medium text-white truncate flex-1">{product.name}</h3>
-        <span className="text-sm text-green-400 ml-2">{product.stockCount} avail</span>
+        <span className="text-sm text-green-400 ml-2">{(product as any).availableCount || 0} avail</span>
       </div>
       <p className="text-lg font-bold text-white mb-3">${product.price}</p>
       <div className="flex items-center gap-2">
@@ -595,7 +596,8 @@ function ShortageOptionsModal({
   templates: any[];
 }) {
   const [activeTab, setActiveTab] = useState<"partial" | "pending" | "add">("partial");
-  const [inventoryItems, setInventoryItems] = useState<Record<string, string>>({});
+  // State for field values: Record<productId, Record<fieldName, string>>
+  const [fieldValues, setFieldValues] = useState<Record<string, Record<string, string>>>({});
   const [submitting, setSubmitting] = useState(false);
 
   // Get product template fields
@@ -612,31 +614,50 @@ function ShortageOptionsModal({
     return [{ name: "key", type: "string", label: "Key", required: true }];
   };
 
+  // Get parsed lines for a specific field of a product
+  const getParsedLines = (productId: string, fieldName: string): string[] => {
+    const values = fieldValues[productId]?.[fieldName] || "";
+    return values
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line);
+  };
+
+  // Get count for each field of a product
+  const getFieldCounts = (productId: string): Record<string, number> => {
+    const templateFields = getProductTemplateFields(productId);
+    const counts: Record<string, number> = {};
+    templateFields.forEach((field) => {
+      counts[field.name] = getParsedLines(productId, field.name).length;
+    });
+    return counts;
+  };
+
+  // Calculate total items for a product (min of all field counts)
+  const getTotalItems = (productId: string): number => {
+    const counts = Object.values(getFieldCounts(productId));
+    return counts.length > 0 ? Math.min(...counts) : 0;
+  };
+
   const handleAddInventory = async () => {
-    // Parse inventory items into array format
     const parsedInventory: Array<{ productId: string; values: Record<string, string | number | boolean> }> = [];
 
     for (const shortageItem of data.shortageItems) {
-      const itemsText = inventoryItems[shortageItem.productId];
-      if (!itemsText || itemsText.trim().length === 0) {
+      const templateFields = getProductTemplateFields(shortageItem.productId);
+      const totalItems = getTotalItems(shortageItem.productId);
+
+      if (totalItems === 0) {
         alert(`Please add inventory for ${shortageItem.productName}`);
         return;
       }
 
-      const templateFields = getProductTemplateFields(shortageItem.productId);
-      const lines = itemsText.trim().split("\n").map(l => l.trim()).filter(l => l);
-
-      if (lines.length === 0) {
-        alert(`Please add at least one item for ${shortageItem.productName}`);
-        return;
-      }
-
-      // Parse each line as a separate inventory item
-      for (const line of lines) {
-        const values = line.split(",").map(v => v.trim());
+      // Build items by combining values row by row
+      for (let i = 0; i < totalItems; i++) {
         const itemObj: Record<string, string | number | boolean> = {};
-        templateFields.forEach((field, index) => {
-          const value = values[index] || "";
+        templateFields.forEach((field) => {
+          const lines = getParsedLines(shortageItem.productId, field.name);
+          const value = lines[i] || "";
+
           if (field.type === "number") {
             itemObj[field.name] = parseFloat(value) || 0;
           } else if (field.type === "boolean") {
@@ -663,6 +684,28 @@ function ShortageOptionsModal({
     } finally {
       setSubmitting(false);
     }
+  };
+
+  // Initialize field values for a product if not already set
+  const ensureProductFields = (productId: string) => {
+    if (!fieldValues[productId]) {
+      setFieldValues(prev => ({
+        ...prev,
+        [productId]: {}
+      }));
+    }
+  };
+
+  // Update field value for a product
+  const updateFieldValue = (productId: string, fieldName: string, value: string) => {
+    ensureProductFields(productId);
+    setFieldValues(prev => ({
+      ...prev,
+      [productId]: {
+        ...prev[productId],
+        [fieldName]: value
+      }
+    }));
   };
 
   return (
@@ -762,45 +805,87 @@ function ShortageOptionsModal({
             <div>
               <h3 className="text-white font-medium mb-3">Add Missing Inventory</h3>
               <p className="text-slate-400 text-sm mb-4">
-                Add inventory items now using the same format as the inventory page. Enter one item per line with comma-separated values.
+                Add inventory items now. Enter values for each field (one value per line). Items will be created by combining values in order.
               </p>
-              <div className="space-y-4">
+              <div className="space-y-6">
                 {data.shortageItems.map((item) => {
                   const templateFields = getProductTemplateFields(item.productId);
+                  const fieldCounts = getFieldCounts(item.productId);
+                  const totalItems = getTotalItems(item.productId);
+                  const counts = Object.values(fieldCounts);
+                  const minCount = counts.length > 0 ? Math.min(...counts) : 0;
+                  const maxCount = counts.length > 0 ? Math.max(...counts) : 0;
+                  const hasMismatch = minCount > 0 && maxCount > minCount;
+
                   return (
                     <div key={item.productId} className="p-4 bg-slate-900 rounded-lg">
-                      <div className="flex justify-between items-center mb-2">
+                      <div className="flex justify-between items-center mb-4">
                         <span className="text-white font-medium">{item.productName}</span>
-                        <span className="text-slate-400 text-sm">Need: {item.shortage}</span>
+                        <div className="flex items-center gap-3">
+                          <span className="text-slate-400 text-sm">Need: {item.shortage}</span>
+                          {totalItems > 0 && (
+                            <span className="text-green-400 text-sm">Will add: {totalItems}</span>
+                          )}
+                        </div>
                       </div>
 
-                      {/* Template fields info */}
-                      {templateFields.length > 0 && (
-                        <div className="mb-2 p-2 bg-slate-800 rounded text-xs">
-                          <span className="text-slate-400">Fields: </span>
-                          {templateFields.map((f, i) => (
-                            <span key={f.name} className="inline-block mr-2">
-                              <span className="text-blue-400">{f.name}</span>
-                              {f.required && <span className="text-red-400">*</span>}
-                              {i < templateFields.length - 1 && <span className="text-slate-500">, </span>}
-                            </span>
+                      {templateFields.length === 0 ? (
+                        <div className="p-3 bg-slate-800/50 rounded border border-slate-700 text-slate-400 text-sm">
+                          No template fields configured for this product.
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {templateFields.map((field) => (
+                            <div key={field.name}>
+                              <label className="block text-sm font-medium text-slate-300 mb-1">
+                                {field.label || field.name}
+                                {field.required && <span className="text-red-400"> *</span>}
+                                <span className="text-slate-500 font-normal ml-2">
+                                  ({fieldCounts[field.name]} {fieldCounts[field.name] === 1 ? 'line' : 'lines'})
+                                </span>
+                              </label>
+                              <textarea
+                                value={fieldValues[item.productId]?.[field.name] || ""}
+                                onChange={(e) => updateFieldValue(item.productId, field.name, e.target.value)}
+                                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
+                                rows={5}
+                                placeholder={`Enter one value per line\nExample:\nABC\nFVB`}
+                              />
+                            </div>
                           ))}
                         </div>
                       )}
 
-                      <textarea
-                        value={inventoryItems[item.productId] || ""}
-                        onChange={(e) => setInventoryItems(prev => ({
-                          ...prev,
-                          [item.productId]: e.target.value
-                        }))}
-                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
-                        rows={5}
-                        placeholder={`Enter items (one per line)&#10;Example: ${templateFields.map(f => f.name).join(", ")}&#10;${templateFields.map(() => "XXX").join(", ")}`}
-                      />
-                      <p className="text-xs text-slate-500 mt-2">
-                        One item per line, values separated by commas. You can add more than {item.shortage} items - extras will be available for future sales.
-                      </p>
+                      {/* Warning for mismatched counts */}
+                      {hasMismatch && (
+                        <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                          <p className="text-yellow-200 text-sm">
+                            Only the first <strong>{minCount}</strong> items will be created (some fields have fewer values).
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Preview */}
+                      {totalItems > 0 && templateFields.length > 0 && (
+                        <div className="mt-4 p-3 bg-slate-800/50 rounded border border-slate-700">
+                          <p className="text-xs text-slate-400 mb-2">Preview (first 3 items):</p>
+                          <div className="space-y-1">
+                            {Array.from({ length: Math.min(3, totalItems) }).map((_, i) => (
+                              <div key={i} className="text-xs font-mono text-slate-300">
+                                {templateFields.map((f) => {
+                                  const lines = getParsedLines(item.productId, f.name);
+                                  return lines[i] || "-";
+                                }).join(" → ")}
+                              </div>
+                            ))}
+                            {totalItems > 3 && (
+                              <div className="text-xs text-slate-500 italic">
+                                ... and {totalItems - 3} more
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -858,7 +943,7 @@ function ShortageOptionsModal({
               disabled={submitting}
               className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium disabled:opacity-50"
             >
-              {submitting ? "Adding..." : "Add & Complete Sale"}
+              {submitting ? "Adding..." : `Add ${data.shortageItems.reduce((sum, item) => sum + getTotalItems(item.productId), 0)} Items & Complete Sale`}
             </button>
           )}
           {activeTab === "pending" && (

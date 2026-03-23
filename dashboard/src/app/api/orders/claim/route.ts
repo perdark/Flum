@@ -74,6 +74,7 @@ export async function POST(request: NextRequest) {
             SET claimed_by = ${user.id},
                 claimed_at = NOW(),
                 claim_expires_at = ${claimExpiresAt},
+                fulfillment_status = 'processing',
                 updated_at = NOW()
             WHERE id = (
               SELECT id
@@ -181,13 +182,14 @@ export async function POST(request: NextRequest) {
     const CLAIM_TTL_MINUTES = 30;
     const claimExpiresAt = new Date(Date.now() + CLAIM_TTL_MINUTES * 60 * 1000);
 
-    // Update order with claim
+    // Update order with claim and set to processing
     const [updated] = await db
       .update(orders)
       .set({
         claimedBy: user.id,
         claimedAt: new Date(),
         claimExpiresAt,
+        fulfillmentStatus: "processing",
         updatedAt: new Date(),
       })
       .where(eq(orders.id, orderId))

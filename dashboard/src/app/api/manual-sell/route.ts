@@ -46,7 +46,8 @@ interface ShortageItem {
 interface DeliveryItem {
   productId: string;
   productName: string;
-  quantity: number;
+  quantity: number; // delivered quantity
+  requestedQuantity?: number; // original requested quantity
   unitPrice: number;
   items: Array<{
     inventoryId: string;
@@ -236,9 +237,9 @@ export async function POST(request: NextRequest) {
       items,
       customerEmail,
       customerName,
-      shortageAction,
       inventoryItemsToAdd,
     } = body;
+    let shortageAction: "fail" | "partial" | "add-inventory" | "pending" | undefined = body.shortageAction;
 
     // Validate input
     if (!items || items.length === 0) {
@@ -281,58 +282,66 @@ export async function POST(request: NextRequest) {
     // Check inventory availability
     const availability = await checkInventoryAvailability(db, items, productsData);
 
-    // When no shortageAction specified, return availability info
+    // When no shortageAction specified:
+    // - If NO shortage: auto-complete the sale directly
+    // - If shortage exists: return availability info for user to choose action
     if (!shortageAction) {
-      // Calculate what would be delivered
-      const potentialDelivery = items.map(item => {
-        const product = productsData.find(p => p.id === item.productId)!;
-        const available = availability.availableByProduct.get(item.productId) || 0;
-        const toDeliver = Math.min(item.quantity, available);
-        const unitPrice = parseFloat(product.price);
-        return {
-          productId: item.productId,
-          productName: product.name,
-          requested: item.quantity,
-          available,
-          canDeliver: toDeliver,
-          shortage: item.quantity - available,
-          subtotalIfPartial: (unitPrice * toDeliver).toString(),
-        };
-      });
+      // If no shortage, complete the sale automatically
+      if (!availability.hasShortage) {
+        // Set shortageAction to "complete" (which will fulfill all items)
+        shortageAction = "fail"; // This will trigger the fulfillment flow below
+        // But we need to skip the "fail" check since we know there's no shortage
+        // We'll handle this in the transaction section
+      } else {
+        // Calculate what would be delivered
+        const potentialDelivery = items.map(item => {
+          const product = productsData.find(p => p.id === item.productId)!;
+          const available = availability.availableByProduct.get(item.productId) || 0;
+          const toDeliver = Math.min(item.quantity, available);
+          const unitPrice = parseFloat(product.price);
+          return {
+            productId: item.productId,
+            productName: product.name,
+            requested: item.quantity,
+            available,
+            canDeliver: toDeliver,
+            shortage: Math.max(0, item.quantity - available),
+            subtotalIfPartial: (unitPrice * toDeliver).toString(),
+          };
+        });
 
-      const totalRequested = items.reduce((sum, item) => {
-        const product = productsData.find(p => p.id === item.productId)!;
-        return sum + (parseFloat(product.price) * item.quantity);
-      }, 0);
+        const totalRequested = items.reduce((sum, item) => {
+          const product = productsData.find(p => p.id === item.productId)!;
+          return sum + (parseFloat(product.price) * item.quantity);
+        }, 0);
 
-      const totalCanDeliver = potentialDelivery.reduce((sum, item) => {
-        return sum + (parseFloat(item.subtotalIfPartial));
-      }, 0);
+        const totalCanDeliver = potentialDelivery.reduce((sum, item) => {
+          return sum + (parseFloat(item.subtotalIfPartial));
+        }, 0);
 
-      return NextResponse.json({
-        success: true,
-        action: "check",
-        data: {
-          hasShortage: availability.hasShortage,
-          shortageItems: availability.shortages,
-          potentialDelivery,
-          totals: {
-            requested: totalRequested.toString(),
-            canDeliver: totalCanDeliver.toString(),
+        return NextResponse.json({
+          success: true,
+          action: "check",
+          data: {
+            hasShortage: true,
+            shortageItems: availability.shortages,
+            potentialDelivery,
+            totals: {
+              requested: totalRequested.toString(),
+              canDeliver: totalCanDeliver.toString(),
+            },
+            options: {
+              partial: "Create order with available items only",
+              addInventory: "Add missing inventory and complete sale",
+              pending: "Create pending order for unfulfilled items",
+            },
           },
-          options: availability.hasShortage ? {
-            partial: "Create order with available items only",
-            addInventory: "Add missing inventory and complete sale",
-            pending: "Create pending order for unfulfilled items",
-          } : {
-            complete: "Complete sale with all items",
-          },
-        },
-      });
+        });
+      }
     }
 
-    // Handle "fail" action
-    if (availability.hasShortage && shortageAction === "fail") {
+    // Handle "fail" action - only fail if there's actual shortage
+    if (shortageAction === "fail" && availability.hasShortage) {
       return NextResponse.json(
         {
           success: false,
@@ -341,6 +350,11 @@ export async function POST(request: NextRequest) {
         },
         { status: 400 }
       );
+    }
+
+    // If auto-completing (no shortage), treat as "partial" to fulfill all items
+    if (shortageAction === "fail" && !availability.hasShortage) {
+      shortageAction = "partial";
     }
 
     // Process the sale based on action
@@ -373,6 +387,8 @@ export async function POST(request: NextRequest) {
           requestItem.quantity,
           product
         );
+        // Add requestedQuantity to track original request vs delivered
+        (deliveredItems as any).requestedQuantity = requestItem.quantity;
         deliveryItems.push(deliveredItems);
         actualTotal += deliveredItems.quantity * deliveredItems.unitPrice;
         actualQuantity += deliveredItems.quantity;
@@ -491,6 +507,9 @@ export async function POST(request: NextRequest) {
         const unitPrice = deliveryItem.unitPrice;
         const product = productsData.find(p => p.id === deliveryItem.productId);
 
+        const deliveredQuantity = deliveryItem.quantity;
+        const itemSubtotal = (unitPrice * deliveredQuantity).toString();
+
         const [orderItem] = await tx
           .insert(orderItems)
           .values({
@@ -498,12 +517,10 @@ export async function POST(request: NextRequest) {
             productId: deliveryItem.productId,
             productName: product?.name || deliveryItem.productName,
             productSlug: product?.slug || deliveryItem.productId,
-            categoryId: null,
-            categoryName: null,
             deliveryType: product?.deliveryType || "manual",
             price: unitPrice.toString(),
-            quantity: deliveryItem.quantity,
-            subtotal: (unitPrice * deliveryItem.quantity).toString(),
+            quantity: deliveredQuantity,
+            subtotal: itemSubtotal,
             deliveredInventoryIds: sql`${JSON.stringify(
               deliveryItem.items.map((i) => i.inventoryId)
             )}::jsonb`,

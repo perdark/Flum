@@ -1,0 +1,113 @@
+/**
+ * Recalculate Stock Counts API
+ *
+ * POST /api/admin/recalculate-stock - Recalculate stockCount from actual inventory items
+ */
+
+import { NextRequest, NextResponse } from "next/server";
+import { getDb } from "@/db";
+import { products, inventoryItems } from "@/db/schema";
+import { requirePermission } from "@/lib/auth";
+import { PERMISSIONS } from "@/types";
+import { eq, sql } from "drizzle-orm";
+
+export async function POST(request: NextRequest) {
+  try {
+    const user = await requirePermission(PERMISSIONS.MANAGE_PRODUCTS);
+
+    const db = getDb();
+
+    // Get all products
+    const allProducts = await db
+      .select({
+        id: products.id,
+        name: products.name,
+        stockCount: products.stockCount,
+      })
+      .from(products)
+      .where(sql`${products.deletedAt} IS NULL`);
+
+    const results: Array<{
+      productId: string;
+      productName: string;
+      oldStockCount: number;
+      newStockCount: number;
+      difference: number;
+    }> = [];
+
+    const productIds = allProducts.map(p => p.id);
+    
+    // Build count map with defensive check for empty productIds
+    let countMap = new Map<string, number>();
+    
+    if (productIds.length > 0) {
+      const countResults = await db.execute(
+        sql`
+          SELECT product_id, COUNT(*) as count
+          FROM inventory_items
+          WHERE status = 'available'
+            AND deleted_at IS NULL
+            AND product_id IN (${sql.join(productIds.map(id => sql`${id}`), sql`, `)})
+          GROUP BY product_id
+        `
+      );
+      countMap = new Map(countResults.rows.map((row: any) => [row.product_id, parseInt(row.count, 10)]));
+    }
+
+    // Recalculate stock count for each product
+    await db.transaction(async (tx) => {
+      for (const product of allProducts) {
+        const actualCount = countMap.get(product.id) || 0;
+        const oldCount = product.stockCount || 0;
+
+        if (actualCount !== oldCount) {
+          await tx
+            .update(products)
+            .set({
+              stockCount: actualCount,
+              updatedAt: new Date(),
+            })
+            .where(eq(products.id, product.id));
+
+          results.push({
+            productId: product.id,
+            productName: product.name,
+            oldStockCount: oldCount,
+            newStockCount: actualCount,
+            difference: actualCount - oldCount,
+          });
+        }
+      }
+    });
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        totalProductsChecked: allProducts.length,
+        productsUpdated: results.length,
+        updates: results,
+      },
+    });
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === "UNAUTHORIZED") {
+        return NextResponse.json(
+          { success: false, error: "Authentication required" },
+          { status: 401 }
+        );
+      }
+      if (error.message === "FORBIDDEN") {
+        return NextResponse.json(
+          { success: false, error: "Insufficient permissions" },
+          { status: 403 }
+        );
+      }
+    }
+
+    console.error("Recalculate stock error:", error);
+    return NextResponse.json(
+      { success: false, error: "Internal server error" },
+      { status: 500 }
+    );
+  }
+}

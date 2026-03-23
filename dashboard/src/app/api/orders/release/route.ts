@@ -58,13 +58,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Release claim
+    // Release claim and reset fulfillment status to pending
     await db
       .update(orders)
       .set({
         claimedBy: null,
         claimedAt: null,
         claimExpiresAt: null,
+        fulfillmentStatus: "pending",
         updatedAt: new Date(),
       })
       .where(eq(orders.id, orderId));

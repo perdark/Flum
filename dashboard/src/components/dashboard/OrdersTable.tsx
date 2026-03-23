@@ -3,7 +3,7 @@
 /**
  * Orders Table Component
  *
- * Displays list of orders with claim functionality and actions
+ * Displays list of orders with simplified pending order fulfillment
  */
 
 import { useEffect, useState } from "react";
@@ -33,6 +33,7 @@ interface Order {
   claimedAt: string | null;
   claimExpiresAt: string | null;
   claimantName: string | null;
+  processedBy: string | null;
   isClaimedByMe: boolean;
   isClaimExpired: boolean;
   items: OrderItem[];
@@ -60,49 +61,70 @@ export function OrdersTable() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("");
-  const [claimFilter, setClaimFilter] = useState<string>("");
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const [claimingOrderId, setClaimingOrderId] = useState<string | null>(null);
 
   // Processing modal state
   const [processingModal, setProcessingModal] = useState<{
     show: boolean;
     order: Order | null;
   }>({ show: false, order: null });
-  const [inventoryToAdd, setInventoryToAdd] = useState<Record<string, string>>({});
+  // State for field values: Record<productId, Record<fieldName, string>>
+  const [fieldValues, setFieldValues] = useState<Record<string, Record<string, string>>>({});
   const [submittingProcessing, setSubmittingProcessing] = useState(false);
+  const [claimingOrderId, setClaimingOrderId] = useState<string | null>(null);
+  const [deletingOrders, setDeletingOrders] = useState<Record<string, boolean>>({});
+  const [userRole, setUserRole] = useState<'admin' | 'staff' | 'unknown'>('unknown');
+
+  // Fetch orders function - defined outside useEffect so it can be called elsewhere
+  const fetchOrders = async () => {
+    try {
+      const params = new URLSearchParams({
+        page: page.toString(),
+        limit: "20",
+      });
+      if (statusFilter) params.set("status", statusFilter);
+
+      const response = await fetch(`/api/orders?${params}`);
+      const result = await response.json();
+
+      if (result.success) {
+        setOrders(result.data);
+        setTotalPages(result.pagination.totalPages);
+      } else {
+        setError(result.error || "Failed to load orders");
+      }
+    } catch (err) {
+      setError("Network error");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    async function fetchOrders() {
-      try {
-        const params = new URLSearchParams({
-          page: page.toString(),
-          limit: "20",
-        });
-        if (statusFilter) params.set("status", statusFilter);
-        if (claimFilter) params.set("claimStatus", claimFilter);
-
-        const response = await fetch(`/api/orders?${params}`);
-        const result = await response.json();
-
-        if (result.success) {
-          setOrders(result.data);
-          setTotalPages(result.pagination.totalPages);
-        } else {
-          setError(result.error || "Failed to load orders");
-        }
-      } catch (err) {
-        setError("Network error");
-      } finally {
-        setLoading(false);
-      }
-    }
-
     fetchOrders();
     fetchProducts();
     fetchTemplates();
-  }, [page, statusFilter, claimFilter]);
+  }, [page, statusFilter]);
+
+  useEffect(() => {
+    const fetchCurrentUser = async () => {
+      try {
+        const response = await fetch("/api/auth/me");
+        if (!response.ok) {
+          return;
+        }
+        const data = await response.json();
+        if (data.success && data.data?.user?.role) {
+          setUserRole(data.data.user.role);
+        }
+      } catch (err) {
+        console.error("Error fetching current user", err);
+      }
+    };
+
+    fetchCurrentUser();
+  }, []);
 
   const fetchProducts = async () => {
     try {
@@ -145,72 +167,6 @@ export function OrdersTable() {
     }
   };
 
-  const handleClaimNext = async () => {
-    try {
-      setClaimingOrderId("next");
-      const response = await fetch("/api/orders/claim", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ claimNext: true }),
-      });
-
-      const result = await response.json();
-
-      if (result.success) {
-        window.location.reload();
-      } else {
-        alert(result.error || "Failed to claim order");
-        setClaimingOrderId(null);
-      }
-    } catch (err) {
-      alert("Network error");
-      setClaimingOrderId(null);
-    }
-  };
-
-  const handleClaimOrder = async (orderId: string) => {
-    try {
-      setClaimingOrderId(orderId);
-      const response = await fetch("/api/orders/claim", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId }),
-      });
-
-      const result = await response.json();
-
-      if (result.success) {
-        window.location.reload();
-      } else {
-        alert(result.error || "Failed to claim order");
-        setClaimingOrderId(null);
-      }
-    } catch (err) {
-      alert("Network error");
-      setClaimingOrderId(null);
-    }
-  };
-
-  const handleReleaseOrder = async (orderId: string) => {
-    try {
-      const response = await fetch("/api/orders/release", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId }),
-      });
-
-      const result = await response.json();
-
-      if (result.success) {
-        window.location.reload();
-      } else {
-        alert(result.error || "Failed to release order");
-      }
-    } catch (err) {
-      alert("Network error");
-    }
-  };
-
   const handleUpdateOrder = async (orderId: string, action: string, status?: string, fulfillmentStatus?: string) => {
     try {
       const response = await fetch(`/api/orders/${orderId}`, {
@@ -231,18 +187,122 @@ export function OrdersTable() {
     }
   };
 
-  const handleProcessingClick = (order: Order) => {
-    setProcessingModal({ show: true, order });
-    // Initialize inventory to add with empty strings
-    const initialInventory: Record<string, string> = {};
-    order.items.forEach(item => {
+  const handleDeleteOrder = async (orderId: string) => {
+    if (deletingOrders[orderId]) {
+      return;
+    }
+
+    setDeletingOrders((prev) => ({ ...prev, [orderId]: true }));
+
+    try {
+      const response = await fetch(`/api/orders/${orderId}`, {
+        method: "DELETE",
+      });
+
+      if (response.status === 403) {
+        alert("You are not authorized to delete this order.");
+        return;
+      }
+
+      const result = await response.json();
+
+      if (result.success) {
+        window.location.reload();
+      } else {
+        alert(result.error || "Failed to delete order");
+      }
+    } catch (err) {
+      alert("Network error");
+    } finally {
+      setDeletingOrders((prev) => ({ ...prev, [orderId]: false }));
+    }
+  };
+
+  // Get parsed lines for a specific field of a product
+  const getParsedLines = (productId: string, fieldName: string): string[] => {
+    const values = fieldValues[productId]?.[fieldName] || "";
+    return values
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line);
+  };
+
+  // Get count for each field of a product
+  const getFieldCounts = (productId: string): Record<string, number> => {
+    const product = products.find(p => p.id === productId);
+    const templateFields = product?.templateFields || [];
+    const counts: Record<string, number> = {};
+    templateFields.forEach((field) => {
+      counts[field.name] = getParsedLines(productId, field.name).length;
+    });
+    return counts;
+  };
+
+  // Calculate total items for a product (min of all field counts)
+  const getTotalItems = (productId: string): number => {
+    const counts = Object.values(getFieldCounts(productId));
+    return counts.length > 0 ? Math.min(...counts) : 0;
+  };
+
+  const handleProcessingClick = async (order: Order) => {
+    // First, claim the order if not already claimed by me
+    let updatedOrder = order;
+    if (!order.isClaimedByMe || order.isClaimExpired) {
+      try {
+        setClaimingOrderId(order.id);
+        const response = await fetch("/api/orders/claim", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orderId: order.id }),
+        });
+
+        const result = await response.json();
+
+        if (!result.success) {
+          alert(result.error || "Failed to claim order. It may be claimed by another staff member.");
+          setClaimingOrderId(null);
+          return;
+        }
+
+        // Update the order object with the new status
+        updatedOrder = { ...order, fulfillmentStatus: "processing", isClaimedByMe: true, isClaimExpired: false };
+
+        // Refresh orders list to show updated status
+        try {
+          await fetchOrders();
+        } catch (err) {
+          console.error('Failed to refresh orders after claim', err);
+        }
+      } catch (err) {
+        alert("Failed to claim order");
+        setClaimingOrderId(null);
+        return;
+      }
+    }
+
+    setClaimingOrderId(null);
+    setProcessingModal({ show: true, order: updatedOrder });
+    // Initialize empty field values for products with pending items
+    const initialFields: Record<string, Record<string, string>> = {};
+    updatedOrder.items.forEach(item => {
       const delivered = (item.deliveredInventoryIds || []).length;
       const pending = item.quantity - delivered;
-      if (pending > 0) {
-        initialInventory[item.productId] = "";
+      if (pending > 0 && !initialFields[item.productId]) {
+        initialFields[item.productId] = {};
       }
     });
-    setInventoryToAdd(initialInventory);
+    setFieldValues(initialFields);
+  };
+
+  // Update field value for a product
+  const updateFieldValue = (productId: string, fieldName: string, value: string) => {
+    setFieldValues(prev => ({
+      ...prev,
+      [productId]: {
+        ...prev[productId],
+        [fieldName]: value
+      }
+    }));
   };
 
   const handleAddInventoryAndComplete = async () => {
@@ -251,20 +311,26 @@ export function OrdersTable() {
     const order = processingModal.order;
     const inventoryItems: Array<{ productId: string; values: Record<string, string | number | boolean> }> = [];
 
-    // Parse inventory items
+    // Parse inventory items for each product
     for (const item of order.items) {
-      const itemsText = inventoryToAdd[item.productId];
-      if (!itemsText || itemsText.trim().length === 0) continue;
+      const delivered = (item.deliveredInventoryIds || []).length;
+      const pending = item.quantity - delivered;
+
+      if (pending <= 0) continue;
 
       const product = products.find(p => p.id === item.productId);
       const templateFields = product?.templateFields || [];
-      const lines = itemsText.trim().split("\n").map(l => l.trim()).filter(l => l);
+      const totalItems = getTotalItems(item.productId);
 
-      for (const line of lines) {
-        const values = line.split(",").map(v => v.trim());
+      if (totalItems === 0) continue;
+
+      // Build items by combining values row by row
+      for (let i = 0; i < totalItems; i++) {
         const itemObj: Record<string, string | number | boolean> = {};
-        templateFields.forEach((field, index) => {
-          const value = values[index] || "";
+        templateFields.forEach((field) => {
+          const lines = getParsedLines(item.productId, field.name);
+          const value = lines[i] || "";
+
           if (field.type === "number") {
             itemObj[field.name] = parseFloat(value) || 0;
           } else if (field.type === "boolean") {
@@ -325,6 +391,10 @@ export function OrdersTable() {
     switch (status) {
       case "pending":
         return "bg-yellow-950 text-yellow-400 border border-yellow-900";
+      case "processing":
+        return "bg-blue-950 text-blue-400 border border-blue-900";
+      case "delivered":
+        return "bg-green-950 text-green-400 border border-green-900";
       case "completed":
         return "bg-green-950 text-green-400 border border-green-900";
       case "cancelled":
@@ -336,18 +406,32 @@ export function OrdersTable() {
     }
   };
 
-  const getFulfillmentColor = (status: string) => {
+  const getDisplayStatus = (order: Order): string => {
+    if (["completed", "cancelled", "refunded"].includes(order.status)) {
+      return order.status;
+    }
+    if (order.fulfillmentStatus === "processing" || order.fulfillmentStatus === "delivered") {
+      return order.fulfillmentStatus;
+    }
+    return "pending";
+  };
+
+  const getStatusLabel = (status: string): string => {
     switch (status) {
-      case "pending":
-        return "bg-yellow-950 text-yellow-400 border border-yellow-900";
+      case "completed":
+        return "Completed";
+      case "cancelled":
+        return "Cancelled";
+      case "refunded":
+        return "Refunded";
       case "processing":
-        return "bg-blue-950 text-blue-400 border border-blue-900";
+        return "Processing";
       case "delivered":
-        return "bg-green-950 text-green-400 border border-green-900";
-      case "failed":
-        return "bg-red-950 text-red-400 border border-red-900";
+        return "Delivered";
+      case "pending":
+        return "Pending";
       default:
-        return "bg-slate-800 text-slate-400 border border-slate-700";
+        return "Pending";
     }
   };
 
@@ -390,38 +474,6 @@ export function OrdersTable() {
               <option value="completed">Completed</option>
               <option value="cancelled">Cancelled</option>
             </select>
-            <select
-              value={claimFilter}
-              onChange={(e) => {
-                setClaimFilter(e.target.value);
-                setPage(1);
-              }}
-              className="px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">All Claims</option>
-              <option value="unclaimed">Unclaimed</option>
-              <option value="mine">Claimed by me</option>
-              <option value="others">Claimed by others</option>
-            </select>
-            <button
-              onClick={handleClaimNext}
-              disabled={claimingOrderId !== null}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
-            >
-              {claimingOrderId === "next" ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Claiming...
-                </>
-              ) : (
-                <>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  Claim Next
-                </>
-              )}
-            </button>
           </div>
         </div>
 
@@ -446,7 +498,7 @@ export function OrdersTable() {
                   Status
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">
-                  Claim
+                  Sold By
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">
                   Date
@@ -466,11 +518,17 @@ export function OrdersTable() {
                   return delivered < item.quantity;
                 });
 
+                // Calculate total pending items
+                const pendingCount = order.items.reduce((sum, item) => {
+                  const delivered = (item.deliveredInventoryIds || []).length;
+                  return sum + (item.quantity - delivered);
+                }, 0);
+
                 return (
                   <tr
                     key={order.id}
                     className={`hover:bg-slate-800 ${
-                      isClaimedByMe ? "bg-blue-900/10" : isClaimedByOther ? "bg-slate-800/50" : ""
+                      isClaimedByMe ? "bg-blue-900/10" : isClaimedByOther ? "bg-orange-900/10" : ""
                     }`}
                   >
                     <td className="px-4 py-4 text-sm text-slate-400 font-mono">
@@ -486,58 +544,48 @@ export function OrdersTable() {
                     </td>
                     <td className="px-4 py-4 text-sm text-slate-400">
                       {order.items.length} item(s)
-                      {hasPendingItems && (
-                        <span className="ml-2 text-yellow-400">(pending)</span>
+                      {hasPendingItems ? (
+                        <span className="ml-2 text-yellow-400">({pendingCount} pending)</span>
+                      ) : (
+                        <span className="ml-2 text-green-400">(all delivered)</span>
+                      )}
+                      {process.env.NODE_ENV !== 'production' && (
+                        <span className="ml-2 text-slate-600 text-xs">
+                          [{order.items.map(i => `${(i.deliveredInventoryIds || []).length}/${i.quantity}`).join(', ')}]
+                        </span>
                       )}
                     </td>
                     <td className="px-4 py-4 font-medium text-white">
                       {formatCurrency(order.total)}
                     </td>
                     <td className="px-4 py-4">
-                      {/* Show single status tag - use fulfillmentStatus for pending orders */}
-                      <span
-                        className={`px-2 py-1 rounded text-sm ${
-                          order.status === "pending"
-                            ? getFulfillmentColor(order.fulfillmentStatus)
-                            : getStatusColor(order.status)
-                        }`}
-                      >
-                        {order.status === "pending"
-                          ? (order.fulfillmentStatus === "processing" ? "Processing" : "Pending")
-                          : order.status
-                        }
-                      </span>
+                      {(() => {
+                        const displayStatus = getDisplayStatus(order);
+                        return (
+                          <span className={`px-2 py-1 rounded text-sm ${getStatusColor(displayStatus)}`}>
+                            {getStatusLabel(displayStatus)}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="px-4 py-4">
                       {order.claimedBy && !isExpired ? (
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={`px-2 py-1 rounded text-xs ${
-                              isClaimedByMe
-                                ? "bg-blue-900/50 text-blue-400 border border-blue-800"
-                                : "bg-slate-700 text-slate-400"
-                            }`}
-                          >
-                            {order.claimantName || order.claimedBy?.slice(0, 8)}
-                            {isClaimedByMe && " (You)"}
-                          </span>
-                          {(isClaimedByMe || isExpired) && (
-                            <button
-                              onClick={() => handleReleaseOrder(order.id)}
-                              className="text-red-400 hover:text-red-300 text-xs"
-                            >
-                              Release
-                            </button>
-                          )}
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => handleClaimOrder(order.id)}
-                          disabled={claimingOrderId === order.id}
-                          className="text-slate-400 hover:text-white text-xs disabled:opacity-50"
+                        <span
+                          className={`px-2 py-1 rounded text-xs ${
+                            isClaimedByMe
+                              ? "bg-blue-900/50 text-blue-400 border border-blue-800"
+                              : "bg-slate-700 text-slate-400"
+                          }`}
                         >
-                          {claimingOrderId === order.id ? "..." : "Claim"}
-                        </button>
+                          {order.claimantName || order.claimedBy?.slice(0, 8)}
+                          {isClaimedByMe && " (You)"}
+                        </span>
+                      ) : order.processedBy ? (
+                        <span className="px-2 py-1 rounded text-xs bg-green-900/50 text-green-400 border border-green-800">
+                          {order.processedBy}
+                        </span>
+                      ) : (
+                        <span className="text-slate-500 text-xs">-</span>
                       )}
                     </td>
                     <td className="px-4 py-4 text-sm text-slate-400">
@@ -552,34 +600,26 @@ export function OrdersTable() {
                           View
                         </Link>
 
-                        {/* Toggle Processing button - toggles between pending and processing */}
-                        {isClaimedByMe && order.status === "pending" && (
-                          <button
-                            onClick={() => {
-                              const newFulfillmentStatus = order.fulfillmentStatus === "pending" ? "processing" : "pending";
-                              handleUpdateOrder(order.id, "update_status", undefined, newFulfillmentStatus);
-                            }}
-                            className={order.fulfillmentStatus === "pending"
-                              ? "text-yellow-400 hover:text-yellow-300 text-sm"
-                              : "text-blue-400 hover:text-blue-300 text-sm"
-                            }
-                          >
-                            {order.fulfillmentStatus === "pending" ? "Processing" : "Pending"}
-                          </button>
+                        {/* Show who's working on this order if claimed by someone else */}
+                        {hasPendingItems && order.claimedBy && !isClaimedByMe && !isExpired && (
+                          <span className="text-slate-500 text-xs italic">
+                            {order.claimantName || "Someone"} working on it
+                          </span>
                         )}
 
-                        {/* Add Items button - only shows when fulfillmentStatus is processing and has pending items */}
-                        {isClaimedByMe && order.fulfillmentStatus === "processing" && hasPendingItems && (
+                        {/* Fulfill Pending button - shows for ANY order with pending items */}
+                        {hasPendingItems && (
                           <button
                             onClick={() => handleProcessingClick(order)}
-                            className="text-green-400 hover:text-green-300 text-sm"
+                            disabled={claimingOrderId === order.id || Boolean(order.claimedBy && !isClaimedByMe && !isExpired)}
+                            className="text-yellow-400 hover:text-yellow-300 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            Add Items
+                            {claimingOrderId === order.id ? "Claiming..." : `Fulfill Pending (${pendingCount})`}
                           </button>
                         )}
 
-                        {/* Complete button - when processing but no pending items */}
-                        {isClaimedByMe && order.fulfillmentStatus === "processing" && !hasPendingItems && (
+                        {/* Complete button - when no pending items */}
+                        {!hasPendingItems && order.status !== "completed" && order.status !== "cancelled" && isClaimedByMe && (
                           <button
                             onClick={() => handleUpdateOrder(order.id, "update_status", "completed", "delivered")}
                             className="text-green-400 hover:text-green-300 text-sm"
@@ -588,7 +628,7 @@ export function OrdersTable() {
                           </button>
                         )}
 
-                        {/* Cancel button */}
+                        {/* Cancel button - only for claimant */}
                         {isClaimedByMe && order.status === "pending" && (
                           <button
                             onClick={() => {
@@ -599,6 +639,22 @@ export function OrdersTable() {
                             className="text-red-400 hover:text-red-300 text-sm"
                           >
                             Cancel
+                          </button>
+                        )}
+
+                        {/* Delete button - restricted by role / order status */}
+                        {((userRole === 'admin') || ['pending', 'cancelled'].includes(order.status)) && (
+                          <button
+                            onClick={() => {
+                              if (deletingOrders[order.id]) return;
+                              if (confirm("Are you sure you want to DELETE this order? This cannot be undone.")) {
+                                handleDeleteOrder(order.id);
+                              }
+                            }}
+                            disabled={deletingOrders[order.id]}
+                            className="text-red-600 hover:text-red-500 text-sm underline disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {deletingOrders[order.id] ? "Deleting..." : "Delete"}
                           </button>
                         )}
                       </div>
@@ -639,11 +695,11 @@ export function OrdersTable() {
       {/* Processing Modal - Add Items to Pending Order */}
       {processingModal.show && processingModal.order && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 rounded-lg border border-slate-700 w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+          <div className="bg-slate-800 rounded-lg border border-slate-700 w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
             {/* Header */}
             <div className="p-6 border-b border-slate-700">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-bold text-white">Add Items to Pending Order</h2>
+                <h2 className="text-xl font-bold text-white">Fulfill Pending Order</h2>
                 <button
                   onClick={() => setProcessingModal({ show: false, order: null })}
                   className="p-1 text-slate-400 hover:text-white"
@@ -663,8 +719,11 @@ export function OrdersTable() {
 
             {/* Content */}
             <div className="p-6 overflow-y-auto flex-1">
-              <h3 className="text-white font-medium mb-4">Pending Items</h3>
-              <div className="space-y-4">
+              <h3 className="text-white font-medium mb-4">Add Inventory to Fulfill Pending Items</h3>
+              <p className="text-slate-400 text-sm mb-4">
+                Enter values for each field (one value per line). Items will be created by combining values in order.
+              </p>
+              <div className="space-y-6">
                 {processingModal.order.items.map((item) => {
                   const delivered = (item.deliveredInventoryIds || []).length;
                   const pending = item.quantity - delivered;
@@ -672,41 +731,82 @@ export function OrdersTable() {
                   if (pending <= 0) return null;
 
                   const templateFields = getTemplateFieldsForProduct(item.productId);
+                  const fieldCounts = getFieldCounts(item.productId);
+                  const totalItems = getTotalItems(item.productId);
+                  const counts = Object.values(fieldCounts);
+                  const minCount = counts.length > 0 ? Math.min(...counts) : 0;
+                  const maxCount = counts.length > 0 ? Math.max(...counts) : 0;
+                  const hasMismatch = minCount > 0 && maxCount > minCount;
 
                   return (
                     <div key={item.id} className="p-4 bg-slate-900 rounded-lg">
-                      <div className="flex justify-between items-center mb-2">
+                      <div className="flex justify-between items-center mb-4">
                         <span className="text-white font-medium">{item.productName}</span>
-                        <span className="text-yellow-400 text-sm">{pending} pending</span>
+                        <div className="flex items-center gap-3">
+                          <span className="text-yellow-400 text-sm">Need: {pending}</span>
+                          {totalItems > 0 && (
+                            <span className="text-green-400 text-sm">Will add: {totalItems}</span>
+                          )}
+                        </div>
                       </div>
 
-                      {/* Template fields info */}
-                      {templateFields.length > 0 && (
-                        <div className="mb-2 p-2 bg-slate-800 rounded text-xs">
-                          <span className="text-slate-400">Fields: </span>
-                          {templateFields.map((f, i) => (
-                            <span key={f.name} className="inline-block mr-2">
-                              <span className="text-blue-400">{f.name}</span>
-                              {f.required && <span className="text-red-400">*</span>}
-                              {i < templateFields.length - 1 && <span className="text-slate-500">, </span>}
-                            </span>
+                      {templateFields.length === 0 ? (
+                        <div className="p-3 bg-slate-800/50 rounded border border-slate-700 text-slate-400 text-sm">
+                          No template fields configured for this product.
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {templateFields.map((field) => (
+                            <div key={field.name}>
+                              <label className="block text-sm font-medium text-slate-300 mb-1">
+                                {field.label || field.name}
+                                {field.required && <span className="text-red-400"> *</span>}
+                                <span className="text-slate-500 font-normal ml-2">
+                                  ({fieldCounts[field.name]} {fieldCounts[field.name] === 1 ? 'line' : 'lines'})
+                                </span>
+                              </label>
+                              <textarea
+                                value={fieldValues[item.productId]?.[field.name] || ""}
+                                onChange={(e) => updateFieldValue(item.productId, field.name, e.target.value)}
+                                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
+                                rows={5}
+                                placeholder={`Enter one value per line\nExample:\nABC\nFVB`}
+                              />
+                            </div>
                           ))}
                         </div>
                       )}
 
-                      <textarea
-                        value={inventoryToAdd[item.productId] || ""}
-                        onChange={(e) => setInventoryToAdd(prev => ({
-                          ...prev,
-                          [item.productId]: e.target.value
-                        }))}
-                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
-                        rows={4}
-                        placeholder={`Enter items to add (one per line)&#10;Example: ${templateFields.map(f => f.name).join(", ")}&#10;${templateFields.map(() => "XXX").join(", ")}`}
-                      />
-                      <p className="text-xs text-slate-500 mt-2">
-                        Add items to fulfill this order. Any extra items will remain in inventory for future sales.
-                      </p>
+                      {/* Warning for mismatched counts */}
+                      {hasMismatch && (
+                        <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                          <p className="text-yellow-200 text-sm">
+                            Only the first <strong>{minCount}</strong> items will be created (some fields have fewer values).
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Preview */}
+                      {totalItems > 0 && templateFields.length > 0 && (
+                        <div className="mt-4 p-3 bg-slate-800/50 rounded border border-slate-700">
+                          <p className="text-xs text-slate-400 mb-2">Preview (first 3 items):</p>
+                          <div className="space-y-1">
+                            {Array.from({ length: Math.min(3, totalItems) }).map((_, i) => (
+                              <div key={i} className="text-xs font-mono text-slate-300">
+                                {templateFields.map((f) => {
+                                  const lines = getParsedLines(item.productId, f.name);
+                                  return lines[i] || "-";
+                                }).join(" → ")}
+                              </div>
+                            ))}
+                            {totalItems > 3 && (
+                              <div className="text-xs text-slate-500 italic">
+                                ... and {totalItems - 3} more
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -728,7 +828,7 @@ export function OrdersTable() {
                 disabled={submittingProcessing}
                 className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors font-medium disabled:opacity-50"
               >
-                {submittingProcessing ? "Adding..." : "Add Items & Complete Order"}
+                {submittingProcessing ? "Adding..." : "Add Items & Fulfill Order"}
               </button>
             </div>
           </div>

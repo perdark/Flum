@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { inventoryItems, products, inventoryBatches } from "@/db/schema";
+import { inventoryItems, products, inventoryBatches, orders, orderItems } from "@/db/schema";
 import { requirePermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
 import { eq, and, sql, desc, like, or } from "drizzle-orm";
@@ -119,7 +119,7 @@ export async function POST(request: NextRequest) {
     const user = await requirePermission(PERMISSIONS.MANAGE_INVENTORY);
 
     const body = await request.json();
-    const { productId, items, batchId, batchName } = body;
+    const { productId, items, batchId, batchName, sellPendingFirst } = body;
 
     // Validate input
     if (!productId || !Array.isArray(items) || items.length === 0) {
@@ -190,11 +190,172 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Insert inventory items
+    // If sellPendingFirst is true, handle pending orders first in one atomic transaction
+    let fulfilledOrders: string[] = [];
+    let itemsConsumed = 0;
+    let insertedItems: Array<any> = [];
+
+    await db.transaction(async (tx) => {
+      if (sellPendingFirst) {
+        // Get pending orders for this product
+        const pendingOrderItems = await tx
+          .select({
+            orderId: orderItems.orderId,
+            orderItemId: orderItems.id,
+            quantity: orderItems.quantity,
+            deliveredIds: orderItems.deliveredInventoryIds,
+          })
+          .from(orderItems)
+          .innerJoin(orders, eq(orderItems.orderId, orders.id))
+          .where(
+            and(
+              eq(orderItems.productId, productId),
+              sql`${orders.deletedAt} IS NULL`,
+              sql`(${orders.status} = 'pending' OR ${orders.fulfillmentStatus} = 'processing')`
+            )
+          );
+
+        // Fulfill pending orders with the new inventory
+        for (const pendingItem of pendingOrderItems) {
+          const delivered = (pendingItem.deliveredIds as string[] || []).length;
+          const stillNeeded = pendingItem.quantity - delivered;
+          const toFulfill = Math.min(stillNeeded, items.length - itemsConsumed);
+
+          if (toFulfill <= 0) {
+            continue;
+          }
+
+          const soldItemIds: string[] = [];
+          for (let j = 0; j < toFulfill; j++) {
+            const values = items[itemsConsumed + j];
+            const [inserted] = await tx
+              .insert(inventoryItems)
+              .values({
+                productId,
+                templateId: product.inventoryTemplateId!,
+                batchId: finalBatchId || null,
+                values,
+                status: "sold",
+                purchasedAt: new Date(),
+                orderItemId: pendingItem.orderItemId,
+              })
+              .returning();
+            soldItemIds.push(inserted.id);
+          }
+
+          itemsConsumed += toFulfill;
+
+          // Update order item with new inventory IDs
+          const updatedIds = [...(pendingItem.deliveredIds as string[] || []), ...soldItemIds];
+          await tx
+            .update(orderItems)
+            .set({
+              deliveredInventoryIds: sql`${JSON.stringify(updatedIds)}::jsonb`,
+            })
+            .where(eq(orderItems.id, pendingItem.orderItemId));
+
+          // Update product totalSold
+          await tx
+            .update(products)
+            .set({
+              totalSold: sql`${products.totalSold} + ${toFulfill}`,
+              updatedAt: new Date(),
+            })
+            .where(eq(products.id, productId));
+
+          fulfilledOrders.push(pendingItem.orderId);
+
+          // Check if order is now fully fulfilled
+          const orderItemsForOrder = await tx
+            .select({ quantity: orderItems.quantity, deliveredIds: orderItems.deliveredInventoryIds })
+            .from(orderItems)
+            .where(eq(orderItems.orderId, pendingItem.orderId));
+
+          const allFulfilled = orderItemsForOrder.every(oi => {
+            const delivered = (oi.deliveredIds as string[] || []).length;
+            return delivered >= oi.quantity;
+          });
+
+          if (allFulfilled) {
+            await tx
+              .update(orders)
+              .set({
+                status: "completed",
+                fulfillmentStatus: "delivered",
+                deliveredAt: new Date(),
+                claimedBy: null,
+                claimedAt: null,
+                claimExpiresAt: null,
+                updatedAt: new Date(),
+              })
+              .where(eq(orders.id, pendingItem.orderId));
+          }
+
+          if (itemsConsumed >= items.length) {
+            break;
+          }
+        }
+      }
+
+      // Calculate how many items are left after fulfilling pending orders
+      const itemsToCreate = sellPendingFirst ? items.slice(itemsConsumed) : items;
+
+      if (itemsToCreate.length > 0) {
+        insertedItems = await tx
+          .insert(inventoryItems)
+          .values(
+            itemsToCreate.map((values: Record<string, unknown>) => ({
+              productId,
+              templateId: product.inventoryTemplateId!,
+              batchId: finalBatchId || null,
+              values,
+              status: "available" as const,
+            }))
+          )
+          .returning();
+
+        await tx
+          .update(products)
+          .set({
+            stockCount: sql`${products.stockCount} + ${itemsToCreate.length}`,
+            updatedAt: new Date(),
+          })
+          .where(eq(products.id, productId));
+      }
+    });
+
+    // Log activity (log once per batch)
+    await logActivity({
+      userId: user.id,
+      action: "inventory_added",
+      entity: "inventory",
+      entityId: insertedItems[0]?.id || productId,
+      metadata: {
+        productId,
+        productName: product.name,
+        quantity: items.length,
+        batchId: finalBatchId,
+        batchName,
+        fulfilledOrders: fulfilledOrders.length > 0 ? fulfilledOrders : undefined,
+      },
+    });
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        totalAdded: items.length,
+        availableCount: insertedItems.length,
+        fulfilledCount: fulfilledOrders.length,
+        items: insertedItems,
+        batchId: finalBatchId,
+        fulfilledOrders: fulfilledOrders.length > 0 ? fulfilledOrders : undefined,
+      },
+    }, { status: 201 });
+    // Insert remaining inventory items as available
     const insertedItems = await db
       .insert(inventoryItems)
       .values(
-        items.map((values: Record<string, unknown>) => ({
+        itemsToCreate.map((values: Record<string, unknown>) => ({
           productId,
           templateId: product.inventoryTemplateId!,
           batchId: finalBatchId || null,
@@ -204,36 +365,40 @@ export async function POST(request: NextRequest) {
       )
       .returning();
 
-    // Update product stock count
-    await db
-      .update(products)
-      .set({
-        stockCount: sql`${products.stockCount} + ${items.length}`,
-        updatedAt: new Date(),
-      })
-      .where(eq(products.id, productId));
+    // Update product stock count (only for available items)
+    if (itemsToCreate.length > 0) {
+      await db
+        .update(products)
+        .set({
+          stockCount: sql`${products.stockCount} + ${itemsToCreate.length}`,
+          updatedAt: new Date(),
+        })
+        .where(eq(products.id, productId));
+    }
 
     // Log activity (log once per batch)
     await logActivity({
       userId: user.id,
       action: "inventory_added",
       entity: "inventory",
-      entityId: insertedItems[0].id,
+      entityId: insertedItems[0]?.id || productId,
       metadata: {
         productId,
         productName: product.name,
         quantity: items.length,
         batchId: finalBatchId,
         batchName,
+        fulfilledOrders: fulfilledOrders.length > 0 ? fulfilledOrders : undefined,
       },
     });
 
     return NextResponse.json({
       success: true,
       data: {
-        count: insertedItems.length,
+        count: items.length,
         items: insertedItems,
         batchId: finalBatchId,
+        fulfilledOrders: fulfilledOrders.length > 0 ? fulfilledOrders : undefined,
       },
     }, { status: 201 });
   } catch (error) {

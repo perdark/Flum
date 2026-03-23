@@ -75,9 +75,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
 
     // Check if order is in pending status
-    if (order.status !== "pending" || order.fulfillmentStatus !== "processing") {
+    if (order.status !== "pending") {
       return NextResponse.json(
-        { success: false, error: "Order must be in pending status with processing fulfillment" },
+        { success: false, error: "Order must be in pending status" },
         { status: 400 }
       );
     }
@@ -86,6 +86,17 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const isClaimExpired = order.claimExpiresAt && order.claimExpiresAt < new Date();
     const isClaimedByMe = order.claimedBy === user.id;
     const isClaimedByOther = order.claimedBy && !isClaimedByMe && !isClaimExpired;
+
+    // If claimed by someone else, deny access
+    if (isClaimedByOther) {
+      return NextResponse.json(
+        { success: false, error: "Order is claimed by another staff member" },
+        { status: 403 }
+      );
+    }
+
+    // Auto-set to processing if claimed by me but status wasn't updated yet
+    const needsProcessingUpdate = isClaimedByMe && order.fulfillmentStatus !== "processing";
 
     if (!isAdmin && isClaimedByOther) {
       // Get claimant name
@@ -130,6 +141,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     // Process fulfillment
     const result = await db.transaction(async (tx) => {
+      if (needsProcessingUpdate) {
+        await tx.update(orders)
+          .set({ fulfillmentStatus: "processing" })
+          .where(eq(orders.id, orderId));
+      }
+
       const fulfilledItems: Array<{
         productName: string;
         newlyFulfilled: number;

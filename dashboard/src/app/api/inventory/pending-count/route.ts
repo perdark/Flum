@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
     const result = await db
       .select({
         totalRequested: sql<number>`sum(${orderItems.quantity})::int`,
-        totalDelivered: sql<number>`sum(array_length(${orderItems.deliveredInventoryIds}, 1))::int`,
+        totalDelivered: sql<number>`sum(CASE WHEN jsonb_typeof(${orderItems.deliveredInventoryIds}) = 'array' THEN jsonb_array_length(${orderItems.deliveredInventoryIds}) ELSE 0 END)::int`,
         pendingOrdersCount: sql<number>`count(distinct ${orders.id})::int`,
       })
       .from(orderItems)

@@ -24,7 +24,7 @@ interface Product {
   reservedCount: number;
   soldCount: number;
   templateName: string | null;
-  categorys: Category[];
+  categories: Category[];
 }
 
 interface InventoryItem {
@@ -48,7 +48,7 @@ export default function InventoryPage() {
   const productIdParam = searchParams.get("productId");
 
   const [products, setProducts] = useState<Product[]>([]);
-  const [categorys, setCategorys] = useState<Category[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(productIdParam);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -61,10 +61,10 @@ export default function InventoryPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [showAddModal, setShowAddModal] = useState(false);
 
-  // Fetch products summary and categorys
+  // Fetch products summary and categories
   useEffect(() => {
     fetchProducts();
-    fetchCategorys();
+    fetchCategories();
   }, [categoryFilter]);
 
   // Fetch inventory when product is selected
@@ -94,21 +94,21 @@ export default function InventoryPage() {
     }
   };
 
-  const fetchCategorys = async () => {
+  const fetchCategories = async () => {
     try {
-      const res = await fetch("/api/categorys?asTree=true");
+      const res = await fetch("/api/categories?asTree=true");
       const data = await res.json();
       if (data.success) {
         // Flatten tree for dropdown
-        const flat = flattenCategorys(data.data);
-        setCategorys(flat);
+        const flat = flattenCategories(data.data);
+        setCategories(flat);
       }
     } catch (err) {
-      console.error("Failed to load categorys");
+      console.error("Failed to load categories");
     }
   };
 
-  const flattenCategorys = (
+  const flattenCategories = (
     nodes: any[],
     prefix = "",
     depth = 0
@@ -117,7 +117,7 @@ export default function InventoryPage() {
     for (const node of nodes) {
       result.push({ id: node.id, name: prefix + node.name, parentId: null, depth });
       if (node.children && node.children.length > 0) {
-        result.push(...flattenCategorys(node.children, prefix + node.name + " / ", depth + 1));
+        result.push(...flattenCategories(node.children, prefix + node.name + " / ", depth + 1));
       }
     }
     return result;
@@ -266,8 +266,8 @@ export default function InventoryPage() {
                 onChange={(e) => setCategoryFilter(e.target.value)}
                 className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
               >
-                <option value="">All Categorys</option>
-                {categorys.map((p) => (
+                <option value="">All Categories</option>
+                {categories.map((p) => (
                   <option key={p.id} value={p.id}>
                     {"\u00A0".repeat((p.depth || 0) * 2) + p.name}
                   </option>
@@ -293,9 +293,9 @@ export default function InventoryPage() {
                         {product.name}
                       </div>
                       {/* Category chips */}
-                      {product.categorys && product.categorys.length > 0 && (
+                      {product.categories && product.categories.length > 0 && (
                         <div className="flex flex-wrap gap-1 mb-2">
-                          {product.categorys.slice(0, 2).map((p) => (
+                          {product.categories.slice(0, 2).map((p) => (
                             <span
                               key={p.id}
                               className="px-1.5 py-0.5 bg-slate-600 text-slate-300 text-xs rounded"
@@ -303,9 +303,9 @@ export default function InventoryPage() {
                               {p.name}
                             </span>
                           ))}
-                          {product.categorys.length > 2 && (
+                          {product.categories.length > 2 && (
                             <span className="px-1.5 py-0.5 bg-slate-600 text-slate-300 text-xs rounded">
-                              +{product.categorys.length - 2}
+                              +{product.categories.length - 2}
                             </span>
                           )}
                         </div>
@@ -362,9 +362,9 @@ export default function InventoryPage() {
                     {selectedProduct?.name}
                   </h2>
                   <div className="flex items-center gap-2 mt-1">
-                    {selectedProduct?.categorys && selectedProduct.categorys.length > 0 && (
+                    {selectedProduct?.categories && selectedProduct.categories.length > 0 && (
                       <div className="flex flex-wrap gap-1">
-                        {selectedProduct.categorys.map((p) => (
+                        {selectedProduct.categories.map((p) => (
                           <span
                             key={p.id}
                             className="px-2 py-0.5 bg-blue-900/50 text-blue-300 text-xs rounded"
@@ -536,7 +536,8 @@ function AddInventoryModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
-  const [items, setItems] = useState("");
+  // State for each field's textarea values
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
   const [batchName, setBatchName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [pendingData, setPendingData] = useState<{ pendingItems: number; pendingOrdersCount: number } | null>(null);
@@ -558,31 +559,72 @@ function AddInventoryModal({
     fetchPendingCount();
   }, [productId]);
 
+  // Get parsed lines for each field
+  const getParsedLines = (fieldName: string): string[] => {
+    const value = fieldValues[fieldName] || "";
+    return value
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line);
+  };
+
+  // Get count for each field
+  const fieldCounts = templateFields.reduce((acc, field) => {
+    acc[field.name] = getParsedLines(field.name).length;
+    return acc;
+  }, {} as Record<string, number>);
+
+  // Find min and max counts
+  const counts = Object.values(fieldCounts);
+  const minCount = counts.length > 0 ? Math.min(...counts) : 0;
+  const maxCount = counts.length > 0 ? Math.max(...counts) : 0;
+  const hasMismatch = minCount > 0 && maxCount > minCount;
+
+  // Total items that will be created (min of all field counts)
+  const totalItems = minCount;
+
+  // Find which fields have fewer/more items
+  const fieldsWithMismatch: { field: string; count: number; isLess: boolean }[] = [];
+  if (hasMismatch) {
+    templateFields.forEach((field) => {
+      if (fieldCounts[field.name] !== maxCount) {
+        fieldsWithMismatch.push({ field: field.label || field.name, count: fieldCounts[field.name], isLess: true });
+      }
+    });
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!items.trim()) {
-      alert("Please enter inventory items");
+    // Validate at least one field has values
+    if (totalItems === 0) {
+      alert("Please enter values in at least one field");
       return;
     }
 
-    // Parse items (one per line, comma-separated values)
-    const lines = items.trim().split("\n");
-    const parsedItems = lines
-      .map((line) => line.trim())
-      .filter((line) => line)
-      .map((line) => {
-        const values = line.split(",").map((v) => v.trim());
-        // Build object based on template fields
-        const itemObj: Record<string, string> = {};
-        templateFields.forEach((field, index) => {
-          itemObj[field.name] = values[index] || "";
-        });
-        return itemObj;
+    // Build items by combining values row by row
+    const parsedItems: Record<string, string>[] = [];
+    for (let i = 0; i < totalItems; i++) {
+      const itemObj: Record<string, string> = {};
+      templateFields.forEach((field) => {
+        const lines = getParsedLines(field.name);
+        itemObj[field.name] = lines[i] || "";
       });
+      parsedItems.push(itemObj);
+    }
 
-    if (parsedItems.length === 0) {
-      alert("No valid items to add");
+    // Validate required fields are not empty
+    const validationErrors: string[] = [];
+    parsedItems.forEach((item, itemIndex) => {
+      templateFields.forEach((field) => {
+        if (field.required && !item[field.name]?.trim()) {
+          validationErrors.push(`Item ${itemIndex + 1}: "${field.label || field.name}" is required but empty`);
+        }
+      });
+    });
+
+    if (validationErrors.length > 0) {
+      alert("Validation errors:\n" + validationErrors.slice(0, 5).join("\n") + (validationErrors.length > 5 ? "\n..." : ""));
       return;
     }
 
@@ -595,12 +637,16 @@ function AddInventoryModal({
           productId,
           items: parsedItems,
           batchName: batchName || undefined,
+          sellPendingFirst: sellPendingFirst,
         }),
       });
 
       const data = await res.json();
 
       if (data.success) {
+        if (data.data.fulfilledOrders && data.data.fulfilledOrders.length > 0) {
+          alert(`Added ${data.data.count} items and fulfilled ${data.data.fulfilledOrders.length} pending order(s)!`);
+        }
         onSuccess();
       } else {
         alert(data.error || "Failed to add inventory");
@@ -613,8 +659,8 @@ function AddInventoryModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-slate-800 rounded-lg border border-slate-700 w-full max-w-lg p-6">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 overflow-y-auto py-8">
+      <div className="bg-slate-800 rounded-lg border border-slate-700 w-full max-w-2xl p-6 my-auto">
         <h2 className="text-xl font-bold text-white mb-4">
           Add Inventory - {productName}
         </h2>
@@ -646,24 +692,6 @@ function AddInventoryModal({
           </div>
         )}
 
-        {/* Template info */}
-        {templateFields.length > 0 && (
-          <div className="mb-4 p-3 bg-slate-900/50 rounded border border-slate-700">
-            <p className="text-sm text-slate-400 mb-2">Template fields:</p>
-            <div className="flex flex-wrap gap-2 text-xs">
-              {templateFields.map((f) => (
-                <span key={f.name} className="px-2 py-1 bg-slate-700 rounded">
-                  {f.name}
-                  {f.required && <span className="text-red-400"> *</span>}
-                </span>
-              ))}
-            </div>
-            <p className="text-xs text-slate-500 mt-2">
-              Enter values in order: {templateFields.map((f) => f.name).join(", ")}
-            </p>
-          </div>
-        )}
-
         <form onSubmit={handleSubmit}>
           <div className="mb-4">
             <label className="block text-sm font-medium text-slate-300 mb-1">
@@ -678,28 +706,103 @@ function AddInventoryModal({
             />
           </div>
 
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-slate-300 mb-1">
-              Inventory Items *
-            </label>
-            <textarea
-              value={items}
-              onChange={(e) => setItems(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
-              rows={10}
-              placeholder={templateFields.length > 0
-                ? `One item per line, comma-separated values\nExample: ${templateFields.map((f) => f.name).join(", ")}`
-                : "One item per line, comma-separated values\nXXXXX-XXXXX-XXXXX, extra info"
-              }
-              required
-            />
-            <p className="text-xs text-slate-500 mt-1">
-              {templateFields.length > 0
-                ? `Values should be in order: ${templateFields.map((f) => f.name).join(", ")}`
-                : "First value will be used as the key/code"
-              }
+          {/* Field inputs */}
+          <div className="mb-4 space-y-4">
+            <p className="text-sm text-slate-400">
+              Enter values for each field (one value per line). Items will be created by combining values in order.
             </p>
+
+            {templateFields.length === 0 ? (
+              <div className="p-3 bg-slate-900/50 rounded border border-slate-700 text-slate-400 text-sm">
+                No template fields configured for this product.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {templateFields.map((field) => (
+                  <div key={field.name}>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">
+                      {field.label || field.name}
+                      {field.required && <span className="text-red-400"> *</span>}
+                      <span className="text-slate-500 font-normal ml-2">
+                        ({fieldCounts[field.name]} {fieldCounts[field.name] === 1 ? 'line' : 'lines'})
+                      </span>
+                    </label>
+                    <textarea
+                      value={fieldValues[field.name] || ""}
+                      onChange={(e) => setFieldValues({ ...fieldValues, [field.name]: e.target.value })}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
+                      rows={6}
+                      placeholder={`Enter one value per line\nExample:\nABC\nFVB`}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
+
+          {/* Items count preview */}
+          {totalItems > 0 && (
+            <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+              <div className="flex items-center justify-between">
+                <span className="text-blue-200 text-sm">
+                  Will create <strong>{totalItems}</strong> item(s)
+                </span>
+                {hasMismatch && (
+                  <span className="text-yellow-400 text-xs">
+                    Some fields have extra values
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Warning for mismatched counts */}
+          {hasMismatch && (
+            <div className="mb-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+              <div className="flex items-start gap-3">
+                <svg className="w-5 h-5 text-yellow-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <div className="flex-1">
+                  <p className="text-yellow-200 text-sm font-medium">
+                    Field count mismatch detected
+                  </p>
+                  <p className="text-yellow-200/70 text-xs mt-1">
+                    Only the first {totalItems} items will be created. The following fields have fewer values:
+                  </p>
+                  <ul className="text-xs text-yellow-200/70 mt-1 list-disc list-inside">
+                    {fieldsWithMismatch.map((m) => (
+                      <li key={m.field}>
+                        <strong>{m.field}</strong>: {m.count} value{m.count !== 1 ? 's' : ''} (needs {maxCount})
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Preview first few items */}
+          {totalItems > 0 && templateFields.length > 0 && (
+            <div className="mb-4 p-3 bg-slate-900/50 rounded border border-slate-700">
+              <p className="text-xs text-slate-400 mb-2">Preview (first 3 items):</p>
+              <div className="space-y-1">
+                {Array.from({ length: Math.min(3, totalItems) }).map((_, i) => (
+                  <div key={i} className="text-xs font-mono text-slate-300">
+                    {templateFields.map((f) => {
+                      const lines = getParsedLines(f.name);
+                      return lines[i] || "-";
+                    }).join(" \u2192 ")}
+                  </div>
+                ))}
+                {totalItems > 3 && (
+                  <div className="text-xs text-slate-500 italic">
+                    ... and {totalItems - 3} more
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           <div className="flex justify-end gap-3">
             <button
@@ -712,10 +815,10 @@ function AddInventoryModal({
             </button>
             <button
               type="submit"
-              disabled={submitting}
+              disabled={submitting || totalItems === 0}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
             >
-              {submitting ? "Adding..." : `Add ${items.split("\n").filter(l => l.trim()).length} Items`}
+              {submitting ? "Adding..." : `Add ${totalItems} Item${totalItems !== 1 ? 's' : ''}`}
             </button>
           </div>
         </form>

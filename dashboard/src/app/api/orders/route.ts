@@ -120,6 +120,7 @@ export async function GET(request: NextRequest) {
         quantity: orderItems.quantity,
         unitPrice: orderItems.price,
         subtotal: orderItems.subtotal,
+        deliveredInventoryIds: orderItems.deliveredInventoryIds,
         productName: products.name,
         productSlug: products.slug,
       })
@@ -236,8 +237,6 @@ export async function POST(request: NextRequest) {
         productId: item.productId,
         productName: product!.name,
         productSlug: product!.slug,
-        categoryId: null,
-        categoryName: null,
         deliveryType: product!.deliveryType,
         price: unitPrice.toString(),
         quantity: item.quantity,
