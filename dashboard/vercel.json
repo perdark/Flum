@@ -1,9 +1,3 @@
 {
-  "framework": "nextjs",
-  "buildCommand": "npm run build",
-  "outputDirectory": ".next",
-  "installCommand": "npm install",
-  "env": {
-    "DATABASE_URL": "@database_url"
-  }
+  "framework": "nextjs"
 }
