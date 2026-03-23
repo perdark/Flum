@@ -23,6 +23,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { FeaturedProducts } from '@/components/store/featured-products';
 import { CategoriesList } from '@/components/store/categories-list';
+import { OffersSection } from '@/components/store/offers/offers-section';
 import { cn, getLocalizedValue } from '@/lib/utils';
 import type { Locale } from '@/lib/i18n';
 
@@ -190,6 +191,13 @@ export default async function HomePage({ params }: HomePageProps) {
         </div>
       </section>
 
+      {/* Hero Offers Carousel */}
+      <section className="py-8 md:py-12 bg-background">
+        <div className="container mx-auto px-4">
+          <OffersSection locale={locale} variant="hero" limit={5} />
+        </div>
+      </section>
+
       {/* SaaS Feature Bento Grid */}
       <section className="relative z-20 py-16 bg-background">
         <div className="container mx-auto px-4 max-w-6xl">
@@ -325,49 +333,31 @@ export default async function HomePage({ params }: HomePageProps) {
         </div>
       </section>
 
-      {/* Special Offers Banner */}
-      <section className="py-24 bg-background">
-        <div className="container mx-auto px-4 max-w-6xl">
-          <div className="relative overflow-hidden rounded-xl bg-card border border-border">
-            {/* Content */}
-            <div className="relative z-10 px-8 py-16 md:py-20 md:px-16 flex flex-col md:flex-row items-center justify-between gap-12">
-              <div className="text-center md:text-left max-w-2xl">
-                <Badge variant="outline" className="mb-6 bg-background text-primary border-border font-medium">
-                  <TrendingUp className="w-4 h-4 mr-2 inline" />
-                  {locale === 'ar' ? 'عرض محدود للمؤسسات' : 'Limited Enterprise Offer'}
-                </Badge>
-
-                <h2 className="text-3xl md:text-5xl font-bold mb-6 tracking-tight">
-                  {locale === 'ar'
-                    ? 'اكتشف خططنا السنوية واحصل على خصم 20%'
-                    : 'Unlock 20% Off Annual Subscriptions'}
-                </h2>
-
-                <p className="text-lg text-text-muted mb-8">
-                  {locale === 'ar'
-                    ? 'ارتقِ بإنتاجية فريقك مع خططنا السنوية التي توفر لك الوصول الكامل لجميع المنصات بأفضل الأسعار الممكنة.'
-                    : 'Elevate your team’s productivity. Upgrade to an annual plan and get unrestricted access across all core categories.'}
-                </p>
-
-                <div className="flex flex-wrap justify-center md:justify-start gap-4">
-                  <Link href={`/${locale}/products?category=subscriptions`}>
-                    <Button
-                      size="lg"
-                      className="bg-primary hover:bg-primary-hover text-white gap-2 rounded-lg transition-colors duration-200"
-                    >
-                      {locale === 'ar' ? 'ترقية الآن' : 'Upgrade Now'}
-                      <ArrowRight className={cn('w-4 h-4', isRTL && 'rotate-180')} />
-                    </Button>
-                  </Link>
-                </div>
-              </div>
-              
-              {/* Premium abstract graphic replacing countdown */}
-              <div className="hidden lg:flex items-center justify-center w-64 h-64 bg-background border border-border rounded-xl">
-                <Clock className="w-20 h-20 text-text-muted" />
-              </div>
-            </div>
+      {/* Offer Cards Grid */}
+      <section className="py-16 md:py-20 bg-background">
+        <div className="container mx-auto px-4">
+          <div className="text-center mb-12">
+            <Badge variant="sale" className="mb-4">
+              <Flame className="w-4 h-4 mr-1" />
+              {locale === 'ar' ? 'عروض خاصة' : 'Special Deals'}
+            </Badge>
+            <h2 className="text-3xl md:text-4xl font-bold mb-4">
+              {locale === 'ar' ? 'استفد من العروض الحصرية' : 'Exclusive Offers'}
+            </h2>
+            <p className="text-text-muted max-w-2xl mx-auto">
+              {locale === 'ar'
+                ? 'عروض محدودة لفترة قصيرة. لا تفوت الفرصة!'
+                : 'Limited time deals. Don\'t miss out!'}
+            </p>
           </div>
+          <OffersSection locale={locale} variant="cards" limit={6} />
+        </div>
+      </section>
+
+      {/* Special Offers Banner - Dynamic */}
+      <section className="py-16 md:py-24 bg-background">
+        <div className="container mx-auto px-4">
+          <OffersSection locale={locale} variant="banner" limit={3} />
         </div>
       </section>
 

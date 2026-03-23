@@ -341,10 +341,8 @@ export const orderItems = pgTable('order_items', {
   id: uuid('id').defaultRandom().primaryKey(),
   orderId: uuid('order_id').notNull().references(() => orders.id, { onDelete: 'cascade' }),
   productId: uuid('product_id').notNull().references(() => products.id),
-  categoryId: uuid('category_id').references(() => categories.id),
   productName: varchar('product_name', { length: 255 }).notNull(),
   productSlug: varchar('product_slug', { length: 255 }).notNull(),
-  categoryName: varchar('category_name', { length: 255 }),
   deliveryType: varchar('delivery_type', { length: 50 }).notNull(),
   price: decimal('price', { precision: 10, scale: 2 }).notNull(),
   quantity: integer('quantity').default(1).notNull(),
@@ -507,13 +505,26 @@ export const offers = pgTable('offers', {
   endDate: timestamp('end_date').notNull(),
   isActive: boolean('is_active').default(true).notNull(),
   banner: varchar('banner', { length: 500 }),
-  appliesTo: varchar('applies_to', { length: 50 }).default('all'),
+  appliesTo: varchar('applies_to', { length: 50 }).default('all'), // all, categories, products
   appliesToId: uuid('applies_to_id'),
+  // Display settings
+  displayType: varchar('display_type', { length: 20 }).default('banner').notNull(), // banner, hero, card, modal
+  displayPosition: integer('display_position').default(0), // Order for hero carousel
+  backgroundColor: varchar('background_color', { length: 20 }), // Hex color
+  textColor: varchar('text_color', { length: 20 }).default('#FFFFFF'), // Hex color
+  showCountdown: boolean('show_countdown').default(false).notNull(),
+  ctaText: varchar('cta_text', { length: 100 }),
+  ctaTextAr: varchar('cta_text_ar', { length: 100 }),
+  ctaLink: varchar('cta_link', { length: 500 }),
+  featuredImage: varchar('featured_image', { length: 500 }), // Hero/card image
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at'),
 }, (table) => ({
   slugIdx: index('offers_slug_idx').on(table.slug),
   activeIdx: index('offers_active_idx').on(table.isActive),
+  displayTypeIdx: index('offers_display_type_idx').on(table.displayType),
+  displayPositionIdx: index('offers_display_position_idx').on(table.displayPosition),
 }));
 
 export const productOffers = pgTable('product_offers', {

@@ -22,6 +22,15 @@
   /* Dark mode overrides */
   --color-white: #ffffff;
   --color-black: #000000;
+
+  /* Warm Sunset Comfort Colors */
+  --color-warm-peach: #FFDAB9;
+  --color-warm-coral: #F88379;
+  --color-warm-amber: #FFB800;
+  --color-warm-warm-cream: #FFF5E6;
+  --color-warm-sunset: #FF7F50;
+  --color-warm-soft-orange: #FFB347;
+  --color-warm-blush-pink: #DE6E70;
 }
 
 /* Force dark mode across the app */

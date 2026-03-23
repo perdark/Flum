@@ -34,6 +34,16 @@ const config: Config = {
           "light-orange": "#FF8C41",
           yellow: "#FFD700",
         },
+        // Warm Sunset Comfort Colors
+        warm: {
+          peach: "#FFDAB9",
+          coral: "#F88379",
+          amber: "#FFB800",
+          "warm-cream": "#FFF5E6",
+          sunset: "#FF7F50",
+          "soft-orange": "#FFB347",
+          "blush-pink": "#DE6E70",
+        },
         // Card Colors
         card: {
           DEFAULT: "#1A233E",
@@ -133,10 +143,27 @@ const config: Config = {
           "0%, 100%": { transform: "translateY(0)" },
           "50%": { transform: "translateY(-10px)" },
         },
+        "float-horizontal": {
+          "0%, 100%": { transform: "translateX(0)" },
+          "50%": { transform: "translateX(10px)" },
+        },
         // Interactive Animations
         "bounce-slight": {
           "0%, 100%": { transform: "translateY(0)" },
           "50%": { transform: "translateY(-5px)" },
+        },
+        // Special Effects
+        "shimmer": {
+          "0%": { backgroundPosition: "-200% 0" },
+          "100%": { backgroundPosition: "200% 0" },
+        },
+        "pulse-glow": {
+          "0%, 100%": { boxShadow: "0 0 20px rgba(255, 127, 80, 0.3)" },
+          "50%": { boxShadow: "0 0 40px rgba(255, 127, 80, 0.6)" },
+        },
+        "countdown-pulse": {
+          "0%, 100%": { transform: "scale(1)", opacity: "1" },
+          "50%": { transform: "scale(1.05)", opacity: "0.9" },
         },
       },
       animation: {
@@ -147,7 +174,11 @@ const config: Config = {
         "fade-in": "fade-in 0.3s ease-out",
         "scale-in": "scale-in 0.3s ease-out",
         float: "float 3s ease-in-out infinite",
+        "float-horizontal": "float-horizontal 4s ease-in-out infinite",
         "bounce-slight": "bounce-slight 1s ease-in-out infinite",
+        shimmer: "shimmer 3s linear infinite",
+        "pulse-glow": "pulse-glow 2s ease-in-out infinite",
+        "countdown-pulse": "countdown-pulse 1s ease-in-out infinite",
       },
       backgroundImage: {
         "gradient-radial": "radial-gradient(var(--tw-gradient-stops))",

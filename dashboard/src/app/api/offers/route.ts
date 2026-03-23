@@ -1,7 +1,12 @@
 /**
  * Offers API Routes
  *
- * GET /api/offers - List all offers
+ * GET /api/offers - List all offers (with filtering)
+ *   Query params:
+ *   - type: filter by displayType (hero, banner, card, modal)
+ *   - active: filter by isActive (true, false)
+ *   - limit: limit results
+ *   - search: search in name
  * POST /api/offers - Create a new offer
  */
 
@@ -9,7 +14,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { offers, productOffers } from "@/db/schema";
 import { getCurrentUser } from "@/lib/auth";
-import { eq } from "drizzle-orm";
+import { eq, and, isNull, or, like, desc, sql } from "drizzle-orm";
+
+function escapeLike(value: string): string {
+  return value.replace(/([%_\\])/g, "\\$1");
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -18,8 +27,67 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const { searchParams } = new URL(request.url);
+    const type = searchParams.get("type");
+    const active = searchParams.get("active");
+    const limitParam = searchParams.get("limit");
+    const search = searchParams.get("search");
+
+    let limit: number | undefined;
+    if (limitParam) {
+      const parsedLimit = Number.parseInt(limitParam, 10);
+      if (Number.isInteger(parsedLimit) && parsedLimit > 0) {
+        limit = Math.min(parsedLimit, 100);
+      }
+    }
+
     const db = getDb();
-    const allOffers = await db.select().from(offers).orderBy(offers.createdAt);
+    let query = db
+      .select()
+      .from(offers)
+      .where(isNull(offers.deletedAt));
+
+    // Apply filters
+    const conditions = [];
+    if (type) {
+      conditions.push(eq(offers.displayType, type));
+    }
+    if (active === "true") {
+      conditions.push(
+        and(
+          eq(offers.isActive, true),
+          sql`${offers.startDate} <= NOW()`,
+          sql`${offers.endDate} >= NOW()`
+        )
+      );
+    } else if (active === "false") {
+      conditions.push(eq(offers.isActive, false));
+    }
+    if (search) {
+      const safeSearch = `%${escapeLike(search)}%`;
+      conditions.push(
+        or(
+          like(offers.name, safeSearch),
+          like(sql`coalesce(${offers.nameAr}, '')`, safeSearch)
+        )
+      );
+    }
+
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions, isNull(offers.deletedAt)));
+    }
+
+    // Order by display position (for hero) then created date
+    query = query.orderBy(
+      offers.displayPosition,
+      desc(offers.createdAt)
+    ) as typeof query;
+
+    if (limit) {
+      query = query.limit(limit) as typeof query;
+    }
+
+    const allOffers = await query;
 
     return NextResponse.json({ success: true, data: allOffers });
   } catch (error) {
@@ -55,10 +123,20 @@ export async function POST(request: NextRequest) {
       banner,
       appliesTo,
       appliesToId,
+      // Display settings
+      displayType,
+      displayPosition,
+      backgroundColor,
+      textColor,
+      showCountdown,
+      ctaText,
+      ctaTextAr,
+      ctaLink,
+      featuredImage,
     } = body;
 
     // Validate required fields
-    if (!name || !slug || !type || !value || !startDate || !endDate) {
+    if (!name || !type || !value || !startDate || !endDate) {
       return NextResponse.json(
         { error: "Missing required fields" },
         { status: 400 }
@@ -68,15 +146,34 @@ export async function POST(request: NextRequest) {
     const db = getDb();
 
     // Check if slug already exists
-    const existing = await db
+    if (slug) {
+      const existing = await db
+        .select()
+        .from(offers)
+        .where(and(eq(offers.slug, slug), isNull(offers.deletedAt)))
+        .limit(1);
+
+      if (existing.length > 0) {
+        return NextResponse.json(
+          { error: "Offer with this slug already exists" },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Generate slug from name if not provided
+    const finalSlug = slug || name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+
+    // Ensure generated slug is unique
+    const existingFinal = await db
       .select()
       .from(offers)
-      .where(eq(offers.slug, slug))
+      .where(and(eq(offers.slug, finalSlug), isNull(offers.deletedAt)))
       .limit(1);
 
-    if (existing.length > 0) {
+    if (existingFinal.length > 0) {
       return NextResponse.json(
-        { error: "Offer with this slug already exists" },
+        { error: 'Offer with this slug already exists' },
         { status: 400 }
       );
     }
@@ -85,7 +182,7 @@ export async function POST(request: NextRequest) {
       .insert(offers)
       .values({
         name,
-        slug,
+        slug: finalSlug,
         nameAr: nameAr || null,
         description: description || null,
         descriptionAr: descriptionAr || null,
@@ -99,6 +196,16 @@ export async function POST(request: NextRequest) {
         banner: banner || null,
         appliesTo: appliesTo || "all",
         appliesToId: appliesToId || null,
+        // Display settings
+        displayType: displayType || "banner",
+        displayPosition: displayPosition ?? 0,
+        backgroundColor: backgroundColor || null,
+        textColor: textColor || "#FFFFFF",
+        showCountdown: showCountdown ?? false,
+        ctaText: ctaText || null,
+        ctaTextAr: ctaTextAr || null,
+        ctaLink: ctaLink || null,
+        featuredImage: featuredImage || null,
       })
       .returning();
 
