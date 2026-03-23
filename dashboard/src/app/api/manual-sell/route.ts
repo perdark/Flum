@@ -508,6 +508,10 @@ export async function POST(request: NextRequest) {
         const product = productsData.find(p => p.id === deliveryItem.productId);
 
         const deliveredQuantity = deliveryItem.quantity;
+        // For pending orders, use requested quantity; otherwise use delivered quantity
+        const itemQuantity = (orderStatus === "pending" && (deliveryItem as any).requestedQuantity)
+          ? (deliveryItem as any).requestedQuantity
+          : deliveredQuantity;
         const itemSubtotal = (unitPrice * deliveredQuantity).toString();
 
         const [orderItem] = await tx
@@ -519,7 +523,7 @@ export async function POST(request: NextRequest) {
             productSlug: product?.slug || deliveryItem.productId,
             deliveryType: product?.deliveryType || "manual",
             price: unitPrice.toString(),
-            quantity: deliveredQuantity,
+            quantity: itemQuantity,
             subtotal: itemSubtotal,
             deliveredInventoryIds: sql`${JSON.stringify(
               deliveryItem.items.map((i) => i.inventoryId)
