@@ -120,7 +120,7 @@ export default function InventoryTemplatesPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-slate-400">Loading templates...</div>
+        <div className="text-muted-foreground">Loading templates...</div>
       </div>
     );
   }
@@ -129,19 +129,19 @@ export default function InventoryTemplatesPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-white">Inventory Templates</h1>
-          <p className="text-slate-400">Define the structure for different inventory types</p>
+          <h1 className="text-2xl font-bold text-foreground">Inventory Templates</h1>
+          <p className="text-muted-foreground">Define the structure for different inventory types</p>
         </div>
         <button
           onClick={() => setShowCreateModal(true)}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90"
         >
           Create Template
         </button>
       </div>
 
       {error && (
-        <div className="mb-6 p-4 bg-red-950/50 text-red-400 border border-red-900 rounded-lg">
+        <div className="mb-6 p-4 bg-destructive/10 text-destructive border border-destructive/30 rounded-lg">
           {error}
         </div>
       )}
@@ -150,20 +150,20 @@ export default function InventoryTemplatesPage() {
         {templates.map((template) => (
           <div
             key={template.id}
-            className="bg-slate-900 border border-slate-800 rounded-lg shadow-sm p-6"
+            className="bg-background border border-border rounded-lg shadow-sm p-6"
           >
             <div className="flex items-start justify-between mb-4">
               <div>
-                <h3 className="text-lg font-semibold text-white">{template.name}</h3>
+                <h3 className="text-lg font-semibold text-foreground">{template.name}</h3>
                 {template.description && (
-                  <p className="text-sm text-slate-500">{template.description}</p>
+                  <p className="text-sm text-muted-foreground">{template.description}</p>
                 )}
               </div>
               <span
                 className={`px-2 py-1 rounded text-xs ${
                   template.isActive
-                    ? "bg-green-950 text-green-400 border border-green-900"
-                    : "bg-slate-800 text-slate-400 border border-slate-700"
+                    ? "bg-success/10 text-success border border-success/30"
+                    : "bg-secondary text-muted-foreground border border-input"
                 }`}
               >
                 {template.isActive ? "Active" : "Inactive"}
@@ -174,13 +174,13 @@ export default function InventoryTemplatesPage() {
             <div className="flex gap-2 mb-4">
               <button
                 onClick={() => handleEditTemplate(template)}
-                className="px-3 py-1 text-sm bg-slate-800 text-blue-400 rounded hover:bg-slate-700 transition-colors"
+                className="px-3 py-1 text-sm bg-secondary text-primary rounded hover:bg-accent transition-colors"
               >
                 Edit
               </button>
               <button
                 onClick={() => setDeleteConfirmId(template.id)}
-                className="px-3 py-1 text-sm bg-slate-800 text-red-400 rounded hover:bg-slate-700 transition-colors"
+                className="px-3 py-1 text-sm bg-secondary text-destructive rounded hover:bg-accent transition-colors"
               >
                 Delete
               </button>
@@ -188,18 +188,18 @@ export default function InventoryTemplatesPage() {
 
             {/* Delete confirmation */}
             {deleteConfirmId === template.id && (
-              <div className="mb-4 p-3 bg-red-950/30 border border-red-900/50 rounded-lg">
-                <p className="text-sm text-red-300 mb-2">Delete this template?</p>
+              <div className="mb-4 p-3 bg-destructive/10 border border-destructive/30 rounded-lg">
+                <p className="text-sm text-destructive mb-2">Delete this template?</p>
                 <div className="flex gap-2">
                   <button
                     onClick={() => handleDeleteTemplate(template.id)}
-                    className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700"
+                    className="px-3 py-1 text-sm bg-destructive text-foreground rounded hover:bg-destructive/90"
                   >
                     Confirm
                   </button>
                   <button
                     onClick={() => setDeleteConfirmId(null)}
-                    className="px-3 py-1 text-sm bg-slate-700 text-slate-300 rounded hover:bg-slate-600"
+                    className="px-3 py-1 text-sm bg-secondary text-foreground rounded hover:bg-secondary"
                   >
                     Cancel
                   </button>
@@ -208,43 +208,43 @@ export default function InventoryTemplatesPage() {
             )}
 
             <div className="mb-4">
-              <h4 className="text-xs font-medium text-slate-500 uppercase mb-2">Fields</h4>
+              <h4 className="text-xs font-medium text-muted-foreground uppercase mb-2">Fields</h4>
               <div className="space-y-1">
                 {template.fieldsSchema.map((field) => (
                   <div
                     key={field.name}
-                    className="flex items-center gap-2 text-sm text-slate-300"
+                    className="flex items-center gap-2 text-sm text-foreground"
                   >
                     <span className={`font-mono text-xs px-1 rounded ${
-                      field.type === 'string' ? 'bg-slate-800 text-slate-400' :
-                      field.type === 'number' ? 'bg-amber-950 text-amber-400' :
-                      field.type === 'boolean' ? 'bg-green-950 text-green-400' :
-                      'bg-slate-800 text-slate-400'
+                      field.type === 'string' ? 'bg-secondary text-muted-foreground' :
+                      field.type === 'number' ? 'bg-amber-950 text-brand' :
+                      field.type === 'boolean' ? 'bg-success/10 text-success' :
+                      'bg-secondary text-muted-foreground'
                     }`}>
                       {field.type}
                     </span>
                     <span>{field.label}</span>
-                    {field.required && <span className="text-red-400">*</span>}
+                    {field.required && <span className="text-destructive">*</span>}
                     {field.repeatable && (
-                      <span className="text-xs bg-blue-950 text-blue-400 px-1 rounded">repeatable</span>
+                      <span className="text-xs bg-info/10 text-primary px-1 rounded">repeatable</span>
                     )}
                   </div>
                 ))}
               </div>
             </div>
 
-            <div className="text-xs text-slate-500">
+            <div className="text-xs text-muted-foreground">
               Created {new Date(template.createdAt).toLocaleDateString()}
             </div>
           </div>
         ))}
 
         {templates.length === 0 && (
-          <div className="col-span-full bg-slate-900 border border-slate-800 rounded-lg shadow-sm p-12 text-center">
-            <p className="text-slate-500 mb-4">No inventory templates found.</p>
+          <div className="col-span-full bg-background border border-border rounded-lg shadow-sm p-12 text-center">
+            <p className="text-muted-foreground mb-4">No inventory templates found.</p>
             <button
               onClick={() => setShowCreateModal(true)}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90"
             >
               Create Your First Template
             </button>
@@ -376,19 +376,19 @@ function CreateTemplateModal({ onClose, onCreate, editingTemplate }: CreateTempl
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+      <div className="bg-background border border-border rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="p-6 border-b border-slate-800">
-          <h2 className="text-xl font-bold text-white">
+        <div className="p-6 border-b border-border">
+          <h2 className="text-xl font-bold text-foreground">
             {editingTemplate ? "Edit Inventory Template" : "Create Inventory Template"}
           </h2>
-          <p className="text-sm text-slate-400 mt-1">Define fields for inventory items and bundle products</p>
+          <p className="text-sm text-muted-foreground mt-1">Define fields for inventory items and bundle products</p>
         </div>
 
         {/* Content */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-6">
           {error && (
-            <div className="p-4 bg-red-950/50 text-red-400 border border-red-900 rounded-lg">
+            <div className="p-4 bg-destructive/10 text-destructive border border-destructive/30 rounded-lg">
               {error}
             </div>
           )}
@@ -396,7 +396,7 @@ function CreateTemplateModal({ onClose, onCreate, editingTemplate }: CreateTempl
           {/* Basic Info */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
+              <label className="block text-sm font-medium text-foreground mb-2">
                 Template Name *
               </label>
               <input
@@ -405,12 +405,12 @@ function CreateTemplateModal({ onClose, onCreate, editingTemplate }: CreateTempl
                 onChange={(e) => setName(e.target.value)}
                 placeholder="e.g., Game Bundle, Account, Gift Card"
                 required
-                className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500"
+                className="w-full px-4 py-2 bg-secondary border border-input text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
+              <label className="block text-sm font-medium text-foreground mb-2">
                 Description
               </label>
               <input
@@ -418,7 +418,7 @@ function CreateTemplateModal({ onClose, onCreate, editingTemplate }: CreateTempl
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Optional description"
-                className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500"
+                className="w-full px-4 py-2 bg-secondary border border-input text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
               />
             </div>
           </div>
@@ -427,13 +427,13 @@ function CreateTemplateModal({ onClose, onCreate, editingTemplate }: CreateTempl
           <div>
             <div className="flex items-center justify-between mb-3">
               <div>
-                <h3 className="text-sm font-medium text-slate-300">Fields Schema</h3>
-                <p className="text-xs text-slate-500">Define the structure for inventory data</p>
+                <h3 className="text-sm font-medium text-foreground">Fields Schema</h3>
+                <p className="text-xs text-muted-foreground">Define the structure for inventory data</p>
               </div>
               <button
                 type="button"
                 onClick={addField}
-                className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+                className="px-3 py-1 text-sm bg-primary text-primary-foreground rounded hover:bg-primary/90"
               >
                 + Add Field
               </button>
@@ -443,46 +443,46 @@ function CreateTemplateModal({ onClose, onCreate, editingTemplate }: CreateTempl
               {fields.map((field, index) => (
                 <div
                   key={index}
-                  className={`bg-slate-800/50 rounded-lg border border-slate-800 overflow-hidden ${
-                    field.parentId ? "ml-6 border-l-2 border-l-blue-800" : ""
+                  className={`bg-muted rounded-lg border border-border overflow-hidden ${
+                    field.parentId ? "ml-6 border-l-2 border-l-info/30" : ""
                   }`}
                 >
                   {/* Field Header - Always Visible */}
                   <div
-                    className="p-4 cursor-pointer hover:bg-slate-800/70"
+                    className="p-4 cursor-pointer hover:bg-muted"
                     onClick={() => setExpandedField(expandedField === index ? null : index)}
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <span className="text-slate-500">#{index + 1}</span>
-                        <span className="font-medium text-white">{field.label || "Untitled Field"}</span>
-                        <span className="font-mono text-xs bg-slate-900 px-2 py-0.5 rounded text-slate-400">
+                        <span className="text-muted-foreground">#{index + 1}</span>
+                        <span className="font-medium text-foreground">{field.label || "Untitled Field"}</span>
+                        <span className="font-mono text-xs bg-background px-2 py-0.5 rounded text-muted-foreground">
                           {field.name}
                         </span>
                         <span className={`text-xs px-2 py-0.5 rounded ${
-                          field.type === 'string' ? 'bg-slate-700 text-slate-300' :
-                          field.type === 'number' ? 'bg-amber-950 text-amber-400' :
-                          field.type === 'boolean' ? 'bg-green-950 text-green-400' :
-                          'bg-slate-700 text-slate-300'
+                          field.type === 'string' ? 'bg-secondary text-foreground' :
+                          field.type === 'number' ? 'bg-amber-950 text-brand' :
+                          field.type === 'boolean' ? 'bg-success/10 text-success' :
+                          'bg-secondary text-foreground'
                         }`}>
                           {field.type}
                         </span>
                         {field.repeatable && (
-                          <span className="text-xs bg-blue-950 text-blue-400 px-2 py-0.5 rounded">repeatable</span>
+                          <span className="text-xs bg-info/10 text-primary px-2 py-0.5 rounded">repeatable</span>
                         )}
                         {field.required && (
-                          <span className="text-xs text-red-400">required</span>
+                          <span className="text-xs text-destructive">required</span>
                         )}
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="text-slate-500">
+                        <span className="text-muted-foreground">
                           {expandedField === index ? "▼" : "▶"}
                         </span>
                         {fields.length > 1 && (
                           <button
                             type="button"
                             onClick={(e) => { e.stopPropagation(); removeField(index); }}
-                            className="px-2 py-1 text-red-400 hover:text-red-300 text-sm"
+                            className="px-2 py-1 text-destructive hover:text-destructive/80 text-sm"
                           >
                             Remove
                           </button>
@@ -493,11 +493,11 @@ function CreateTemplateModal({ onClose, onCreate, editingTemplate }: CreateTempl
 
                   {/* Expanded Field Details */}
                   {expandedField === index && (
-                    <div className="p-4 pt-0 border-t border-slate-700/50">
+                    <div className="p-4 pt-0 border-t border-border">
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
                         {/* Field Name - Also generates label automatically */}
                         <div>
-                          <label className="block text-xs font-medium text-slate-400 mb-1">
+                          <label className="block text-xs font-medium text-muted-foreground mb-1">
                             Field Name *
                           </label>
                           <input
@@ -517,14 +517,14 @@ function CreateTemplateModal({ onClose, onCreate, editingTemplate }: CreateTempl
                             }}
                             placeholder="field_name"
                             required
-                            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm placeholder:text-slate-500"
+                            className="w-full px-3 py-2 bg-secondary border border-input text-foreground rounded focus:outline-none focus:ring-2 focus:ring-ring text-sm placeholder:text-muted-foreground"
                           />
-                          <p className="text-xs text-slate-500 mt-1">Label auto-generated from name</p>
+                          <p className="text-xs text-muted-foreground mt-1">Label auto-generated from name</p>
                         </div>
 
                         {/* Type */}
                         <div>
-                          <label className="block text-xs font-medium text-slate-400 mb-1">
+                          <label className="block text-xs font-medium text-muted-foreground mb-1">
                             Field Type
                           </label>
                           <select
@@ -534,7 +534,7 @@ function CreateTemplateModal({ onClose, onCreate, editingTemplate }: CreateTempl
                                 type: e.target.value as FieldSchema["type"],
                               })
                             }
-                            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                            className="w-full px-3 py-2 bg-secondary border border-input text-foreground rounded focus:outline-none focus:ring-2 focus:ring-ring text-sm"
                           >
                             <option value="string">String</option>
                             <option value="number">Number</option>
@@ -544,7 +544,7 @@ function CreateTemplateModal({ onClose, onCreate, editingTemplate }: CreateTempl
 
                         {/* Parent Field */}
                         <div>
-                          <label className="block text-xs font-medium text-slate-400 mb-1">
+                          <label className="block text-xs font-medium text-muted-foreground mb-1">
                             Parent Field (for nesting)
                           </label>
                           <select
@@ -552,7 +552,7 @@ function CreateTemplateModal({ onClose, onCreate, editingTemplate }: CreateTempl
                             onChange={(e) =>
                               updateField(index, { parentId: e.target.value || null })
                             }
-                            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                            className="w-full px-3 py-2 bg-secondary border border-input text-foreground rounded focus:outline-none focus:ring-2 focus:ring-ring text-sm"
                           >
                             <option value="">None (Root Level)</option>
                             {getParentOptions(index).map((parent, i) => (
@@ -565,14 +565,14 @@ function CreateTemplateModal({ onClose, onCreate, editingTemplate }: CreateTempl
 
                         {/* Display Order */}
                         <div>
-                          <label className="block text-xs font-medium text-slate-400 mb-1">
+                          <label className="block text-xs font-medium text-muted-foreground mb-1">
                             Display Order
                           </label>
                           <input
                             type="number"
                             value={field.displayOrder}
                             onChange={(e) => updateField(index, { displayOrder: parseInt(e.target.value) || 0 })}
-                            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                            className="w-full px-3 py-2 bg-secondary border border-input text-foreground rounded focus:outline-none focus:ring-2 focus:ring-ring text-sm"
                           />
                         </div>
 
@@ -583,50 +583,50 @@ function CreateTemplateModal({ onClose, onCreate, editingTemplate }: CreateTempl
                               type="checkbox"
                               checked={field.required}
                               onChange={(e) => updateField(index, { required: e.target.checked })}
-                              className="w-4 h-4 text-blue-600 bg-slate-800 border-slate-700 rounded focus:ring-blue-500"
+                              className="w-4 h-4 text-primary bg-secondary border-input rounded focus:ring-ring"
                             />
-                            <span className="text-sm text-slate-300">Required Field</span>
+                            <span className="text-sm text-foreground">Required Field</span>
                           </label>
                         </div>
                       </div>
 
                       {/* Visibility Section */}
-                      <div className="mt-4 p-3 bg-slate-900/50 rounded-lg">
-                        <h4 className="text-xs font-medium text-slate-400 mb-2">Field Visibility</h4>
+                      <div className="mt-4 p-3 bg-muted/50 rounded-lg">
+                        <h4 className="text-xs font-medium text-muted-foreground mb-2">Field Visibility</h4>
                         <div className="flex flex-wrap gap-4">
                           <label className="flex items-center gap-2">
                             <input
                               type="checkbox"
                               checked={field.isVisibleToAdmin}
                               onChange={(e) => updateField(index, { isVisibleToAdmin: e.target.checked })}
-                              className="w-4 h-4 text-blue-600 bg-slate-800 border-slate-700 rounded focus:ring-blue-500"
+                              className="w-4 h-4 text-primary bg-secondary border-input rounded focus:ring-ring"
                             />
-                            <span className="text-sm text-slate-300">Admin</span>
+                            <span className="text-sm text-foreground">Admin</span>
                           </label>
                           <label className="flex items-center gap-2">
                             <input
                               type="checkbox"
                               checked={field.isVisibleToMerchant}
                               onChange={(e) => updateField(index, { isVisibleToMerchant: e.target.checked })}
-                              className="w-4 h-4 text-blue-600 bg-slate-800 border-slate-700 rounded focus:ring-blue-500"
+                              className="w-4 h-4 text-primary bg-secondary border-input rounded focus:ring-ring"
                             />
-                            <span className="text-sm text-slate-300">Merchant</span>
+                            <span className="text-sm text-foreground">Merchant</span>
                           </label>
                           <label className="flex items-center gap-2">
                             <input
                               type="checkbox"
                               checked={field.isVisibleToCustomer}
                               onChange={(e) => updateField(index, { isVisibleToCustomer: e.target.checked })}
-                              className="w-4 h-4 text-blue-600 bg-slate-800 border-slate-700 rounded focus:ring-blue-500"
+                              className="w-4 h-4 text-primary bg-secondary border-input rounded focus:ring-ring"
                             />
-                            <span className="text-sm text-slate-300">Customer</span>
+                            <span className="text-sm text-foreground">Customer</span>
                           </label>
                         </div>
                       </div>
 
                       {/* Bundle Options Section */}
-                      <div className="mt-4 p-3 bg-blue-950/20 rounded-lg border border-blue-900/30">
-                        <h4 className="text-xs font-medium text-blue-400 mb-2">Bundle Options</h4>
+                      <div className="mt-4 p-3 bg-info/10 rounded-lg border border-info/30">
+                        <h4 className="text-xs font-medium text-primary mb-2">Bundle Options</h4>
                         <div className="space-y-3">
                           <div className="flex items-center justify-between">
                             <div>
@@ -635,11 +635,11 @@ function CreateTemplateModal({ onClose, onCreate, editingTemplate }: CreateTempl
                                   type="checkbox"
                                   checked={field.repeatable}
                                   onChange={(e) => updateField(index, { repeatable: e.target.checked })}
-                                  className="w-4 h-4 text-blue-600 bg-slate-800 border-slate-700 rounded focus:ring-blue-500"
+                                  className="w-4 h-4 text-primary bg-secondary border-input rounded focus:ring-ring"
                                 />
-                                <span className="text-sm text-slate-300">Repeatable Field</span>
+                                <span className="text-sm text-foreground">Repeatable Field</span>
                               </label>
-                              <p className="text-xs text-slate-500 ml-6">Allow multiple values/lines for this field</p>
+                              <p className="text-xs text-muted-foreground ml-6">Allow multiple values/lines for this field</p>
                             </div>
                           </div>
                         </div>
@@ -653,12 +653,12 @@ function CreateTemplateModal({ onClose, onCreate, editingTemplate }: CreateTempl
         </form>
 
         {/* Footer */}
-        <div className="p-6 border-t border-slate-800 flex justify-end gap-3">
+        <div className="p-6 border-t border-border flex justify-end gap-3">
           <button
             type="button"
             onClick={onClose}
             disabled={submitting}
-            className="px-4 py-2 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-800 disabled:opacity-50"
+            className="px-4 py-2 border border-input text-foreground rounded-lg hover:bg-secondary disabled:opacity-50"
           >
             Cancel
           </button>
@@ -666,7 +666,7 @@ function CreateTemplateModal({ onClose, onCreate, editingTemplate }: CreateTempl
             type="submit"
             disabled={submitting}
             onClick={handleSubmit}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {submitting ? (editingTemplate ? "Saving..." : "Creating...") : (editingTemplate ? "Save Template" : "Create Template")}
           </button>

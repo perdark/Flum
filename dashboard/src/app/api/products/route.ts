@@ -19,7 +19,7 @@ import {
 } from "@/db/schema";
 import { requirePermission, getCurrentUser } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
-import { eq, like, or, desc, sql, and, inArray } from "drizzle-orm";
+import { eq, like, or, desc, asc, sql, and, inArray } from "drizzle-orm";
 import { logProductCreated } from "@/services/activityLog";
 import { generateSlug } from "@/lib/utils";
 
@@ -32,6 +32,9 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const search = searchParams.get("search");
     const isActive = searchParams.get("isActive");
+    const categoryId = searchParams.get("categoryId");
+    const sortBy = searchParams.get("sortBy") || "createdAt";
+    const sortOrder = searchParams.get("sortOrder") || "desc";
     const page = parseInt(searchParams.get("page") || "1");
     const limit = parseInt(searchParams.get("limit") || "20");
     const offset = (page - 1) * limit;
@@ -55,6 +58,15 @@ export async function GET(request: NextRequest) {
 
     if (isActive !== null && isActive !== "") {
       conditions.push(eq(products.isActive, isActive === "true"));
+    }
+
+    if (categoryId) {
+      conditions.push(
+        sql`EXISTS (
+          SELECT 1 FROM product_categories pc
+          WHERE pc.product_id = products.id AND pc.category_id = ${categoryId}
+        )`
+      );
     }
 
     // Get total count
@@ -108,7 +120,20 @@ export async function GET(request: NextRequest) {
       .from(products)
       .leftJoin(inventoryTemplates, eq(products.inventoryTemplateId, inventoryTemplates.id))
       .where(conditions.length > 0 ? and(...conditions) : undefined)
-      .orderBy(desc(products.createdAt))
+      .orderBy(
+        (() => {
+          const validSortColumns: Record<string, any> = {
+            name: products.name,
+            basePrice: products.basePrice,
+            stockCount: products.stockCount,
+            totalSold: products.totalSold,
+            averageRating: products.averageRating,
+            createdAt: products.createdAt,
+          };
+          const sortColumn = validSortColumns[sortBy] || products.createdAt;
+          return sortOrder === "asc" ? asc(sortColumn) : desc(sortColumn);
+        })()
+      )
       .limit(limit)
       .offset(offset);
 
@@ -439,5 +464,67 @@ export async function POST(request: NextRequest) {
       { success: false, error: "Internal server error" },
       { status: 500 }
     );
+  }
+}
+
+// ============================================================================
+// PATCH /api/products - Bulk update products
+// ============================================================================()
+
+export async function PATCH(request: NextRequest) {
+  try {
+    await requirePermission(PERMISSIONS.MANAGE_PRODUCTS);
+
+    const body = await request.json();
+    const { ids, action } = body;
+
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return NextResponse.json(
+        { success: false, error: "Product IDs are required" },
+        { status: 400 }
+      );
+    }
+
+    const db = getDb();
+
+    if (action === "activate") {
+      await db
+        .update(products)
+        .set({ isActive: true })
+        .where(inArray(products.id, ids));
+      return NextResponse.json({ success: true, data: { updated: ids.length } });
+    }
+
+    if (action === "deactivate") {
+      await db
+        .update(products)
+        .set({ isActive: false })
+        .where(inArray(products.id, ids));
+      return NextResponse.json({ success: true, data: { updated: ids.length } });
+    }
+
+    if (action === "delete") {
+      await db
+        .update(products)
+        .set({ deletedAt: new Date() })
+        .where(inArray(products.id, ids));
+      return NextResponse.json({ success: true, data: { deleted: ids.length } });
+    }
+
+    return NextResponse.json(
+      { success: false, error: "Invalid action. Use: activate, deactivate, delete" },
+      { status: 400 }
+    );
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === "UNAUTHORIZED") {
+        return NextResponse.json({ success: false, error: "Authentication required" }, { status: 401 });
+      }
+      if (error.message === "FORBIDDEN") {
+        return NextResponse.json({ success: false, error: "Insufficient permissions" }, { status: 403 });
+      }
+    }
+    console.error("Bulk update products error:", error);
+    return NextResponse.json({ success: false, error: "Internal server error" }, { status: 500 });
   }
 }

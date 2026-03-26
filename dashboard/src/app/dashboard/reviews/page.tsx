@@ -9,7 +9,7 @@ import { ReviewsTable } from "@/components/dashboard/ReviewsTable";
 export default function ReviewsPage() {
   return (
     <div>
-      <h1 className="text-2xl font-bold text-white mb-6">Reviews</h1>
+      <h1 className="text-2xl font-bold text-foreground mb-6">Reviews</h1>
 
       <ReviewsTable />
     </div>

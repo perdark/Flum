@@ -39,7 +39,7 @@ export function AnalyticsDashboard() {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {[...Array(4)].map((_, i) => (
-          <div key={i} className="bg-slate-900 border border-slate-800 rounded-lg p-6 h-32 animate-pulse" />
+          <div key={i} className="bg-card border border-border rounded-lg p-6 h-32 animate-pulse" />
         ))}
       </div>
     );
@@ -47,7 +47,7 @@ export function AnalyticsDashboard() {
 
   if (error || !data) {
     return (
-      <div className="bg-red-950/50 text-red-400 border border-red-900 p-4 rounded-lg">
+      <div className="bg-destructive/10 text-destructive border border-destructive/30 p-4 rounded-lg">
         Error loading analytics: {error || "Unknown error"}
       </div>
     );
@@ -105,21 +105,21 @@ export function AnalyticsDashboard() {
       {/* Products Stats */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Top Products */}
-        <div className="bg-slate-900 border border-slate-800 rounded-lg shadow-sm p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">
+        <div className="bg-card border border-border rounded-lg shadow-sm p-6">
+          <h3 className="text-lg font-semibold text-foreground mb-4">
             Top Selling Products
           </h3>
           <div className="space-y-3">
             {data.products.topSellers.map((product) => (
               <div
                 key={product.id}
-                className="flex items-center justify-between py-2 border-b border-slate-800 last:border-0"
+                className="flex items-center justify-between py-2 border-b border-border last:border-0"
               >
                 <div>
-                  <p className="font-medium text-slate-300">{product.name}</p>
-                  <p className="text-sm text-slate-500">{product.sold} sold</p>
+                  <p className="font-medium text-foreground">{product.name}</p>
+                  <p className="text-sm text-muted-foreground">{product.sold} sold</p>
                 </div>
-                <p className="font-semibold text-white">
+                <p className="font-semibold text-foreground">
                   {formatCurrency(product.revenue)}
                 </p>
               </div>
@@ -128,28 +128,28 @@ export function AnalyticsDashboard() {
         </div>
 
         {/* Low Stock Alert */}
-        <div className="bg-slate-900 border border-slate-800 rounded-lg shadow-sm p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">
+        <div className="bg-card border border-border rounded-lg shadow-sm p-6">
+          <h3 className="text-lg font-semibold text-foreground mb-4">
             Low Stock Products
           </h3>
           <div className="space-y-3">
             {data.products.lowStock > 0 ? (
-              <p className="text-slate-300">
-                <span className="px-2 py-1 bg-red-950 text-red-400 border border-red-900 text-sm rounded">
+              <p className="text-foreground">
+                <span className="px-2 py-1 bg-destructive/10 text-destructive border border-destructive/30 text-sm rounded">
                   {data.products.lowStock}
                 </span>{" "}
                 products are low on stock
               </p>
             ) : (
-              <p className="text-slate-500">All products are well stocked!</p>
+              <p className="text-muted-foreground">All products are well stocked!</p>
             )}
           </div>
         </div>
       </div>
 
       {/* Sales Chart */}
-      <div className="bg-slate-900 border border-slate-800 rounded-lg shadow-sm p-6">
-        <h3 className="text-lg font-semibold text-white mb-4">Sales Trend</h3>
+      <div className="bg-card border border-border rounded-lg shadow-sm p-6">
+        <h3 className="text-lg font-semibold text-foreground mb-4">Sales Trend</h3>
         <div className="h-64 flex items-end gap-1">
           {data.salesChart.map((day, index) => {
             const maxRevenue = Math.max(
@@ -164,14 +164,14 @@ export function AnalyticsDashboard() {
               >
                 <div className="relative w-full">
                   <div
-                    className="bg-blue-500 hover:bg-blue-600 transition-colors rounded-t"
+                    className="bg-primary hover:bg-primary/90 transition-colors rounded-t"
                     style={{ height: `${Math.max(height, 2)}%` }}
                   />
-                  <div className="hidden group-hover:block absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-700 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
+                  <div className="hidden group-hover:block absolute -top-10 left-1/2 -translate-x-1/2 bg-secondary text-foreground text-xs px-2 py-1 rounded whitespace-nowrap">
                     {formatCurrency(day.revenue)}
                   </div>
                 </div>
-                <p className="text-xs text-slate-500 mt-2">
+                <p className="text-xs text-muted-foreground mt-2">
                   {new Date(day.date).toLocaleDateString("en-US", {
                     month: "short",
                     day: "numeric",
@@ -201,15 +201,15 @@ function StatCard({
 }) {
   return (
     <div
-      className={`bg-slate-900 border border-slate-800 rounded-lg shadow-sm p-6 ${
+      className={`bg-card border border-border rounded-lg shadow-sm p-6 ${
         highlight ? "ring-2 ring-orange-500" : ""
       }`}
     >
-      <p className="text-sm text-slate-400 mb-1">{title}</p>
-      <p className="text-2xl font-bold text-white">{value}</p>
+      <p className="text-sm text-muted-foreground mb-1">{title}</p>
+      <p className="text-2xl font-bold text-foreground">{value}</p>
       {trend && (
         <p
-          className={`text-sm mt-1 ${trendUp ? "text-green-400" : "text-red-400"}`}
+          className={`text-sm mt-1 ${trendUp ? "text-success" : "text-destructive"}`}
         >
           {trend}
         </p>

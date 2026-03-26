@@ -8,6 +8,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { toast } from "sonner";
 
 interface RelatedProduct {
   id: string;
@@ -88,7 +89,7 @@ export function RelatedProducts({ productId }: RelatedProductsProps) {
 
   const handleAddRelation = async () => {
     if (!selectedProductId) {
-      alert("Please select a product");
+      toast.error("Please select a product");
       return;
     }
 
@@ -111,10 +112,10 @@ export function RelatedProducts({ productId }: RelatedProductsProps) {
         setSelectedProductId("");
         setSearchQuery("");
       } else {
-        alert(data.error || "Failed to add relation");
+        toast.error(data.error || "Failed to add relation");
       }
     } catch (err) {
-      alert("Failed to add relation");
+      toast.error("Failed to add relation");
     }
   };
 
@@ -130,7 +131,7 @@ export function RelatedProducts({ productId }: RelatedProductsProps) {
         setRelations(relations.filter((r) => r.id !== relationId));
       }
     } catch (err) {
-      alert("Failed to remove relation");
+      toast.error("Failed to remove relation");
     }
   };
 
@@ -146,13 +147,13 @@ export function RelatedProducts({ productId }: RelatedProductsProps) {
   };
 
   return (
-    <div className="bg-slate-800 rounded-lg border border-slate-700 p-4">
+    <div className="bg-card rounded-lg border border-border p-4">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-white">Related Products</h3>
+        <h3 className="text-lg font-semibold text-foreground">Related Products</h3>
         <button
           type="button"
           onClick={() => setAddRelationOpen(true)}
-          className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+          className="px-3 py-1.5 text-sm bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg transition-colors"
         >
           + Add Relation
         </button>
@@ -161,13 +162,13 @@ export function RelatedProducts({ productId }: RelatedProductsProps) {
       {/* Add Relation Modal */}
       {addRelationOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-slate-800 rounded-lg border border-slate-700 w-full max-w-md p-6">
-            <h3 className="text-lg font-semibold text-white mb-4">Add Related Product</h3>
+          <div className="bg-card rounded-lg border border-border w-full max-w-md p-6">
+            <h3 className="text-lg font-semibold text-foreground mb-4">Add Related Product</h3>
 
             <div className="space-y-4">
               {/* Search products */}
               <div className="relative">
-                <label className="block text-sm font-medium text-slate-300 mb-1">
+                <label className="block text-sm font-medium text-foreground mb-1">
                   Search Products
                 </label>
                 <input
@@ -178,18 +179,18 @@ export function RelatedProducts({ productId }: RelatedProductsProps) {
                     searchProducts(e.target.value);
                   }}
                   onFocus={() => setSearchOpen(true)}
-                  className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                   placeholder="Search by name or SKU..."
                   autoComplete="off"
                 />
 
                 {/* Search results dropdown */}
                 {searchOpen && (searchQuery.length >= 2) && (
-                  <div className="absolute z-10 w-full mt-1 bg-slate-900 border border-slate-700 rounded-lg max-h-60 overflow-y-auto shadow-lg">
+                  <div className="absolute z-10 w-full mt-1 bg-background border border-border rounded-lg max-h-60 overflow-y-auto shadow-lg">
                     {searchLoading ? (
-                      <div className="p-3 text-sm text-slate-400">Searching...</div>
+                      <div className="p-3 text-sm text-muted-foreground">Searching...</div>
                     ) : searchResults.length === 0 ? (
-                      <div className="p-3 text-sm text-slate-400">No products found</div>
+                      <div className="p-3 text-sm text-muted-foreground">No products found</div>
                     ) : (
                       searchResults.map((product) => (
                         <div
@@ -199,10 +200,10 @@ export function RelatedProducts({ productId }: RelatedProductsProps) {
                             setSearchQuery(product.name);
                             setSearchOpen(false);
                           }}
-                          className="p-3 hover:bg-slate-800 cursor-pointer border-b border-slate-800 last:border-0"
+                          className="p-3 hover:bg-secondary cursor-pointer border-b border-border last:border-0"
                         >
-                          <div className="font-medium text-white">{product.name}</div>
-                          <div className="text-sm text-slate-400">
+                          <div className="font-medium text-foreground">{product.name}</div>
+                          <div className="text-sm text-muted-foreground">
                             SKU: {product.sku || "N/A"} • ${product.basePrice}
                           </div>
                         </div>
@@ -214,21 +215,21 @@ export function RelatedProducts({ productId }: RelatedProductsProps) {
 
               {/* Selected product */}
               {selectedProductId && (
-                <div className="p-3 bg-slate-900 rounded-lg border border-slate-700">
-                  <p className="text-sm text-slate-400 mb-1">Selected Product:</p>
-                  <p className="text-white font-medium">{searchQuery}</p>
+                <div className="p-3 bg-muted rounded-lg border border-border">
+                  <p className="text-sm text-muted-foreground mb-1">Selected Product:</p>
+                  <p className="text-foreground font-medium">{searchQuery}</p>
                 </div>
               )}
 
               {/* Relation type */}
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">
+                <label className="block text-sm font-medium text-foreground mb-1">
                   Relation Type
                 </label>
                 <select
                   value={relationType}
                   onChange={(e) => setRelationType(e.target.value as "cross_sell" | "upsell")}
-                  className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                 >
                   <option value="cross_sell">Cross-sell (shown as related)</option>
                   <option value="upsell">Upsell (shown as upgrade)</option>
@@ -244,14 +245,14 @@ export function RelatedProducts({ productId }: RelatedProductsProps) {
                     setSelectedProductId("");
                     setSearchQuery("");
                   }}
-                  className="px-4 py-2 text-slate-300 hover:text-white transition-colors"
+                  className="px-4 py-2 text-foreground hover:text-foreground transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleAddRelation}
                   disabled={!selectedProductId}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Add Relation
                 </button>
@@ -263,9 +264,9 @@ export function RelatedProducts({ productId }: RelatedProductsProps) {
 
       {/* Relations list */}
       {loading ? (
-        <div className="text-center py-8 text-slate-400">Loading...</div>
+        <div className="text-center py-8 text-muted-foreground">Loading...</div>
       ) : relations.length === 0 ? (
-        <div className="text-center py-8 text-slate-400">
+        <div className="text-center py-8 text-muted-foreground">
           No related products yet. Add your first relation!
         </div>
       ) : (
@@ -273,16 +274,16 @@ export function RelatedProducts({ productId }: RelatedProductsProps) {
           {relations.map((relation) => (
             <div
               key={relation.id}
-              className="flex items-center justify-between p-3 bg-slate-900 rounded-lg border border-slate-800"
+              className="flex items-center justify-between p-3 bg-muted rounded-lg border border-border"
             >
               <div className="flex-1 min-w-0">
-                <p className="text-white font-medium truncate">{relation.relatedProductName}</p>
+                <p className="text-foreground font-medium truncate">{relation.relatedProductName}</p>
                 <div className="flex items-center gap-2 mt-1">
-                  <span className="text-xs px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded">
+                  <span className="text-xs px-2 py-0.5 bg-info/20 text-primary rounded">
                     {getRelationLabel(relation.relationType)}
                   </span>
                   {!relation.relatedProductActive && (
-                    <span className="text-xs px-2 py-0.5 bg-slate-700 text-slate-400 rounded">
+                    <span className="text-xs px-2 py-0.5 bg-secondary text-muted-foreground rounded">
                       Inactive
                     </span>
                   )}
@@ -291,7 +292,7 @@ export function RelatedProducts({ productId }: RelatedProductsProps) {
               <button
                 type="button"
                 onClick={() => handleRemoveRelation(relation.id)}
-                className="p-2 text-red-400 hover:text-red-300"
+                className="p-2 text-destructive hover:text-destructive/80"
                 title="Remove relation"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

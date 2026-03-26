@@ -64,7 +64,7 @@ export function ReviewsTable() {
           <svg
             key={star}
             className={`w-4 h-4 ${
-              star <= rating ? "text-yellow-400" : "text-slate-700"
+              star <= rating ? "text-yellow-400" : "text-foreground"
             }`}
             fill="currentColor"
             viewBox="0 0 20 20"
@@ -78,10 +78,10 @@ export function ReviewsTable() {
 
   if (loading) {
     return (
-      <div className="bg-slate-900 border border-slate-800 rounded-lg shadow-sm p-6">
+      <div className="bg-card border border-border rounded-lg shadow-sm p-6">
         <div className="animate-pulse space-y-4">
           {[...Array(5)].map((_, i) => (
-            <div key={i} className="h-20 bg-slate-800 rounded" />
+            <div key={i} className="h-20 bg-muted rounded" />
           ))}
         </div>
       </div>
@@ -90,16 +90,16 @@ export function ReviewsTable() {
 
   if (error) {
     return (
-      <div className="bg-red-950/50 text-red-400 border border-red-900 p-4 rounded-lg">
+      <div className="bg-destructive/10 text-destructive border border-destructive/30 p-4 rounded-lg">
         Error loading reviews: {error}
       </div>
     );
   }
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-lg shadow-sm overflow-hidden">
+    <div className="bg-card border border-border rounded-lg shadow-sm overflow-hidden">
       {/* Filters */}
-      <div className="p-4 border-b border-slate-800">
+      <div className="p-4 border-b border-border">
         <div className="flex gap-4">
           <select
             value={activeFilter}
@@ -107,7 +107,7 @@ export function ReviewsTable() {
               setActiveFilter(e.target.value);
               setPage(1);
             }}
-            className="px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="px-4 py-2 bg-muted border border-input text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
           >
             <option value="">All Reviews</option>
             <option value="true">Active</option>
@@ -119,61 +119,61 @@ export function ReviewsTable() {
       {/* Table */}
       <div className="overflow-x-auto">
         <table className="w-full">
-          <thead className="bg-slate-800">
+          <thead className="bg-muted">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">
                 Product
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">
                 Customer
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">
                 Rating
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">
                 Comment
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">
                 Status
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">
                 Date
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-800">
+          <tbody className="divide-y divide-border">
             {reviews.map((review) => (
-              <tr key={review.id} className="hover:bg-slate-800">
+              <tr key={review.id} className="hover:bg-muted">
                 <td className="px-6 py-4">
-                  <p className="font-medium text-white">
+                  <p className="font-medium text-foreground">
                     {review.productName}
                   </p>
-                  <p className="text-sm text-slate-500">{review.productSlug}</p>
+                  <p className="text-sm text-muted-foreground">{review.productSlug}</p>
                 </td>
-                <td className="px-6 py-4 text-sm text-slate-300">
+                <td className="px-6 py-4 text-sm text-foreground">
                   {review.customerEmail}
                   {review.isVerifiedPurchase && (
-                    <span className="ml-2 px-2 py-0.5 bg-green-950 text-green-400 border border-green-900 text-xs rounded">
+                    <span className="ml-2 px-2 py-0.5 bg-success/10 text-success border border-success/30 text-xs rounded">
                       Verified
                     </span>
                   )}
                 </td>
                 <td className="px-6 py-4">{renderStars(review.rating)}</td>
-                <td className="px-6 py-4 text-sm text-slate-300 max-w-md truncate">
-                  {review.comment || <span className="text-slate-600">No comment</span>}
+                <td className="px-6 py-4 text-sm text-foreground max-w-md truncate">
+                  {review.comment || <span className="text-muted-foreground">No comment</span>}
                 </td>
                 <td className="px-6 py-4">
                   <span
                     className={`px-2 py-1 rounded text-sm ${
                       review.isActive
-                        ? "bg-green-950 text-green-400 border border-green-900"
-                        : "bg-slate-800 text-slate-400 border border-slate-700"
+                        ? "bg-success/10 text-success border border-success/30"
+                        : "bg-secondary text-muted-foreground border border-input"
                     }`}
                   >
                     {review.isActive ? "Active" : "Hidden"}
                   </span>
                 </td>
-                <td className="px-6 py-4 text-sm text-slate-400">
+                <td className="px-6 py-4 text-sm text-muted-foreground">
                   {new Date(review.createdAt).toLocaleDateString()}
                 </td>
               </tr>
@@ -184,22 +184,22 @@ export function ReviewsTable() {
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="px-6 py-4 border-t border-slate-800 flex items-center justify-between">
-          <p className="text-sm text-slate-500">
+        <div className="px-6 py-4 border-t border-border flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
             Page {page} of {totalPages}
           </p>
           <div className="flex gap-2">
             <button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page === 1}
-              className="px-4 py-2 border border-slate-700 text-slate-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-800"
+              className="px-4 py-2 border border-input text-foreground rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-muted"
             >
               Previous
             </button>
             <button
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               disabled={page === totalPages}
-              className="px-4 py-2 border border-slate-700 text-slate-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-800"
+              className="px-4 py-2 border border-input text-foreground rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-muted"
             >
               Next
             </button>

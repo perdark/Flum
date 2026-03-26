@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 
 const DISPLAY_TYPES = [
   { value: 'banner', label: 'Banner', description: 'Horizontal banner section' },
@@ -197,13 +198,13 @@ export default function EditOfferPage() {
     const parsedEndDate = new Date(formData.endDate);
 
     if (Number.isNaN(parsedStartDate.getTime()) || Number.isNaN(parsedEndDate.getTime())) {
-      alert('Please provide valid startDate and endDate');
+      toast.error('Please provide valid startDate and endDate');
       setSaving(false);
       return;
     }
 
     if (parsedEndDate.getTime() <= parsedStartDate.getTime()) {
-      alert('End date must be after start date');
+      toast.error('End date must be after start date');
       setSaving(false);
       return;
     }
@@ -216,19 +217,19 @@ export default function EditOfferPage() {
       : 0;
 
     if (!Number.isFinite(value)) {
-      alert('Please provide a valid offer value');
+      toast.error('Please provide a valid offer value');
       setSaving(false);
       return;
     }
 
     if (!Number.isFinite(minPurchase)) {
-      alert('Please provide a valid minimum purchase amount');
+      toast.error('Please provide a valid minimum purchase amount');
       setSaving(false);
       return;
     }
 
     if (maxDiscount !== null && !Number.isFinite(maxDiscount)) {
-      alert('Please provide a valid max discount');
+      toast.error('Please provide a valid max discount');
       setSaving(false);
       return;
     }
@@ -250,11 +251,11 @@ export default function EditOfferPage() {
         router.push('/dashboard/offers');
       } else {
         const data = await response.json();
-        alert(data.error || 'Failed to update offer');
+        toast.error(data.error || 'Failed to update offer');
       }
     } catch (error) {
       console.error('Error updating offer:', error);
-      alert('Failed to update offer');
+      toast.error('Failed to update offer');
     } finally {
       setSaving(false);
     }
@@ -273,7 +274,7 @@ export default function EditOfferPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-slate-400">Loading offer...</div>
+        <div className="text-muted-foreground">Loading offer...</div>
       </div>
     );
   }
@@ -283,7 +284,7 @@ export default function EditOfferPage() {
       <div className="flex flex-col items-center justify-center h-64">
         <div className="text-red-400 mb-4">{error}</div>
         <Link href="/dashboard/offers">
-          <button className="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700">
+          <button className="px-4 py-2 bg-muted text-foreground rounded-lg hover:bg-secondary">
             Go Back
           </button>
         </Link>
@@ -297,13 +298,13 @@ export default function EditOfferPage() {
       <div className="flex items-center gap-4">
         <Link
           href="/dashboard/offers"
-          className="p-2 hover:bg-slate-800 rounded-lg transition-colors inline-flex items-center"
+          className="p-2 hover:bg-muted rounded-lg transition-colors inline-flex items-center"
         >
-          <ArrowLeft className="w-5 h-5 text-slate-400" />
+          <ArrowLeft className="w-5 h-5 text-muted-foreground" />
         </Link>
         <div>
-          <h1 className="text-2xl font-bold text-white">Edit Offer</h1>
-          <p className="text-slate-400 text-sm">Update offer details and display settings</p>
+          <h1 className="text-2xl font-bold text-foreground">Edit Offer</h1>
+          <p className="text-muted-foreground text-sm">Update offer details and display settings</p>
         </div>
       </div>
 
@@ -311,15 +312,15 @@ export default function EditOfferPage() {
         {/* Form */}
         <div className="lg:col-span-2 space-y-6">
           {/* Basic Information */}
-          <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
-            <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+          <div className="bg-card rounded-xl border border-border p-6">
+            <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
               <Tag className="w-5 h-5 text-amber-500" />
               Basic Information
             </h2>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                <label className="block text-sm font-medium text-muted-foreground mb-1.5">
                   Offer Name *
                 </label>
                 <input
@@ -328,12 +329,12 @@ export default function EditOfferPage() {
                   value={formData.name}
                   onChange={(e) => handleChange('name', e.target.value)}
                   placeholder="e.g., Summer Sale 2024"
-                  className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder:text-slate-400 focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                  className="w-full px-4 py-2.5 bg-muted border border-input rounded-lg text-foreground placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring"
                 />
               </div>
 
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                <label className="block text-sm font-medium text-muted-foreground mb-1.5">
                   Arabic Name (Optional)
                 </label>
                 <input
@@ -342,12 +343,12 @@ export default function EditOfferPage() {
                   onChange={(e) => handleChange('nameAr', e.target.value)}
                   placeholder="عربي"
                   dir="rtl"
-                  className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder:text-slate-400 focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                  className="w-full px-4 py-2.5 bg-muted border border-input rounded-lg text-foreground placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                <label className="block text-sm font-medium text-muted-foreground mb-1.5">
                   Slug
                 </label>
                 <input
@@ -355,18 +356,18 @@ export default function EditOfferPage() {
                   value={formData.slug}
                   onChange={(e) => handleChange('slug', e.target.value)}
                   placeholder="summer-sale-2024"
-                  className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder:text-slate-400 focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                  className="w-full px-4 py-2.5 bg-muted border border-input rounded-lg text-foreground placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                <label className="block text-sm font-medium text-muted-foreground mb-1.5">
                   Status
                 </label>
                 <select
                   value={formData.isActive.toString()}
                   onChange={(e) => handleChange('isActive', e.target.value === 'true')}
-                  className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                  className="w-full px-4 py-2.5 bg-muted border border-input rounded-lg text-foreground focus:border-ring focus:ring-1 focus:ring-ring"
                 >
                   <option value="true">Active</option>
                   <option value="false">Inactive</option>
@@ -374,7 +375,7 @@ export default function EditOfferPage() {
               </div>
 
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                <label className="block text-sm font-medium text-muted-foreground mb-1.5">
                   Description
                 </label>
                 <textarea
@@ -382,28 +383,28 @@ export default function EditOfferPage() {
                   onChange={(e) => handleChange('description', e.target.value)}
                   placeholder="Offer description..."
                   rows={2}
-                  className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder:text-slate-400 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 resize-none"
+                  className="w-full px-4 py-2.5 bg-muted border border-input rounded-lg text-foreground placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring resize-none"
                 />
               </div>
             </div>
           </div>
 
           {/* Offer Details */}
-          <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
-            <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+          <div className="bg-card rounded-xl border border-border p-6">
+            <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
               <Tag className="w-5 h-5 text-amber-500" />
               Offer Details
             </h2>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                <label className="block text-sm font-medium text-muted-foreground mb-1.5">
                   Discount Type *
                 </label>
                 <select
                   value={formData.type}
                   onChange={(e) => handleChange('type', e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                  className="w-full px-4 py-2.5 bg-muted border border-input rounded-lg text-foreground focus:border-ring focus:ring-1 focus:ring-ring"
                 >
                   <option value="percentage">Percentage (%)</option>
                   <option value="fixed">Fixed Amount ($)</option>
@@ -412,7 +413,7 @@ export default function EditOfferPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                <label className="block text-sm font-medium text-muted-foreground mb-1.5">
                   Discount Value *
                 </label>
                 <input
@@ -423,12 +424,12 @@ export default function EditOfferPage() {
                   value={formData.value}
                   onChange={(e) => handleChange('value', e.target.value)}
                   placeholder={formData.type === 'percentage' ? '20' : '10'}
-                  className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder:text-slate-400 focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                  className="w-full px-4 py-2.5 bg-muted border border-input rounded-lg text-foreground placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                <label className="block text-sm font-medium text-muted-foreground mb-1.5">
                   Min Purchase
                 </label>
                 <input
@@ -438,12 +439,12 @@ export default function EditOfferPage() {
                   value={formData.minPurchase}
                   onChange={(e) => handleChange('minPurchase', e.target.value)}
                   placeholder="0"
-                  className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder:text-slate-400 focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                  className="w-full px-4 py-2.5 bg-muted border border-input rounded-lg text-foreground placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                <label className="block text-sm font-medium text-muted-foreground mb-1.5">
                   Start Date *
                 </label>
                 <input
@@ -451,12 +452,12 @@ export default function EditOfferPage() {
                   required
                   value={formData.startDate}
                   onChange={(e) => handleChange('startDate', e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                  className="w-full px-4 py-2.5 bg-muted border border-input rounded-lg text-foreground focus:border-ring focus:ring-1 focus:ring-ring"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                <label className="block text-sm font-medium text-muted-foreground mb-1.5">
                   End Date *
                 </label>
                 <input
@@ -464,12 +465,12 @@ export default function EditOfferPage() {
                   required
                   value={formData.endDate}
                   onChange={(e) => handleChange('endDate', e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                  className="w-full px-4 py-2.5 bg-muted border border-input rounded-lg text-foreground focus:border-ring focus:ring-1 focus:ring-ring"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                <label className="block text-sm font-medium text-muted-foreground mb-1.5">
                   Max Discount
                 </label>
                 <input
@@ -479,15 +480,15 @@ export default function EditOfferPage() {
                   value={formData.maxDiscount}
                   onChange={(e) => handleChange('maxDiscount', e.target.value)}
                   placeholder="No limit"
-                  className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder:text-slate-400 focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                  className="w-full px-4 py-2.5 bg-muted border border-input rounded-lg text-foreground placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring"
                 />
               </div>
             </div>
           </div>
 
           {/* Display Settings */}
-          <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
-            <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+          <div className="bg-card rounded-xl border border-border p-6">
+            <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
               <Palette className="w-5 h-5 text-amber-500" />
               Display Settings
             </h2>
@@ -495,7 +496,7 @@ export default function EditOfferPage() {
             <div className="space-y-4">
               {/* Display Type */}
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">
+                <label className="block text-sm font-medium text-muted-foreground mb-2">
                   Display Type
                 </label>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -508,11 +509,11 @@ export default function EditOfferPage() {
                         'p-3 rounded-lg border text-left transition-all',
                         formData.displayType === type.value
                           ? 'border-amber-500 bg-amber-500/10'
-                          : 'border-slate-700 hover:border-slate-600'
+                          : 'border-input hover:border-slate-600'
                       )}
                     >
-                      <div className="text-white font-medium text-sm">{type.label}</div>
-                      <div className="text-slate-400 text-xs">{type.description}</div>
+                      <div className="text-foreground font-medium text-sm">{type.label}</div>
+                      <div className="text-muted-foreground text-xs">{type.description}</div>
                     </button>
                   ))}
                 </div>
@@ -521,7 +522,7 @@ export default function EditOfferPage() {
               {/* Hero Position */}
               {formData.displayType === 'hero' && (
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                  <label className="block text-sm font-medium text-muted-foreground mb-1.5">
                     Carousel Position
                   </label>
                   <input
@@ -529,15 +530,15 @@ export default function EditOfferPage() {
                     min="0"
                     value={formData.displayPosition}
                     onChange={(e) => handleChange('displayPosition', e.target.value)}
-                    className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                    className="w-full px-4 py-2.5 bg-muted border border-input rounded-lg text-foreground focus:border-ring focus:ring-1 focus:ring-ring"
                   />
-                  <p className="text-slate-400 text-xs mt-1">Lower numbers appear first</p>
+                  <p className="text-muted-foreground text-xs mt-1">Lower numbers appear first</p>
                 </div>
               )}
 
               {/* Colors */}
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">
+                <label className="block text-sm font-medium text-muted-foreground mb-2">
                   Background Color
                 </label>
                 <div className="flex flex-wrap gap-2">
@@ -550,7 +551,7 @@ export default function EditOfferPage() {
                         'w-10 h-10 rounded-lg border-2 transition-all',
                         selectedPreset.name === color.name
                           ? 'border-amber-500 scale-110'
-                          : 'border-slate-700 hover:border-slate-500'
+                          : 'border-input hover:border-slate-500'
                       )}
                       style={color.value === 'custom' ? {} : { background: color.value }}
                       title={color.name}
@@ -571,19 +572,19 @@ export default function EditOfferPage() {
                       value={formData.backgroundColor}
                       onChange={(e) => handleChange('backgroundColor', e.target.value)}
                       placeholder="#FFB800"
-                      className="flex-1 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder:text-slate-400"
+                      className="flex-1 px-4 py-2.5 bg-muted border border-input rounded-lg text-foreground placeholder:text-muted-foreground"
                     />
                   </div>
                 )}
               </div>
 
               {/* Show Countdown */}
-              <div className="flex items-center justify-between p-3 bg-slate-800 rounded-lg">
+              <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
                 <div className="flex items-center gap-3">
                   <Clock className="w-5 h-5 text-amber-500" />
                   <div>
-                    <div className="text-white font-medium text-sm">Show Countdown</div>
-                    <div className="text-slate-400 text-xs">Display expiry timer</div>
+                    <div className="text-foreground font-medium text-sm">Show Countdown</div>
+                    <div className="text-muted-foreground text-xs">Display expiry timer</div>
                   </div>
                 </div>
                 <button
@@ -591,7 +592,7 @@ export default function EditOfferPage() {
                   onClick={() => handleChange('showCountdown', !formData.showCountdown)}
                   className={cn(
                     'w-12 h-6 rounded-full transition-colors relative',
-                    formData.showCountdown ? 'bg-amber-500' : 'bg-slate-700'
+                    formData.showCountdown ? 'bg-amber-500' : 'bg-secondary'
                   )}
                 >
                   <motion.span
@@ -605,7 +606,7 @@ export default function EditOfferPage() {
               {/* CTA */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                  <label className="block text-sm font-medium text-muted-foreground mb-1.5">
                     CTA Text
                   </label>
                   <input
@@ -613,12 +614,12 @@ export default function EditOfferPage() {
                     value={formData.ctaText}
                     onChange={(e) => handleChange('ctaText', e.target.value)}
                     placeholder="Shop Now"
-                    className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder:text-slate-400 focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                    className="w-full px-4 py-2.5 bg-muted border border-input rounded-lg text-foreground placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                  <label className="block text-sm font-medium text-muted-foreground mb-1.5">
                     CTA Link
                   </label>
                   <input
@@ -626,14 +627,14 @@ export default function EditOfferPage() {
                     value={formData.ctaLink}
                     onChange={(e) => handleChange('ctaLink', e.target.value)}
                     placeholder="/products"
-                    className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder:text-slate-400 focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                    className="w-full px-4 py-2.5 bg-muted border border-input rounded-lg text-foreground placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring"
                   />
                 </div>
               </div>
 
               {/* Featured Image URL */}
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                <label className="block text-sm font-medium text-muted-foreground mb-1.5">
                   Featured Image URL
                 </label>
                 <input
@@ -641,7 +642,7 @@ export default function EditOfferPage() {
                   value={formData.featuredImage}
                   onChange={(e) => handleChange('featuredImage', e.target.value)}
                   placeholder="https://example.com/image.png"
-                  className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder:text-slate-400 focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                  className="w-full px-4 py-2.5 bg-muted border border-input rounded-lg text-foreground placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring"
                 />
               </div>
             </div>
@@ -652,7 +653,7 @@ export default function EditOfferPage() {
             <Link href="/dashboard/offers">
               <button
                 type="button"
-                className="px-6 py-2.5 text-slate-300 hover:text-white transition-colors"
+                className="px-6 py-2.5 text-muted-foreground hover:text-foreground transition-colors"
               >
                 Cancel
               </button>
@@ -678,7 +679,7 @@ export default function EditOfferPage() {
         <div className="lg:col-span-1">
           <div className="sticky top-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider">
+              <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
                 Preview
               </h3>
               <button

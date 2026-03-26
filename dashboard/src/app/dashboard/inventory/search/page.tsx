@@ -8,6 +8,7 @@
 
 import { useState } from "react";
 import { InventorySearchResults } from "@/components/dashboard/InventorySearchResults";
+import { toast } from "sonner";
 
 export default function InventorySearchPage() {
   const [query, setQuery] = useState("");
@@ -29,10 +30,10 @@ export default function InventorySearchPage() {
       if (data.success) {
         setResults(data.data);
       } else {
-        alert(data.error || "Search failed");
+        toast.error(data.error || "Search failed");
       }
     } catch (err) {
-      alert("Search failed");
+      toast.error("Search failed");
     } finally {
       setSearching(false);
     }
@@ -48,14 +49,14 @@ export default function InventorySearchPage() {
     <div>
       {/* Header */}
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-white">Inventory Search</h1>
-        <p className="text-slate-400 mt-1">
+        <h1 className="text-2xl font-bold text-foreground">Inventory Search</h1>
+        <p className="text-muted-foreground mt-1">
           Global search across all inventory items
         </p>
       </div>
 
       {/* Search Box */}
-      <div className="bg-slate-800 rounded-lg border border-slate-700 p-6 mb-6">
+      <div className="bg-card rounded-lg border border-border p-6 mb-6">
         <div className="flex gap-4">
           <input
             type="text"
@@ -63,13 +64,13 @@ export default function InventorySearchPage() {
             onChange={(e) => setQuery(e.target.value)}
             onKeyPress={handleKeyPress}
             placeholder="Search by code, email, or any value..."
-            className="flex-1 px-4 py-3 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-1 px-4 py-3 bg-muted border border-input rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             autoFocus
           />
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-4 py-3 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="px-4 py-3 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
           >
             <option value="">All Statuses</option>
             <option value="available">Available</option>
@@ -80,7 +81,7 @@ export default function InventorySearchPage() {
           <button
             onClick={handleSearch}
             disabled={searching || !query.trim()}
-            className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-6 py-3 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {searching ? "Searching..." : "Search"}
           </button>
@@ -96,7 +97,7 @@ export default function InventorySearchPage() {
       {!searching && results.length === 0 && query === "" && (
         <div className="text-center py-16">
           <svg
-            className="w-16 h-16 mx-auto text-slate-600 mb-4"
+            className="w-16 h-16 mx-auto text-muted-foreground mb-4"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -108,10 +109,10 @@ export default function InventorySearchPage() {
               d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
             />
           </svg>
-          <h3 className="text-lg font-medium text-white mb-2">
+          <h3 className="text-lg font-medium text-foreground mb-2">
             Search Inventory
           </h3>
-          <p className="text-slate-400">
+          <p className="text-muted-foreground">
             Enter a code, email, or any value to search across all inventory items
           </p>
         </div>
@@ -120,7 +121,7 @@ export default function InventorySearchPage() {
       {/* No Results */}
       {!searching && results.length === 0 && query !== "" && (
         <div className="text-center py-16">
-          <p className="text-slate-400">No results found for "{query}"</p>
+          <p className="text-muted-foreground">No results found for "{query}"</p>
         </div>
       )}
     </div>

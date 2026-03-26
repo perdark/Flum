@@ -49,7 +49,7 @@ export function Logo({ className, href = '/', variant = 'full' }: LogoProps) {
       {/* Brand Name */}
       {(variant === 'full' || variant === 'compact') && (
         <div className="flex flex-col">
-          <span className="text-xl font-bold leading-none tracking-tight text-white">
+          <span className="text-xl font-bold leading-none tracking-tight text-foreground">
             FULMEN
           </span>
           {variant === 'full' && (

@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { customers } from "@/db/schema";
+import { customers, orders } from "@/db/schema";
 import { requirePermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
 import { eq, like, or, desc, sql, and } from "drizzle-orm";
@@ -24,6 +24,48 @@ export async function GET(request: NextRequest) {
     const offset = (page - 1) * limit;
 
     const db = getDb();
+
+    if (type === "aggregate") {
+      const aggConditions = [];
+      if (search) {
+        aggConditions.push(
+          or(
+            like(orders.customerName, `%${search}%`),
+            like(orders.customerEmail, `%${search}%`)
+          )!
+        );
+      }
+
+      const countResult = await db
+        .select({
+          count: sql<number>`count(DISTINCT ${orders.customerEmail})::int`,
+        })
+        .from(orders)
+        .where(aggConditions.length > 0 ? and(...aggConditions) : undefined);
+
+      const total = countResult[0]?.count || 0;
+
+      const customersData = await db
+        .select({
+          email: orders.customerEmail,
+          name: orders.customerName,
+          orderCount: sql<number>`count(*)::int`,
+          totalSpent: sql<string>`COALESCE(SUM(${orders.total}), 0)`,
+          lastOrderDate: sql<string>`MAX(${orders.createdAt})`,
+        })
+        .from(orders)
+        .where(aggConditions.length > 0 ? and(...aggConditions) : undefined)
+        .groupBy(orders.customerEmail, orders.customerName)
+        .orderBy(desc(sql`MAX(${orders.createdAt})`))
+        .limit(limit)
+        .offset(offset);
+
+      return NextResponse.json({
+        success: true,
+        data: customersData,
+        pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+      });
+    }
 
     // Build query conditions
     const conditions = [sql`customers.deleted_at IS NULL`];

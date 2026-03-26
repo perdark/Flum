@@ -21,7 +21,7 @@ export function CurrencyDisplay({
   const formatted = formatCurrency(amount, currency, locale);
 
   return (
-    <span className={cn('font-semibold text-white', className)}>
+    <span className={cn('font-semibold text-foreground', className)}>
       {formatted}
     </span>
   );
@@ -51,12 +51,12 @@ export function PriceDisplay({
 
   return (
     <div className={cn('flex items-baseline gap-2', className)}>
-      <span className="text-lg font-bold text-white">
+      <span className="text-lg font-bold text-foreground">
         {formatCurrency(price, currency, locale)}
       </span>
       {hasDiscount && (
         <>
-          <span className="text-sm text-slate-500 line-through">
+          <span className="text-sm text-muted-foreground line-through">
             {formatCurrency(compareAtPrice!, currency, locale)}
           </span>
           <span className="text-sm font-semibold text-orange-400">

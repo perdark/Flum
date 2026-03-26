@@ -1,11 +1,5 @@
 "use client";
 
-/**
- * Login Form Component
- *
- * Handles user authentication
- */
-
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -44,18 +38,18 @@ export function LoginForm() {
   };
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-lg shadow-md p-8">
-      <h2 className="text-xl font-semibold text-white mb-6">Sign In</h2>
+    <div className="bg-card border border-border rounded-lg shadow-md p-8">
+      <h2 className="text-xl font-semibold text-card-foreground mb-6">Sign In</h2>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
-          <div className="bg-red-950/50 text-red-400 border border-red-900 px-4 py-3 rounded-lg text-sm">
+          <div className="bg-destructive/10 text-destructive border border-destructive/20 px-4 py-3 rounded-lg text-sm">
             {error}
           </div>
         )}
 
         <div>
-          <label htmlFor="email" className="block text-sm font-medium text-slate-300 mb-1">
+          <label htmlFor="email" className="block text-sm font-medium text-foreground mb-1">
             Email
           </label>
           <input
@@ -63,14 +57,14 @@ export function LoginForm() {
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-slate-500"
+            className="w-full px-4 py-2 bg-muted border border-input text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
             placeholder="admin@dashboard.com"
             required
           />
         </div>
 
         <div>
-          <label htmlFor="password" className="block text-sm font-medium text-slate-300 mb-1">
+          <label htmlFor="password" className="block text-sm font-medium text-foreground mb-1">
             Password
           </label>
           <input
@@ -78,7 +72,7 @@ export function LoginForm() {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-slate-500"
+            className="w-full px-4 py-2 bg-muted border border-input text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
             placeholder="••••••••"
             required
           />
@@ -87,13 +81,13 @@ export function LoginForm() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="w-full bg-primary text-primary-foreground py-2 rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {loading ? "Signing in..." : "Sign In"}
         </button>
       </form>
 
-      <div className="mt-6 text-center text-sm text-slate-500">
+      <div className="mt-6 text-center text-sm text-muted-foreground">
         <p>Default admin credentials:</p>
         <p className="font-mono mt-1">admin@dashboard.com / Admin123</p>
       </div>

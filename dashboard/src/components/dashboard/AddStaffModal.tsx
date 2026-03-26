@@ -66,13 +66,13 @@ export function AddStaffModal({ onClose, onAdded }: AddStaffModalProps) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+      <div className="bg-card rounded-lg shadow-xl w-full max-w-md">
         {/* Header */}
-        <div className="p-6 border-b border-slate-200 flex items-center justify-between">
-          <h2 className="text-xl font-bold text-slate-800">Add Staff Member</h2>
+        <div className="p-6 border-b border-border flex items-center justify-between">
+          <h2 className="text-xl font-bold text-foreground">Add Staff Member</h2>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 text-2xl"
+            className="text-muted-foreground hover:text-foreground text-2xl"
           >
             &times;
           </button>
@@ -81,13 +81,13 @@ export function AddStaffModal({ onClose, onAdded }: AddStaffModalProps) {
         {/* Content */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && (
-            <div className="p-4 bg-red-50 text-red-600 rounded-lg text-sm">
+            <div className="p-4 bg-destructive/10 text-destructive rounded-lg text-sm">
               {error}
             </div>
           )}
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">
+            <label className="block text-sm font-medium text-foreground mb-2">
               Name *
             </label>
             <input
@@ -95,13 +95,13 @@ export function AddStaffModal({ onClose, onAdded }: AddStaffModalProps) {
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
-              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
               placeholder="John Doe"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">
+            <label className="block text-sm font-medium text-foreground mb-2">
               Email *
             </label>
             <input
@@ -109,19 +109,19 @@ export function AddStaffModal({ onClose, onAdded }: AddStaffModalProps) {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
               placeholder="john@example.com"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">
+            <label className="block text-sm font-medium text-foreground mb-2">
               Role *
             </label>
             <select
               value={role}
               onChange={(e) => setRole(e.target.value as "admin" | "staff")}
-              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
             >
               <option value="staff">Staff</option>
               <option value="admin">Admin</option>
@@ -129,7 +129,7 @@ export function AddStaffModal({ onClose, onAdded }: AddStaffModalProps) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">
+            <label className="block text-sm font-medium text-foreground mb-2">
               Password *
             </label>
             <input
@@ -138,13 +138,13 @@ export function AddStaffModal({ onClose, onAdded }: AddStaffModalProps) {
               onChange={(e) => setPassword(e.target.value)}
               required
               minLength={8}
-              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
               placeholder="Min 8 characters"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">
+            <label className="block text-sm font-medium text-foreground mb-2">
               Confirm Password *
             </label>
             <input
@@ -152,7 +152,7 @@ export function AddStaffModal({ onClose, onAdded }: AddStaffModalProps) {
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               required
-              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
               placeholder="Re-enter password"
             />
           </div>
@@ -163,14 +163,14 @@ export function AddStaffModal({ onClose, onAdded }: AddStaffModalProps) {
               type="button"
               onClick={onClose}
               disabled={loading}
-              className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50"
+              className="px-4 py-2 border border-input rounded-lg hover:bg-accent disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? "Creating..." : "Add Staff Member"}
             </button>

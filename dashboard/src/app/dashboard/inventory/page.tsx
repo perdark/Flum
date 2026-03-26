@@ -1,13 +1,11 @@
-/**
- * Inventory Dashboard Page - Product-First View with Category Filters
- *
- * Product selection on left, inventory table on right
- */
-
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface Category {
   id: string;
@@ -25,6 +23,7 @@ interface Product {
   soldCount: number;
   templateName: string | null;
   categories: Category[];
+  fieldsSchema?: any[] | null;
 }
 
 interface InventoryItem {
@@ -42,6 +41,8 @@ interface TemplateField {
   required: boolean;
 }
 
+const PAGE_SIZE_OPTIONS = [20, 50, 100];
+
 export default function InventoryPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -52,6 +53,7 @@ export default function InventoryPage() {
   const [selectedProductId, setSelectedProductId] = useState<string | null>(productIdParam);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("");
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
   const [templateFields, setTemplateFields] = useState<TemplateField[]>([]);
@@ -59,20 +61,32 @@ export default function InventoryPage() {
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [inventoryPageSize, setInventoryPageSize] = useState(50);
+  const [pageInput, setPageInput] = useState("");
+  const [sortBy, setSortBy] = useState("createdAt");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [showAddModal, setShowAddModal] = useState(false);
   const [showStandaloneStockModal, setShowStandaloneStockModal] = useState(false);
   const [showUnlinkedModal, setShowUnlinkedModal] = useState(false);
-  const [unlinkedItems, setUnlinkedItems] = useState<InventoryItem[]>([]);
-  const [linkingProductId, setLinkingProductId] = useState<string>("");
-  const [selectedUnlinkedIds, setSelectedUnlinkedIds] = useState<string[]>([]);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
 
-  // Fetch products summary and categories
+  const parentRef = useRef<HTMLDivElement>(null);
+
+  const rowVirtualizer = useVirtualizer({
+    count: products.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 80,
+    overscan: 5,
+  });
+
+  useEffect(() => {
+    fetchCategories();
+  }, []);
+
   useEffect(() => {
     fetchProducts();
-    fetchCategories();
-  }, [categoryFilter]);
+  }, [debouncedSearch, categoryFilter]);
 
-  // Fetch inventory when product is selected
   useEffect(() => {
     if (selectedProductId) {
       fetchInventory();
@@ -80,11 +94,13 @@ export default function InventoryPage() {
       setInventoryItems([]);
       setTemplateFields([]);
     }
-  }, [selectedProductId, statusFilter, page]);
+  }, [selectedProductId, statusFilter, page, inventoryPageSize, sortBy, sortOrder]);
 
-  const fetchProducts = async () => {
+  const fetchProducts = useCallback(async () => {
+    setLoading(true);
     try {
-      const params = new URLSearchParams({ limit: "100" });
+      const params = new URLSearchParams({ limit: "500" });
+      if (debouncedSearch) params.set("search", debouncedSearch);
       if (categoryFilter) params.set("categoryId", categoryFilter);
 
       const res = await fetch(`/api/products/summary?${params}`);
@@ -92,32 +108,27 @@ export default function InventoryPage() {
       if (data.success) {
         setProducts(data.data);
       }
-    } catch (err) {
+    } catch {
       console.error("Failed to load products");
     } finally {
       setLoading(false);
     }
-  };
+  }, [debouncedSearch, categoryFilter]);
 
   const fetchCategories = async () => {
     try {
       const res = await fetch("/api/categories?asTree=true");
       const data = await res.json();
       if (data.success) {
-        // Flatten tree for dropdown
         const flat = flattenCategories(data.data);
         setCategories(flat);
       }
-    } catch (err) {
+    } catch {
       console.error("Failed to load categories");
     }
   };
 
-  const flattenCategories = (
-    nodes: any[],
-    prefix = "",
-    depth = 0
-  ): Category[] => {
+  const flattenCategories = (nodes: any[], prefix = "", depth = 0): Category[] => {
     const result: Category[] = [];
     for (const node of nodes) {
       result.push({ id: node.id, name: prefix + node.name, parentId: null, depth });
@@ -130,13 +141,14 @@ export default function InventoryPage() {
 
   const fetchInventory = async () => {
     if (!selectedProductId) return;
-
     setInventoryLoading(true);
     try {
       const params = new URLSearchParams({
         productId: selectedProductId,
         page: page.toString(),
-        limit: "50",
+        limit: inventoryPageSize.toString(),
+        sortBy,
+        sortOrder,
       });
       if (statusFilter) params.set("status", statusFilter);
 
@@ -147,10 +159,8 @@ export default function InventoryPage() {
         setInventoryItems(data.data);
         setTotalPages(data.pagination?.totalPages || 1);
 
-        // Get template fields for display
         const product = products.find((p) => p.id === selectedProductId);
         if (product?.templateName) {
-          // Fetch template schema
           const templateRes = await fetch(`/api/inventory/templates`);
           const templateData = await templateRes.json();
           if (templateData.success) {
@@ -159,13 +169,23 @@ export default function InventoryPage() {
               setTemplateFields(template.fieldsSchema);
             }
           }
+        } else if (product?.fieldsSchema) {
+          setTemplateFields(product.fieldsSchema as TemplateField[]);
         }
       }
-    } catch (err) {
+    } catch {
       console.error("Failed to load inventory");
     } finally {
       setInventoryLoading(false);
     }
+  };
+
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setDebouncedSearch(value);
+    }, 300);
   };
 
   const handleProductSelect = (productId: string) => {
@@ -176,7 +196,6 @@ export default function InventoryPage() {
 
   const handleExport = async (format: "tsv" | "csv") => {
     if (!selectedProductId) return;
-
     try {
       const res = await fetch(`/api/inventory/export?productId=${selectedProductId}&format=${format}`);
       if (res.ok) {
@@ -187,22 +206,30 @@ export default function InventoryPage() {
         a.download = `inventory.${format}`;
         a.click();
         window.URL.revokeObjectURL(url);
+        toast.success(`Exported as ${format.toUpperCase()}`);
       }
-    } catch (err) {
-      alert("Export failed");
+    } catch {
+      toast.error("Export failed");
     }
   };
 
-  // Filter products by search
-  const filteredProducts = products.filter((p) =>
-    p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    p.slug.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const handleSort = (column: string) => {
+    if (sortBy === column) {
+      setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
+    } else {
+      setSortBy(column);
+      setSortOrder("asc");
+    }
+    setPage(1);
+  };
 
-  // Get selected product
+  const sortIndicator = (column: string) => {
+    if (sortBy !== column) return <span className="ml-1 text-muted-foreground/40">&uarr;&darr;</span>;
+    return <span className="ml-1 text-primary">{sortOrder === "asc" ? "&uarr;" : "&darr;"}</span>;
+  };
+
   const selectedProduct = products.find((p) => p.id === selectedProductId);
 
-  // Get field names from inventory
   const fieldNames = new Set<string>();
   inventoryItems.forEach((item) => {
     if (item.values) {
@@ -211,77 +238,73 @@ export default function InventoryPage() {
   });
   const fields = Array.from(fieldNames);
 
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "available": return "bg-success/20 text-success";
+      case "reserved": return "bg-warning/20 text-warning";
+      case "sold": return "bg-info/20 text-info";
+      default: return "bg-error/20 text-error";
+    }
+  };
+
+  const getPageNumbers = () => {
+    const pages: (number | "ellipsis")[] = [];
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      if (page > 3) pages.push("ellipsis");
+      const start = Math.max(2, page - 1);
+      const end = Math.min(totalPages - 1, page + 1);
+      for (let i = start; i <= end; i++) pages.push(i);
+      if (page < totalPages - 2) pages.push("ellipsis");
+      pages.push(totalPages);
+    }
+    return pages;
+  };
+
   return (
     <div>
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-white">Inventory</h1>
-          <p className="text-slate-400 mt-1">
-            Manage inventory by product
-          </p>
+          <h1 className="text-2xl font-bold text-foreground">Inventory</h1>
+          <p className="text-muted-foreground mt-1">Manage inventory by product</p>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setShowStandaloneStockModal(true)}
-            className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
-          >
-            + Add Stock
-          </button>
-          <button
-            onClick={() => setShowUnlinkedModal(true)}
-            className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg transition-colors"
-          >
-            Link Stock
-          </button>
-          <a
-            href="/dashboard/inventory/search"
-            className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors"
-          >
+        <div className="flex gap-2 flex-wrap">
+          <Button variant="ghost" onClick={() => setShowStandaloneStockModal(true)}>+ Add Stock</Button>
+          <Button variant="ghost" onClick={() => setShowUnlinkedModal(true)}>Link Stock</Button>
+          <a href="/dashboard/inventory/search" className="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors">
             Global Search
           </a>
-          <a
-            href="/dashboard/inventory/templates"
-            className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors"
-          >
+          <a href="/dashboard/inventory/templates" className="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors">
             Templates
           </a>
           {selectedProductId && (
             <>
-              <button
-                onClick={() => handleExport("tsv")}
-                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors"
-              >
-                Export TSV
-              </button>
-              <button
-                onClick={() => setShowAddModal(true)}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
-              >
-                Add Inventory
-              </button>
+              <Button variant="ghost" onClick={() => handleExport("tsv")}>Export TSV</Button>
+              <Button onClick={() => setShowAddModal(true)}>Add Inventory</Button>
             </>
           )}
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Products List */}
+        {/* Products List - Virtualized */}
         <div className="lg:col-span-1">
-          <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
-            {/* Filters */}
-            <div className="p-4 border-b border-slate-700 space-y-3">
+            <div className="bg-card rounded-xl border border-border overflow-hidden shadow-sm">
+            <div className="p-4 border-b border-border space-y-3">
               <input
                 type="text"
                 placeholder="Search products..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                onChange={(e) => handleSearchChange(e.target.value)}
+                className="w-full px-3 py-2 bg-muted border border-input rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring text-sm"
               />
               <select
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                className="w-full px-3 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring text-sm"
               >
                 <option value="">All Categories</option>
                 {categories.map((p) => (
@@ -290,56 +313,61 @@ export default function InventoryPage() {
                   </option>
                 ))}
               </select>
+              <p className="text-xs text-muted-foreground">{products.length} product{products.length !== 1 ? "s" : ""}</p>
             </div>
 
-            {/* Products */}
-            <div className="max-h-[600px] overflow-y-auto">
+            <div ref={parentRef} className="max-h-[600px] overflow-y-auto">
               {loading ? (
-                <div className="p-4 text-center text-slate-400">Loading...</div>
-              ) : (
-                <div className="divide-y divide-slate-700">
-                  {filteredProducts.map((product) => (
-                    <button
-                      key={product.id}
-                      onClick={() => handleProductSelect(product.id)}
-                      className={`w-full p-4 text-left hover:bg-slate-700/50 transition-colors ${
-                        selectedProductId === product.id ? "bg-slate-700" : ""
-                      }`}
-                    >
-                      <div className="font-medium text-white truncate mb-1">
-                        {product.name}
-                      </div>
-                      {/* Category chips */}
-                      {product.categories && product.categories.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mb-2">
-                          {product.categories.slice(0, 2).map((p) => (
-                            <span
-                              key={p.id}
-                              className="px-1.5 py-0.5 bg-slate-600 text-slate-300 text-xs rounded"
-                            >
-                              {p.name}
-                            </span>
-                          ))}
-                          {product.categories.length > 2 && (
-                            <span className="px-1.5 py-0.5 bg-slate-600 text-slate-300 text-xs rounded">
-                              +{product.categories.length - 2}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                      <div className="flex items-center gap-3 text-xs">
-                        <span className="text-green-400">
-                          {product.availableCount} avail
-                        </span>
-                        <span className="text-yellow-400">
-                          {product.reservedCount} reserved
-                        </span>
-                        <span className="text-blue-400">
-                          {product.soldCount} sold
-                        </span>
-                      </div>
-                    </button>
+                <div className="p-4 space-y-3">
+                  {[...Array(8)].map((_, i) => (
+                    <Skeleton key={i} className="h-16 w-full rounded" />
                   ))}
+                </div>
+              ) : products.length === 0 ? (
+                <div className="p-8 text-center text-muted-foreground text-sm">No products found</div>
+              ) : (
+                <div
+                  style={{
+                    height: `${rowVirtualizer.getTotalSize()}px`,
+                    width: "100%",
+                    position: "relative",
+                  }}
+                >
+                  {rowVirtualizer.getVirtualItems().map((virtualItem) => {
+                    const product = products[virtualItem.index];
+                    return (
+                      <button
+                        key={product.id}
+                        onClick={() => handleProductSelect(product.id)}
+                        className={`w-full p-4 text-left transition-colors absolute top-0 left-0 border-b border-border ${
+                          selectedProductId === product.id
+                            ? "bg-primary/10"
+                            : "hover:bg-accent"
+                        }`}
+                        style={{
+                          height: `${virtualItem.size}px`,
+                          transform: `translateY(${virtualItem.start}px)`,
+                        }}
+                      >
+                        <div className="font-medium text-foreground truncate mb-1">{product.name}</div>
+                        {product.categories && product.categories.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mb-2">
+                            {product.categories.slice(0, 2).map((p) => (
+                              <span key={p.id} className="px-1.5 py-0.5 bg-secondary text-muted-foreground text-xs rounded">{p.name}</span>
+                            ))}
+                            {product.categories.length > 2 && (
+                              <span className="px-1.5 py-0.5 bg-secondary text-muted-foreground text-xs rounded">+{product.categories.length - 2}</span>
+                            )}
+                          </div>
+                        )}
+                        <div className="flex items-center gap-3 text-xs">
+                          <span className="text-success">{product.availableCount} avail</span>
+                          <span className="text-warning">{product.reservedCount} reserved</span>
+                          <span className="text-info">{product.soldCount} sold</span>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -349,141 +377,96 @@ export default function InventoryPage() {
         {/* Inventory Table */}
         <div className="lg:col-span-3">
           {!selectedProductId ? (
-            <div className="bg-slate-800 rounded-lg border border-slate-700 p-12 text-center">
-              <svg
-                className="w-16 h-16 mx-auto text-slate-600 mb-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"
-                />
+            <div className="bg-card rounded-xl border border-border p-12 text-center shadow-sm">
+              <svg className="w-16 h-16 mx-auto text-muted-foreground/30 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
               </svg>
-              <h3 className="text-lg font-medium text-white mb-2">
-                Select a Product
-              </h3>
-              <p className="text-slate-400">
-                Choose a product from the list to view and manage its inventory
-              </p>
+              <h3 className="text-lg font-medium text-foreground mb-2">Select a Product</h3>
+              <p className="text-muted-foreground">Choose a product from the list to view and manage its inventory</p>
             </div>
           ) : (
-            <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
-              {/* Product Header */}
-              <div className="p-4 border-b border-slate-700 flex items-center justify-between">
+          <div className="bg-card rounded-xl border border-border overflow-hidden shadow-sm">
+              <div className="p-4 border-b border-border flex items-center justify-between">
                 <div>
-                  <h2 className="text-lg font-semibold text-white">
-                    {selectedProduct?.name}
-                  </h2>
+                  <h2 className="text-lg font-semibold text-foreground">{selectedProduct?.name}</h2>
                   <div className="flex items-center gap-2 mt-1">
                     {selectedProduct?.categories && selectedProduct.categories.length > 0 && (
                       <div className="flex flex-wrap gap-1">
                         {selectedProduct.categories.map((p) => (
-                          <span
-                            key={p.id}
-                            className="px-2 py-0.5 bg-blue-900/50 text-blue-300 text-xs rounded"
-                          >
-                            {p.name}
-                          </span>
+                          <span key={p.id} className="px-2 py-0.5 bg-info/20 text-info text-xs rounded">{p.name}</span>
                         ))}
                       </div>
                     )}
-                    <span className="text-sm text-slate-400">
-                      Template: {selectedProduct?.templateName || "None"}
-                    </span>
+                    <span className="text-sm text-muted-foreground">Template: {selectedProduct?.templateName || "None"}</span>
                   </div>
                 </div>
-                <select
-                  value={statusFilter}
-                  onChange={(e) => {
-                    setStatusFilter(e.target.value);
-                    setPage(1);
-                  }}
-                  className="px-3 py-2 bg-slate-900 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">All Statuses</option>
-                  <option value="available">Available</option>
-                  <option value="reserved">Reserved</option>
-                  <option value="sold">Sold</option>
-                  <option value="expired">Expired</option>
-                </select>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+                    className="px-3 py-2 bg-muted border border-input rounded-lg text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  >
+                    <option value="">All Statuses</option>
+                    <option value="available">Available</option>
+                    <option value="reserved">Reserved</option>
+                    <option value="sold">Sold</option>
+                    <option value="expired">Expired</option>
+                  </select>
+                  <select
+                    value={inventoryPageSize}
+                    onChange={(e) => { setInventoryPageSize(Number(e.target.value)); setPage(1); }}
+                    className="px-2 py-2 bg-muted border border-input rounded-lg text-foreground text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                  >
+                    {PAGE_SIZE_OPTIONS.map((s) => (
+                      <option key={s} value={s}>{s}/page</option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
-              {/* Table */}
               {inventoryLoading ? (
-                <div className="p-8 text-center text-slate-400">Loading inventory...</div>
+                <div className="p-8 space-y-3">
+                  {[...Array(5)].map((_, i) => (
+                    <Skeleton key={i} className="h-12 w-full rounded" />
+                  ))}
+                </div>
               ) : inventoryItems.length === 0 ? (
-                <div className="p-8 text-center text-slate-400">No inventory items found</div>
+                <div className="p-8 text-center text-muted-foreground">No inventory items found</div>
               ) : (
                 <>
-                  {/* Template field labels legend */}
                   {templateFields.length > 0 && (
-                    <div className="px-4 py-2 bg-slate-900/30 border-b border-slate-700 flex flex-wrap gap-3 text-xs">
+                    <div className="px-4 py-2 bg-muted/50 border-b border-border flex flex-wrap gap-3 text-xs">
                       {templateFields.map((f) => (
-                        <span key={f.name} className="text-slate-400">
-                          <span className="font-medium text-slate-300">{f.name}</span>
-                          {f.required && <span className="text-red-400">*</span>}
+                        <span key={f.name} className="text-muted-foreground">
+                          <span className="font-medium text-foreground">{f.name}</span>
+                          {f.required && <span className="text-destructive">*</span>}
                         </span>
                       ))}
                     </div>
                   )}
                   <div className="overflow-x-auto">
                     <table className="w-full">
-                      <thead className="bg-slate-900/50">
+                      <thead className="bg-muted">
                         <tr>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">
-                            Status
-                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase cursor-pointer hover:text-foreground select-none" onClick={() => handleSort("status")}>Status{sortIndicator("status")}</th>
                           {fields.map((field) => (
-                            <th
-                              key={field}
-                              className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase"
-                            >
-                              {field}
-                            </th>
+                            <th key={field} className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase">{field}</th>
                           ))}
-                          <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">
-                            Created
-                          </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">
-                            Sold At
-                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase cursor-pointer hover:text-foreground select-none" onClick={() => handleSort("createdAt")}>Created{sortIndicator("createdAt")}</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase cursor-pointer hover:text-foreground select-none" onClick={() => handleSort("purchasedAt")}>Sold At{sortIndicator("purchasedAt")}</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-700">
+                      <tbody className="divide-y divide-border">
                         {inventoryItems.map((item) => (
-                          <tr key={item.id} className="hover:bg-slate-700/30">
+                          <tr key={item.id} className="hover:bg-muted/50">
                             <td className="px-4 py-3">
-                              <span
-                                className={`px-2 py-1 text-xs rounded ${
-                                  item.status === "available"
-                                    ? "bg-green-500/20 text-green-400"
-                                    : item.status === "reserved"
-                                    ? "bg-yellow-500/20 text-yellow-400"
-                                    : item.status === "sold"
-                                    ? "bg-blue-500/20 text-blue-400"
-                                    : "bg-red-500/20 text-red-400"
-                                }`}
-                              >
-                                {item.status}
-                              </span>
+                              <span className={`px-2 py-1 text-xs rounded ${getStatusColor(item.status)}`}>{item.status}</span>
                             </td>
                             {fields.map((field) => (
-                              <td key={field} className="px-4 py-3 text-sm text-slate-300 font-mono">
-                                {String(item.values[field] ?? "-")}
-                              </td>
+                              <td key={field} className="px-4 py-3 text-sm text-foreground font-mono">{String(item.values[field] ?? "-")}</td>
                             ))}
-                            <td className="px-4 py-3 text-sm text-slate-400">
-                              {new Date(item.createdAt).toLocaleDateString()}
-                            </td>
-                            <td className="px-4 py-3 text-sm text-slate-400">
-                              {item.purchasedAt
-                                ? new Date(item.purchasedAt).toLocaleDateString()
-                                : "-"}
-                            </td>
+                            <td className="px-4 py-3 text-sm text-muted-foreground">{new Date(item.createdAt).toLocaleDateString()}</td>
+                            <td className="px-4 py-3 text-sm text-muted-foreground">{item.purchasedAt ? new Date(item.purchasedAt).toLocaleDateString() : "-"}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -492,27 +475,64 @@ export default function InventoryPage() {
                 </>
               )}
 
-              {/* Pagination */}
+              {/* Numbered Pagination */}
               {totalPages > 1 && (
-                <div className="px-4 py-3 border-t border-slate-700 flex items-center justify-between">
-                  <p className="text-sm text-slate-500">
-                    Page {page} of {totalPages}
-                  </p>
-                  <div className="flex gap-2">
+                <div className="px-4 py-3 border-t border-border flex items-center justify-between">
+                  <p className="text-sm text-muted-foreground">Page {page} of {totalPages}</p>
+                  <div className="flex items-center gap-1">
                     <button
                       onClick={() => setPage((p) => Math.max(1, p - 1))}
                       disabled={page === 1}
-                      className="px-3 py-1 border border-slate-700 text-slate-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-700 text-sm"
+                      className="px-3 py-1.5 text-sm border border-border text-muted-foreground rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-muted"
                     >
-                      Previous
+                      &laquo;
                     </button>
+                    {getPageNumbers().map((p, i) =>
+                      p === "ellipsis" ? (
+                        <span key={`e${i}`} className="px-2 text-muted-foreground">...</span>
+                      ) : (
+                        <button
+                          key={p}
+                          onClick={() => setPage(p)}
+                          className={`w-8 h-8 text-sm rounded-lg transition-colors ${p === page ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                        >
+                          {p}
+                        </button>
+                      )
+                    )}
                     <button
                       onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                       disabled={page === totalPages}
-                      className="px-3 py-1 border border-slate-700 text-slate-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-700 text-sm"
+                      className="px-3 py-1.5 text-sm border border-border text-muted-foreground rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-muted"
                     >
-                      Next
+                      &raquo;
                     </button>
+                    <div className="ml-3 flex items-center gap-1 text-sm">
+                      <input
+                        type="text"
+                        value={pageInput}
+                        onChange={(e) => setPageInput(e.target.value.replace(/\D/, ""))}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            const num = parseInt(pageInput);
+                            if (num >= 1 && num <= totalPages) setPage(num);
+                            setPageInput("");
+                          }
+                        }}
+                        placeholder="#"
+                        className="w-12 px-2 py-1 bg-muted border border-input rounded text-foreground text-center text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                      />
+                      <button
+                        onClick={() => {
+                          const num = parseInt(pageInput);
+                          if (num >= 1 && num <= totalPages) setPage(num);
+                          setPageInput("");
+                        }}
+                        className="px-2 py-1 text-xs text-primary hover:text-primary/80"
+                      >
+                        Go
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -521,62 +541,44 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      {/* Add Inventory Modal */}
       {showAddModal && selectedProductId && selectedProduct && (
         <AddInventoryModal
           productId={selectedProductId}
           productName={selectedProduct.name}
           templateFields={templateFields}
           onClose={() => setShowAddModal(false)}
-          onSuccess={() => {
-            setShowAddModal(false);
-            fetchInventory();
-            fetchProducts();
-          }}
+          onSuccess={() => { setShowAddModal(false); fetchInventory(); fetchProducts(); }}
         />
       )}
 
-      {/* Standalone Stock Modal */}
       {showStandaloneStockModal && (
         <StandaloneStockModal
           onClose={() => setShowStandaloneStockModal(false)}
-          onSuccess={() => {
-            setShowStandaloneStockModal(false);
-            fetchProducts();
-          }}
+          onSuccess={() => { setShowStandaloneStockModal(false); fetchProducts(); }}
         />
       )}
 
-      {/* Link Stock Modal */}
       {showUnlinkedModal && (
         <LinkStockModal
           onClose={() => setShowUnlinkedModal(false)}
-          onSuccess={() => {
-            setShowUnlinkedModal(false);
-            fetchProducts();
-            if (selectedProductId) fetchInventory();
-          }}
+          onSuccess={() => { setShowUnlinkedModal(false); fetchProducts(); if (selectedProductId) fetchInventory(); }}
         />
       )}
     </div>
   );
 }
 
-// Add Inventory Modal Component with template fields
-function AddInventoryModal({
-  productId,
-  productName,
-  templateFields,
-  onClose,
-  onSuccess,
-}: {
+// ============================================================================
+// Add Inventory Modal
+// ============================================================================
+
+function AddInventoryModal({ productId, productName, templateFields, onClose, onSuccess }: {
   productId: string;
   productName: string;
   templateFields: TemplateField[];
   onClose: () => void;
   onSuccess: () => void;
 }) {
-  // State for each field's textarea values
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
   const [batchName, setBatchName] = useState("");
   const [eachLineIsProduct, setEachLineIsProduct] = useState(false);
@@ -584,7 +586,6 @@ function AddInventoryModal({
   const [pendingData, setPendingData] = useState<{ pendingItems: number; pendingOrdersCount: number } | null>(null);
   const [sellPendingFirst, setSellPendingFirst] = useState(false);
 
-  // Fetch pending items count on mount
   useEffect(() => {
     const fetchPendingCount = async () => {
       try {
@@ -593,59 +594,40 @@ function AddInventoryModal({
         if (data.success && data.data.pendingItems > 0) {
           setPendingData(data.data);
         }
-      } catch (err) {
-        console.error("Failed to fetch pending count");
-      }
+      } catch { /* silent */ }
     };
     fetchPendingCount();
   }, [productId]);
 
-  // Get parsed lines for each field
   const getParsedLines = (fieldName: string): string[] => {
-    const value = fieldValues[fieldName] || "";
-    return value
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line);
+    return (fieldValues[fieldName] || "").split("\n").map((l) => l.trim()).filter(Boolean);
   };
 
-  // Get count for each field
   const fieldCounts = templateFields.reduce((acc, field) => {
     acc[field.name] = getParsedLines(field.name).length;
     return acc;
   }, {} as Record<string, number>);
 
-  // Find min and max counts
   const counts = Object.values(fieldCounts);
   const minCount = counts.length > 0 ? Math.min(...counts) : 0;
   const maxCount = counts.length > 0 ? Math.max(...counts) : 0;
   const hasMismatch = minCount > 0 && maxCount > minCount;
 
-  // Total items that will be created (min of all field counts)
-  const totalItems = minCount;
-
-  // Find which fields have fewer/more items
-  const fieldsWithMismatch: { field: string; count: number; isLess: boolean }[] = [];
+  const fieldsWithMismatch: { field: string; count: number }[] = [];
   if (hasMismatch) {
     templateFields.forEach((field) => {
       if (fieldCounts[field.name] !== maxCount) {
-        fieldsWithMismatch.push({ field: field.label || field.name, count: fieldCounts[field.name], isLess: true });
+        fieldsWithMismatch.push({ field: field.label || field.name, count: fieldCounts[field.name] });
       }
     });
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (minCount === 0) { toast.error("Please enter values in at least one field"); return; }
 
-    // Validate at least one field has values
-    if (totalItems === 0) {
-      alert("Please enter values in at least one field");
-      return;
-    }
-
-    // Build items by combining values row by row
     const parsedItems: Record<string, string>[] = [];
-    for (let i = 0; i < totalItems; i++) {
+    for (let i = 0; i < minCount; i++) {
       const itemObj: Record<string, string> = {};
       templateFields.forEach((field) => {
         const lines = getParsedLines(field.name);
@@ -654,18 +636,17 @@ function AddInventoryModal({
       parsedItems.push(itemObj);
     }
 
-    // Validate required fields are not empty
     const validationErrors: string[] = [];
-    parsedItems.forEach((item, itemIndex) => {
+    parsedItems.forEach((item, idx) => {
       templateFields.forEach((field) => {
         if (field.required && !item[field.name]?.trim()) {
-          validationErrors.push(`Item ${itemIndex + 1}: "${field.label || field.name}" is required but empty`);
+          validationErrors.push(`Item ${idx + 1}: "${field.label || field.name}" is required`);
         }
       });
     });
 
     if (validationErrors.length > 0) {
-      alert("Validation errors:\n" + validationErrors.slice(0, 5).join("\n") + (validationErrors.length > 5 ? "\n..." : ""));
+      toast.error("Validation: " + validationErrors.slice(0, 3).join(", ") + (validationErrors.length > 3 ? ` +${validationErrors.length - 3} more` : ""));
       return;
     }
 
@@ -674,27 +655,21 @@ function AddInventoryModal({
       const res = await fetch("/api/inventory", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          productId,
-          items: parsedItems,
-          batchName: batchName || undefined,
-          sellPendingFirst: sellPendingFirst,
-          eachLineIsProduct,
-        }),
+        body: JSON.stringify({ productId, items: parsedItems, batchName: batchName || undefined, sellPendingFirst, eachLineIsProduct }),
       });
-
       const data = await res.json();
-
       if (data.success) {
-        if (data.data.fulfilledOrders && data.data.fulfilledOrders.length > 0) {
-          alert(`Added ${data.data.count} items and fulfilled ${data.data.fulfilledOrders.length} pending order(s)!`);
+        if (data.data.fulfilledOrders?.length > 0) {
+          toast.success(`Added ${data.data.count} items and fulfilled ${data.data.fulfilledOrders.length} order(s)!`);
+        } else {
+          toast.success(`Added ${data.data.count} item(s)`);
         }
         onSuccess();
       } else {
-        alert(data.error || "Failed to add inventory");
+        toast.error(data.error || "Failed to add inventory");
       }
-    } catch (err) {
-      alert("Failed to add inventory");
+    } catch {
+      toast.error("Failed to add inventory");
     } finally {
       setSubmitting(false);
     }
@@ -702,33 +677,21 @@ function AddInventoryModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 overflow-y-auto py-8">
-      <div className="bg-slate-800 rounded-lg border border-slate-700 w-full max-w-2xl p-6 my-auto">
-        <h2 className="text-xl font-bold text-white mb-4">
-          Add Inventory - {productName}
-        </h2>
+      <div className="bg-card rounded-lg border border-border w-full max-w-2xl p-6 my-auto">
+        <h2 className="text-xl font-bold text-card-foreground mb-4">Add Inventory - {productName}</h2>
 
-        {/* Pending items notice */}
         {pendingData && pendingData.pendingItems > 0 && (
-          <div className="mb-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+          <div className="mb-4 p-3 bg-warning/10 border border-warning/30 rounded-lg">
             <div className="flex items-start gap-3">
-              <svg className="w-5 h-5 text-yellow-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 text-warning mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
               <div className="flex-1">
-                <p className="text-yellow-200 text-sm font-medium">
-                  You have {pendingData.pendingItems} pending item(s) in {pendingData.pendingOrdersCount} order(s)
-                </p>
-                <div className="mt-2">
-                  <label className="flex items-center gap-2 text-sm text-yellow-200/80 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={sellPendingFirst}
-                      onChange={(e) => setSellPendingFirst(e.target.checked)}
-                      className="w-4 h-4 rounded border-yellow-500/30 bg-slate-900 text-yellow-400 focus:ring-yellow-500"
-                    />
-                    <span>Sell to pending orders first (new inventory will fulfill pending orders)</span>
-                  </label>
-                </div>
+                <p className="text-warning text-sm font-medium">{pendingData.pendingItems} pending item(s) in {pendingData.pendingOrdersCount} order(s)</p>
+                <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer mt-2">
+                  <input type="checkbox" checked={sellPendingFirst} onChange={(e) => setSellPendingFirst(e.target.checked)} className="w-4 h-4 rounded border-input bg-background text-primary focus:ring-ring" />
+                  <span>Sell to pending orders first</span>
+                </label>
               </div>
             </div>
           </div>
@@ -736,61 +699,35 @@ function AddInventoryModal({
 
         <form onSubmit={handleSubmit}>
           <div className="mb-4">
-            <label className="block text-sm font-medium text-slate-300 mb-1">
-              Batch Name (optional)
-            </label>
-            <input
-              type="text"
-              value={batchName}
-              onChange={(e) => setBatchName(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="e.g., Import 2024-03-15"
-            />
+            <label className="block text-sm font-medium text-foreground mb-1">Batch Name (optional)</label>
+            <input type="text" value={batchName} onChange={(e) => setBatchName(e.target.value)} className="w-full px-3 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring" placeholder="e.g., Import 2024-03-15" />
           </div>
 
-          {/* Each Line Is Product Option */}
           <div className="mb-4">
             <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={eachLineIsProduct}
-                onChange={(e) => setEachLineIsProduct(e.target.checked)}
-                className="w-4 h-4 text-blue-600 bg-slate-800 border-slate-700 rounded focus:ring-blue-500"
-              />
-              <span className="text-sm text-slate-300">Each line is a separate product</span>
+              <input type="checkbox" checked={eachLineIsProduct} onChange={(e) => setEachLineIsProduct(e.target.checked)} className="w-4 h-4 rounded border-input bg-background text-primary focus:ring-ring" />
+              <span className="text-sm text-foreground">Each line is a separate product</span>
             </label>
-            <p className="text-xs text-slate-500 ml-6">
-              When checked, each line will be treated as a separate item when fulfilling orders
-            </p>
           </div>
 
-          {/* Field inputs */}
           <div className="mb-4 space-y-4">
-            <p className="text-sm text-slate-400">
-              Enter values for each field (one value per line). Items will be created by combining values in order.
-            </p>
-
+            <p className="text-sm text-muted-foreground">Enter values for each field (one value per line). Items will be created by combining values in order.</p>
             {templateFields.length === 0 ? (
-              <div className="p-3 bg-slate-900/50 rounded border border-slate-700 text-slate-400 text-sm">
-                No template fields configured for this product.
-              </div>
+              <div className="p-3 bg-muted rounded border border-border text-muted-foreground text-sm">No template fields configured for this product.</div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {templateFields.map((field) => (
                   <div key={field.name}>
-                    <label className="block text-sm font-medium text-slate-300 mb-1">
-                      {field.label || field.name}
-                      {field.required && <span className="text-red-400"> *</span>}
-                      <span className="text-slate-500 font-normal ml-2">
-                        ({fieldCounts[field.name]} {fieldCounts[field.name] === 1 ? 'line' : 'lines'})
-                      </span>
+                    <label className="block text-sm font-medium text-foreground mb-1">
+                      {field.label || field.name}{field.required && <span className="text-destructive"> *</span>}
+                      <span className="text-muted-foreground font-normal ml-2">({fieldCounts[field.name]} lines)</span>
                     </label>
                     <textarea
                       value={fieldValues[field.name] || ""}
                       onChange={(e) => setFieldValues({ ...fieldValues, [field.name]: e.target.value })}
-                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
+                      className="w-full px-3 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring font-mono text-sm"
                       rows={6}
-                      placeholder={`Enter one value per line\nExample:\nABC\nFVB`}
+                      placeholder="Enter one value per line"
                     />
                   </div>
                 ))}
@@ -798,86 +735,42 @@ function AddInventoryModal({
             )}
           </div>
 
-          {/* Items count preview */}
-          {totalItems > 0 && (
-            <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
-              <div className="flex items-center justify-between">
-                <span className="text-blue-200 text-sm">
-                  Will create <strong>{totalItems}</strong> item(s)
-                </span>
-                {hasMismatch && (
-                  <span className="text-yellow-400 text-xs">
-                    Some fields have extra values
-                  </span>
-                )}
-              </div>
+          {minCount > 0 && (
+            <div className="mb-4 p-3 bg-info/10 border border-info/30 rounded-lg">
+              <span className="text-info text-sm">Will create <strong>{minCount}</strong> item(s)</span>
+              {hasMismatch && <span className="text-warning text-xs ml-2">Some fields have extra values</span>}
             </div>
           )}
 
-          {/* Warning for mismatched counts */}
           {hasMismatch && (
-            <div className="mb-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-              <div className="flex items-start gap-3">
-                <svg className="w-5 h-5 text-yellow-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-                <div className="flex-1">
-                  <p className="text-yellow-200 text-sm font-medium">
-                    Field count mismatch detected
-                  </p>
-                  <p className="text-yellow-200/70 text-xs mt-1">
-                    Only the first {totalItems} items will be created. The following fields have fewer values:
-                  </p>
-                  <ul className="text-xs text-yellow-200/70 mt-1 list-disc list-inside">
-                    {fieldsWithMismatch.map((m) => (
-                      <li key={m.field}>
-                        <strong>{m.field}</strong>: {m.count} value{m.count !== 1 ? 's' : ''} (needs {maxCount})
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
+            <div className="mb-4 p-3 bg-warning/10 border border-warning/30 rounded-lg">
+              <p className="text-warning text-sm font-medium">Field count mismatch</p>
+              <p className="text-muted-foreground text-xs mt-1">Only {minCount} items will be created:</p>
+              <ul className="text-xs text-muted-foreground mt-1 list-disc list-inside">
+                {fieldsWithMismatch.map((m) => <li key={m.field}><strong>{m.field}</strong>: {m.count} values (needs {maxCount})</li>)}
+              </ul>
             </div>
           )}
 
-          {/* Preview first few items */}
-          {totalItems > 0 && templateFields.length > 0 && (
-            <div className="mb-4 p-3 bg-slate-900/50 rounded border border-slate-700">
-              <p className="text-xs text-slate-400 mb-2">Preview (first 3 items):</p>
+          {minCount > 0 && templateFields.length > 0 && (
+            <div className="mb-4 p-3 bg-muted rounded border border-border">
+              <p className="text-xs text-muted-foreground mb-2">Preview (first 3):</p>
               <div className="space-y-1">
-                {Array.from({ length: Math.min(3, totalItems) }).map((_, i) => (
-                  <div key={i} className="text-xs font-mono text-slate-300">
-                    {templateFields.map((f) => {
-                      const lines = getParsedLines(f.name);
-                      return lines[i] || "-";
-                    }).join(" \u2192 ")}
+                {Array.from({ length: Math.min(3, minCount) }).map((_, i) => (
+                  <div key={i} className="text-xs font-mono text-foreground">
+                    {templateFields.map((f) => getParsedLines(f.name)[i] || "-").join(" → ")}
                   </div>
                 ))}
-                {totalItems > 3 && (
-                  <div className="text-xs text-slate-500 italic">
-                    ... and {totalItems - 3} more
-                  </div>
-                )}
+                {minCount > 3 && <div className="text-xs text-muted-foreground italic">... and {minCount - 3} more</div>}
               </div>
             </div>
           )}
 
           <div className="flex justify-end gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-slate-300 hover:text-white transition-colors"
-              disabled={submitting}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={submitting || totalItems === 0}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
-            >
-              {submitting ? "Adding..." : `Add ${totalItems} Item${totalItems !== 1 ? 's' : ''}`}
-            </button>
+            <Button type="button" variant="ghost" onClick={onClose} disabled={submitting}>Cancel</Button>
+            <Button type="submit" disabled={submitting || minCount === 0}>
+              {submitting ? "Adding..." : `Add ${minCount} Item${minCount !== 1 ? "s" : ""}`}
+            </Button>
           </div>
         </form>
       </div>
@@ -885,14 +778,11 @@ function AddInventoryModal({
   );
 }
 
-// Standalone Stock Modal - Add stock without requiring a product
-function StandaloneStockModal({
-  onClose,
-  onSuccess,
-}: {
-  onClose: () => void;
-  onSuccess: () => void;
-}) {
+// ============================================================================
+// Standalone Stock Modal
+// ============================================================================
+
+function StandaloneStockModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void; }) {
   const [templates, setTemplates] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
@@ -904,85 +794,46 @@ function StandaloneStockModal({
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Fetch templates and products on mount
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [templatesRes, productsRes] = await Promise.all([
-          fetch("/api/inventory/templates"),
-          fetch("/api/products?limit=500"),
-        ]);
-
+        const [templatesRes, productsRes] = await Promise.all([fetch("/api/inventory/templates"), fetch("/api/products?limit=500")]);
         const templatesData = await templatesRes.json();
         const productsData = await productsRes.json();
-
-        if (templatesData.success) {
-          setTemplates(templatesData.data);
-        }
-        if (productsData.success) {
-          setProducts(productsData.data);
-        }
-      } catch (err) {
-        console.error("Failed to load data:", err);
-      } finally {
-        setLoading(false);
-      }
+        if (templatesData.success) setTemplates(templatesData.data);
+        if (productsData.success) setProducts(productsData.data);
+      } catch { /* silent */ } finally { setLoading(false); }
     };
     fetchData();
   }, []);
 
-  // When template changes, update fields
   useEffect(() => {
-    if (!selectedTemplateId) {
-      setTemplateFields([]);
-      setFieldValues({});
-      return;
-    }
-
+    if (!selectedTemplateId) { setTemplateFields([]); setFieldValues({}); return; }
     const template = templates.find((t) => t.id === selectedTemplateId);
     if (template?.fieldsSchema) {
       setTemplateFields(template.fieldsSchema);
-      // Initialize field values
       const initialValues: Record<string, string> = {};
-      template.fieldsSchema.forEach((field: TemplateField) => {
-        initialValues[field.name] = "";
-      });
+      template.fieldsSchema.forEach((field: TemplateField) => { initialValues[field.name] = ""; });
       setFieldValues(initialValues);
     }
   }, [selectedTemplateId, templates]);
 
   const getParsedLines = (fieldName: string): string[] => {
-    const value = fieldValues[fieldName] || "";
-    return value
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line);
+    return (fieldValues[fieldName] || "").split("\n").map((l) => l.trim()).filter(Boolean);
   };
 
-  const fieldCounts = templateFields.reduce((acc, field) => {
-    acc[field.name] = getParsedLines(field.name).length;
-    return acc;
-  }, {} as Record<string, number>);
-
+  const fieldCounts = templateFields.reduce((acc, field) => { acc[field.name] = getParsedLines(field.name).length; return acc; }, {} as Record<string, number>);
   const counts = Object.values(fieldCounts);
   const minCount = counts.length > 0 ? Math.min(...counts) : 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (minCount === 0) { toast.error("Please enter values in at least one field"); return; }
 
-    if (minCount === 0) {
-      alert("Please enter values in at least one field");
-      return;
-    }
-
-    // Build items by combining values row by row
     const parsedItems: Record<string, string>[] = [];
     for (let i = 0; i < minCount; i++) {
       const itemObj: Record<string, string> = {};
-      templateFields.forEach((field) => {
-        const lines = getParsedLines(field.name);
-        itemObj[field.name] = lines[i] || "";
-      });
+      templateFields.forEach((field) => { itemObj[field.name] = getParsedLines(field.name)[i] || ""; });
       parsedItems.push(itemObj);
     }
 
@@ -991,159 +842,70 @@ function StandaloneStockModal({
       const res = await fetch("/api/inventory/standalone", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          templateId: selectedTemplateId,
-          productId: selectedProductId || null,
-          items: parsedItems,
-          batchName: batchName || undefined,
-          eachLineIsProduct,
-        }),
+        body: JSON.stringify({ templateId: selectedTemplateId, productId: selectedProductId || null, items: parsedItems, batchName: batchName || undefined, eachLineIsProduct }),
       });
-
       const data = await res.json();
-
-      if (data.success) {
-        alert(`Added ${data.data.count} stock item(s) successfully!`);
-        onSuccess();
-      } else {
-        alert(data.error || "Failed to add stock");
-      }
-    } catch (err) {
-      alert("Failed to add stock");
-    } finally {
-      setSubmitting(false);
-    }
+      if (data.success) { toast.success(`Added ${data.data.count} stock item(s)!`); onSuccess(); }
+      else { toast.error(data.error || "Failed to add stock"); }
+    } catch { toast.error("Failed to add stock"); } finally { setSubmitting(false); }
   };
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 overflow-y-auto py-8">
-      <div className="bg-slate-800 rounded-lg border border-slate-700 w-full max-w-3xl p-6 my-auto max-h-[90vh] overflow-y-auto">
-        <h2 className="text-xl font-bold text-white mb-4">
-          Add Stock (Standalone)
-        </h2>
-        <p className="text-sm text-slate-400 mb-4">
-          Add stock inventory without linking to a product. You can link it to a product later.
-        </p>
+      <div className="bg-card rounded-lg border border-border w-full max-w-3xl p-6 my-auto max-h-[90vh] overflow-y-auto">
+        <h2 className="text-xl font-bold text-card-foreground mb-4">Add Stock (Standalone)</h2>
+        <p className="text-sm text-muted-foreground mb-4">Add stock inventory without linking to a product.</p>
 
         {loading ? (
-          <div className="text-center py-8 text-slate-400">Loading...</div>
+          <div className="text-center py-8"><Skeleton className="h-8 w-48 mx-auto" /></div>
         ) : (
           <form onSubmit={handleSubmit}>
-            {/* Template Selection */}
             <div className="mb-4">
-              <label className="block text-sm font-medium text-slate-300 mb-2">
-                Inventory Template *
-              </label>
-              <select
-                value={selectedTemplateId}
-                onChange={(e) => setSelectedTemplateId(e.target.value)}
-                required
-                className="w-full px-4 py-2 bg-slate-900 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
+              <label className="block text-sm font-medium text-foreground mb-2">Inventory Template *</label>
+              <select value={selectedTemplateId} onChange={(e) => setSelectedTemplateId(e.target.value)} required className="w-full px-4 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring">
                 <option value="">Select a template...</option>
-                {templates.map((template) => (
-                  <option key={template.id} value={template.id}>
-                    {template.name} {template.description && `- ${template.description}`}
-                  </option>
-                ))}
+                {templates.map((t) => <option key={t.id} value={t.id}>{t.name}{t.description ? ` - ${t.description}` : ""}</option>)}
               </select>
             </div>
 
-            {/* Product Selection (Optional) */}
             <div className="mb-4">
-              <label className="block text-sm font-medium text-slate-300 mb-2">
-                Link to Product (Optional)
-              </label>
-              <select
-                value={selectedProductId}
-                onChange={(e) => setSelectedProductId(e.target.value)}
-                className="w-full px-4 py-2 bg-slate-900 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">No product (add stock without linking)</option>
-                {products.map((product) => (
-                  <option key={product.id} value={product.id}>
-                    {product.name}
-                  </option>
-                ))}
+              <label className="block text-sm font-medium text-foreground mb-2">Link to Product (Optional)</label>
+              <select value={selectedProductId} onChange={(e) => setSelectedProductId(e.target.value)} className="w-full px-4 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring">
+                <option value="">No product</option>
+                {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
-              <p className="text-xs text-slate-500 mt-1">
-                Leave empty to add stock without linking. You can link it later.
-              </p>
             </div>
 
-            {/* Batch Name */}
             <div className="mb-4">
-              <label className="block text-sm font-medium text-slate-300 mb-2">
-                Batch Name (optional)
-              </label>
-              <input
-                type="text"
-                value={batchName}
-                onChange={(e) => setBatchName(e.target.value)}
-                className="w-full px-4 py-2 bg-slate-900 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="e.g., Import 2024-03-15"
-              />
+              <label className="block text-sm font-medium text-foreground mb-2">Batch Name (optional)</label>
+              <input type="text" value={batchName} onChange={(e) => setBatchName(e.target.value)} className="w-full px-4 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring" placeholder="e.g., Import 2024-03-15" />
             </div>
 
-            {/* Each Line Is Product Option */}
             <div className="mb-4">
               <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={eachLineIsProduct}
-                  onChange={(e) => setEachLineIsProduct(e.target.checked)}
-                  className="w-4 h-4 text-blue-600 bg-slate-800 border-slate-700 rounded focus:ring-blue-500"
-                />
-                <span className="text-sm text-slate-300">Each line is a separate product</span>
+                <input type="checkbox" checked={eachLineIsProduct} onChange={(e) => setEachLineIsProduct(e.target.checked)} className="w-4 h-4 rounded border-input bg-background text-primary focus:ring-ring" />
+                <span className="text-sm text-foreground">Each line is a separate product</span>
               </label>
-              <p className="text-xs text-slate-500 ml-6">
-                When checked, each line will create a separate product connection
-              </p>
             </div>
 
-            {/* Field inputs */}
             {templateFields.length > 0 && (
               <div className="mb-4">
-                <h3 className="text-sm font-medium text-slate-300 mb-2">Field Values</h3>
-                <p className="text-xs text-slate-500 mb-3">
-                  Enter values for each field (one value per line)
-                </p>
+                <h3 className="text-sm font-medium text-foreground mb-2">Field Values</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {templateFields.map((field) => (
                     <div key={field.name}>
-                      <label className="block text-sm font-medium text-slate-300 mb-1">
-                        {field.label || field.name}
-                        {field.required && <span className="text-red-400"> *</span>}
-                        <span className="text-slate-500 font-normal ml-2">
-                          ({fieldCounts[field.name] || 0} lines)
-                        </span>
+                      <label className="block text-sm font-medium text-foreground mb-1">
+                        {field.label || field.name}{field.required && <span className="text-destructive"> *</span>}
+                        <span className="text-muted-foreground font-normal ml-2">({fieldCounts[field.name] || 0} lines)</span>
                       </label>
                       {field.type === "boolean" ? (
-                        <select
-                          value={fieldValues[field.name] || ""}
-                          onChange={(e) => setFieldValues({ ...fieldValues, [field.name]: e.target.value })}
-                          className="w-full px-4 py-2 bg-slate-900 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        >
-                          <option value="">Select...</option>
-                          <option value="true">True</option>
-                          <option value="false">False</option>
+                        <select value={fieldValues[field.name] || ""} onChange={(e) => setFieldValues({ ...fieldValues, [field.name]: e.target.value })} className="w-full px-4 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring">
+                          <option value="">Select...</option><option value="true">True</option><option value="false">False</option>
                         </select>
                       ) : field.type === "number" ? (
-                        <input
-                          type="number"
-                          value={fieldValues[field.name] || ""}
-                          onChange={(e) => setFieldValues({ ...fieldValues, [field.name]: e.target.value })}
-                          className="w-full px-4 py-2 bg-slate-900 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          placeholder="Enter number"
-                        />
+                        <input type="number" value={fieldValues[field.name] || ""} onChange={(e) => setFieldValues({ ...fieldValues, [field.name]: e.target.value })} className="w-full px-4 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
                       ) : (
-                        <textarea
-                          value={fieldValues[field.name] || ""}
-                          onChange={(e) => setFieldValues({ ...fieldValues, [field.name]: e.target.value })}
-                          className="w-full px-4 py-2 bg-slate-900 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
-                          rows={6}
-                          placeholder={`Enter one value per line\nExample:\nABC\nDEF`}
-                        />
+                        <textarea value={fieldValues[field.name] || ""} onChange={(e) => setFieldValues({ ...fieldValues, [field.name]: e.target.value })} className="w-full px-4 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring font-mono text-sm" rows={6} placeholder="One value per line" />
                       )}
                     </div>
                   ))}
@@ -1151,31 +913,17 @@ function StandaloneStockModal({
               </div>
             )}
 
-            {/* Items count preview */}
             {minCount > 0 && (
-              <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
-                <span className="text-blue-200 text-sm">
-                  Will create <strong>{minCount}</strong> stock item(s)
-                </span>
+              <div className="mb-4 p-3 bg-info/10 border border-info/30 rounded-lg">
+                <span className="text-info text-sm">Will create <strong>{minCount}</strong> stock item(s)</span>
               </div>
             )}
 
             <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={onClose}
-                disabled={submitting}
-                className="px-4 py-2 text-slate-300 hover:text-white transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={submitting || minCount === 0}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
-              >
-                {submitting ? "Adding..." : `Add ${minCount} Stock Item${minCount !== 1 ? 's' : ''}`}
-              </button>
+              <Button type="button" variant="ghost" onClick={onClose} disabled={submitting}>Cancel</Button>
+              <Button type="submit" disabled={submitting || minCount === 0}>
+                {submitting ? "Adding..." : `Add ${minCount} Stock Item${minCount !== 1 ? "s" : ""}`}
+              </Button>
             </div>
           </form>
         )}
@@ -1184,14 +932,11 @@ function StandaloneStockModal({
   );
 }
 
-// Link Stock Modal - View unlinked stock and link to products
-function LinkStockModal({
-  onClose,
-  onSuccess,
-}: {
-  onClose: () => void;
-  onSuccess: () => void;
-}) {
+// ============================================================================
+// Link Stock Modal
+// ============================================================================
+
+function LinkStockModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void; }) {
   const [products, setProducts] = useState<any[]>([]);
   const [unlinkedItems, setUnlinkedItems] = useState<InventoryItem[]>([]);
   const [selectedProductId, setSelectedProductId] = useState("");
@@ -1199,185 +944,94 @@ function LinkStockModal({
   const [loading, setLoading] = useState(true);
   const [linking, setLinking] = useState(false);
 
-  // Fetch products and unlinked items
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [productsRes, itemsRes] = await Promise.all([
-          fetch("/api/products?limit=500"),
-          fetch("/api/inventory?unlinked=true&limit=100"),
-        ]);
-
+        const [productsRes, itemsRes] = await Promise.all([fetch("/api/products?limit=500"), fetch("/api/inventory?unlinked=true&limit=100")]);
         const productsData = await productsRes.json();
         const itemsData = await itemsRes.json();
-
         if (productsData.success) setProducts(productsData.data);
         if (itemsData.success) setUnlinkedItems(itemsData.data);
-      } catch (err) {
-        console.error("Failed to load data:", err);
-      } finally {
-        setLoading(false);
-      }
+      } catch { /* silent */ } finally { setLoading(false); }
     };
     fetchData();
   }, []);
 
   const toggleItem = (id: string) => {
-    const newSelected = new Set(selectedItemIds);
-    if (newSelected.has(id)) {
-      newSelected.delete(id);
-    } else {
-      newSelected.add(id);
-    }
-    setSelectedItemIds(newSelected);
+    const next = new Set(selectedItemIds);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setSelectedItemIds(next);
   };
 
   const toggleAll = () => {
-    if (selectedItemIds.size === unlinkedItems.length) {
-      setSelectedItemIds(new Set());
-    } else {
-      setSelectedItemIds(new Set(unlinkedItems.map((item) => item.id)));
-    }
+    setSelectedItemIds(selectedItemIds.size === unlinkedItems.length ? new Set() : new Set(unlinkedItems.map((item) => item.id)));
   };
 
   const handleLink = async () => {
-    if (selectedItemIds.size === 0) {
-      alert("Please select at least one stock item to link");
-      return;
-    }
-    if (!selectedProductId) {
-      alert("Please select a product to link to");
-      return;
-    }
+    if (selectedItemIds.size === 0) { toast.error("Select at least one stock item"); return; }
+    if (!selectedProductId) { toast.error("Select a product to link to"); return; }
 
     setLinking(true);
     try {
       const res = await fetch("/api/inventory/link", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          inventoryIds: Array.from(selectedItemIds),
-          productId: selectedProductId,
-        }),
+        body: JSON.stringify({ inventoryIds: Array.from(selectedItemIds), productId: selectedProductId }),
       });
-
       const data = await res.json();
-
-      if (data.success) {
-        alert(`Successfully linked ${selectedItemIds.size} stock item(s) to product!`);
-        onSuccess();
-      } else {
-        alert(data.error || "Failed to link stock");
-      }
-    } catch (err) {
-      alert("Failed to link stock");
-    } finally {
-      setLinking(false);
-    }
+      if (data.success) { toast.success(`Linked ${selectedItemIds.size} item(s) to product!`); onSuccess(); }
+      else { toast.error(data.error || "Failed to link stock"); }
+    } catch { toast.error("Failed to link stock"); } finally { setLinking(false); }
   };
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 overflow-y-auto py-8">
-      <div className="bg-slate-800 rounded-lg border border-slate-700 w-full max-w-4xl p-6 my-auto max-h-[90vh] overflow-y-auto">
-        <h2 className="text-xl font-bold text-white mb-4">
-          Link Stock to Product
-        </h2>
-        <p className="text-sm text-slate-400 mb-4">
-          Select unlinked stock items and link them to a product.
-        </p>
+      <div className="bg-card rounded-lg border border-border w-full max-w-4xl p-6 my-auto max-h-[90vh] overflow-y-auto">
+        <h2 className="text-xl font-bold text-card-foreground mb-4">Link Stock to Product</h2>
+        <p className="text-sm text-muted-foreground mb-4">Select unlinked stock items and link them to a product.</p>
 
         {loading ? (
-          <div className="text-center py-8 text-slate-400">Loading...</div>
+          <div className="text-center py-8"><Skeleton className="h-8 w-48 mx-auto" /></div>
         ) : (
           <>
             {unlinkedItems.length === 0 ? (
               <div className="text-center py-8">
-                <p className="text-slate-400 mb-4">No unlinked stock items found.</p>
-                <button
-                  onClick={onClose}
-                  className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600"
-                >
-                  Close
-                </button>
+                <p className="text-muted-foreground mb-4">No unlinked stock items found.</p>
+                <Button variant="ghost" onClick={onClose}>Close</Button>
               </div>
             ) : (
               <>
-                {/* Product Selection */}
                 <div className="mb-4">
-                  <label className="block text-sm font-medium text-slate-300 mb-2">
-                    Select Product *
-                  </label>
-                  <select
-                    value={selectedProductId}
-                    onChange={(e) => setSelectedProductId(e.target.value)}
-                    className="w-full px-4 py-2 bg-slate-900 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
+                  <label className="block text-sm font-medium text-foreground mb-2">Select Product *</label>
+                  <select value={selectedProductId} onChange={(e) => setSelectedProductId(e.target.value)} className="w-full px-4 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring">
                     <option value="">Select a product...</option>
-                    {products.map((product) => (
-                      <option key={product.id} value={product.id}>
-                        {product.name}
-                      </option>
-                    ))}
+                    {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>
                 </div>
 
-                {/* Unlinked Items Table */}
                 <div className="mb-4">
                   <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-sm font-medium text-slate-300">
-                      Unlinked Stock Items ({unlinkedItems.length})
-                    </h3>
-                    <button
-                      type="button"
-                      onClick={toggleAll}
-                      className="text-xs text-blue-400 hover:text-blue-300"
-                    >
+                    <h3 className="text-sm font-medium text-foreground">Unlinked Stock Items ({unlinkedItems.length})</h3>
+                    <button type="button" onClick={toggleAll} className="text-xs text-primary hover:text-primary/80">
                       {selectedItemIds.size === unlinkedItems.length ? "Deselect All" : "Select All"}
                     </button>
                   </div>
 
-                  <div className="border border-slate-700 rounded-lg overflow-hidden max-h-64 overflow-y-auto">
+                  <div className="border border-border rounded-lg overflow-hidden max-h-64 overflow-y-auto">
                     <table className="w-full">
-                      <thead className="bg-slate-900/50 sticky top-0">
+                      <thead className="bg-muted sticky top-0">
                         <tr>
-                          <th className="px-4 py-2 text-left">
-                            <input
-                              type="checkbox"
-                              checked={selectedItemIds.size === unlinkedItems.length && unlinkedItems.length > 0}
-                              onChange={toggleAll}
-                              className="w-4 h-4 rounded"
-                            />
-                          </th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-slate-400 uppercase">Values</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-slate-400 uppercase">Created</th>
+                          <th className="px-4 py-2 text-left"><input type="checkbox" checked={selectedItemIds.size === unlinkedItems.length && unlinkedItems.length > 0} onChange={toggleAll} className="w-4 h-4 rounded" /></th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase">Values</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase">Created</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-700">
+                      <tbody className="divide-y divide-border">
                         {unlinkedItems.map((item) => (
-                          <tr
-                            key={item.id}
-                            className={`hover:bg-slate-700/30 cursor-pointer ${
-                              selectedItemIds.has(item.id) ? "bg-blue-900/20" : ""
-                            }`}
-                            onClick={() => toggleItem(item.id)}
-                          >
-                            <td className="px-4 py-2">
-                              <input
-                                type="checkbox"
-                                checked={selectedItemIds.has(item.id)}
-                                onChange={() => toggleItem(item.id)}
-                                className="w-4 h-4 rounded"
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                            </td>
-                            <td className="px-4 py-2 text-sm text-slate-300">
-                              {Object.entries(item.values || {})
-                                .map(([key, value]) => `${key}: ${value}`)
-                                .join(", ")}
-                            </td>
-                            <td className="px-4 py-2 text-sm text-slate-400">
-                              {new Date(item.createdAt).toLocaleDateString()}
-                            </td>
+                          <tr key={item.id} className={`hover:bg-muted/50 cursor-pointer ${selectedItemIds.has(item.id) ? "bg-primary/5" : ""}`} onClick={() => toggleItem(item.id)}>
+                            <td className="px-4 py-2"><input type="checkbox" checked={selectedItemIds.has(item.id)} onChange={() => toggleItem(item.id)} className="w-4 h-4 rounded" onClick={(e) => e.stopPropagation()} /></td>
+                            <td className="px-4 py-2 text-sm text-foreground">{Object.entries(item.values || {}).map(([k, v]) => `${k}: ${v}`).join(", ")}</td>
+                            <td className="px-4 py-2 text-sm text-muted-foreground">{new Date(item.createdAt).toLocaleDateString()}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -1385,31 +1039,17 @@ function LinkStockModal({
                   </div>
                 </div>
 
-                {/* Selected count */}
                 {selectedItemIds.size > 0 && (
-                  <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
-                    <span className="text-blue-200 text-sm">
-                      {selectedItemIds.size} item(s) selected
-                    </span>
+                  <div className="mb-4 p-3 bg-info/10 border border-info/30 rounded-lg">
+                    <span className="text-info text-sm">{selectedItemIds.size} item(s) selected</span>
                   </div>
                 )}
 
                 <div className="flex justify-end gap-3">
-                  <button
-                    type="button"
-                    onClick={onClose}
-                    disabled={linking}
-                    className="px-4 py-2 text-slate-300 hover:text-white transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleLink}
-                    disabled={linking || selectedItemIds.size === 0 || !selectedProductId}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
-                  >
+                  <Button variant="ghost" onClick={onClose} disabled={linking}>Cancel</Button>
+                  <Button onClick={handleLink} disabled={linking || selectedItemIds.size === 0 || !selectedProductId}>
                     {linking ? "Linking..." : `Link ${selectedItemIds.size} Item(s)`}
-                  </button>
+                  </Button>
                 </div>
               </>
             )}

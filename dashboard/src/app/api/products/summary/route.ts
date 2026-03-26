@@ -63,6 +63,8 @@ export async function GET(request: NextRequest) {
         totalSold: products.totalSold,
         inventoryTemplateId: products.inventoryTemplateId,
         templateName: inventoryTemplates.name,
+        // Ship template fields to avoid N+1 fetches in admin pickers.
+        fieldsSchema: inventoryTemplates.fieldsSchema,
         // Count available items per status
         availableCount: sql<number>`(
           SELECT COUNT(*)::int

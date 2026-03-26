@@ -9,6 +9,7 @@
 import { useState, useEffect } from "react";
 import { CategoriesTree } from "@/components/dashboard/CategoriesTree";
 import { CategoryModal } from "@/components/dashboard/CategoryModal";
+import { toast } from "sonner";
 
 interface Category {
   id: string;
@@ -74,10 +75,10 @@ export default function CategoriesPage() {
       if (data.success) {
         fetchCategories();
       } else {
-        alert(data.error || "Failed to delete category");
+        toast.error(data.error || "Failed to delete category");
       }
     } catch (err) {
-      alert("Failed to delete category");
+      toast.error("Failed to delete category");
     }
   };
 
@@ -115,10 +116,10 @@ export default function CategoriesPage() {
         fetchCategories();
         handleModalClose();
       } else {
-        alert(result.error || "Failed to save category");
+        toast.error(result.error || "Failed to save category");
       }
     } catch (err) {
-      alert("Failed to save category");
+      toast.error("Failed to save category");
     }
   };
 
@@ -146,14 +147,14 @@ export default function CategoriesPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-white">Categories</h1>
-          <p className="text-slate-400 mt-1">
+          <h1 className="text-2xl font-bold text-foreground">Categories</h1>
+          <p className="text-muted-foreground mt-1">
             Manage global category hierarchy
           </p>
         </div>
         <button
           onClick={() => handleCreate(null)}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+          className="px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg transition-colors"
         >
           Add Root Category
         </button>
@@ -166,21 +167,21 @@ export default function CategoriesPage() {
           placeholder="Search categories..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full max-w-md px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full max-w-md px-4 py-2 bg-muted border border-input rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
         />
       </div>
 
       {/* Content */}
       {loading ? (
-        <div className="text-center py-12 text-slate-400">Loading categories...</div>
+        <div className="text-center py-12 text-muted-foreground">Loading categories...</div>
       ) : error ? (
-        <div className="text-center py-12 text-red-400">{error}</div>
+        <div className="text-center py-12 text-destructive">{error}</div>
       ) : filteredCategories.length === 0 ? (
-        <div className="text-center py-12 text-slate-400">
+        <div className="text-center py-12 text-muted-foreground">
           {searchQuery ? "No categories found matching your search." : "No categories yet. Create your first category!"}
         </div>
       ) : (
-        <div className="bg-slate-800 rounded-lg border border-slate-700 p-6">
+        <div className="bg-muted rounded-lg border border-input p-6">
           <CategoriesTree
             categories={filteredCategories}
             onEdit={handleEdit}

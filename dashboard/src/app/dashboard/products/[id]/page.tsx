@@ -233,7 +233,7 @@ export default function EditProductPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-slate-400">Loading product...</div>
+        <div className="text-muted-foreground">Loading product...</div>
       </div>
     );
   }
@@ -242,13 +242,13 @@ export default function EditProductPage() {
     return (
       <div>
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-white">Product Not Found</h1>
+          <h1 className="text-2xl font-bold text-foreground">Product Not Found</h1>
         </div>
-        <div className="bg-slate-900 border border-slate-800 rounded-lg shadow-sm p-6 text-center">
-          <p className="text-slate-400 mb-4">The product you're looking for doesn't exist.</p>
+        <div className="bg-card border border-border rounded-lg shadow-sm p-6 text-center">
+          <p className="text-muted-foreground mb-4">The product you're looking for doesn't exist.</p>
           <button
             onClick={() => router.push("/dashboard/products")}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90"
           >
             Back to Products
           </button>
@@ -260,8 +260,8 @@ export default function EditProductPage() {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-white">Edit Product</h1>
-        <p className="text-slate-400">Update product details</p>
+        <h1 className="text-2xl font-bold text-foreground">Edit Product</h1>
+        <p className="text-muted-foreground">Update product details</p>
       </div>
 
       {error && (
@@ -270,14 +270,14 @@ export default function EditProductPage() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="bg-slate-900 border border-slate-800 rounded-lg shadow-sm p-6">
+      <form onSubmit={handleSubmit} className="bg-card border border-border rounded-lg shadow-sm p-6">
         {/* Basic Information */}
         <div className="mb-8">
-          <h2 className="text-lg font-semibold text-white mb-4">Basic Information</h2>
+          <h2 className="text-lg font-semibold text-foreground mb-4">Basic Information</h2>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
+              <label className="block text-sm font-medium text-muted-foreground mb-2">
                 Product Name *
               </label>
               <input
@@ -285,12 +285,12 @@ export default function EditProductPage() {
                 value={formData.name}
                 onChange={(e) => handleNameChange(e.target.value)}
                 required
-                className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500"
+                className="w-full px-4 py-2 bg-muted border border-input text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
+              <label className="block text-sm font-medium text-muted-foreground mb-2">
                 Slug *
               </label>
               <input
@@ -298,59 +298,59 @@ export default function EditProductPage() {
                 value={formData.slug}
                 onChange={(e) => setFormData({ ...formData, slug: e.target.value })}
                 required
-                className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500"
+                className="w-full px-4 py-2 bg-muted border border-input text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
+              <label className="block text-sm font-medium text-muted-foreground mb-2">
                 Arabic Name (الاسم بالعربية)
               </label>
               <input
                 type="text"
                 value={formData.nameAr}
                 onChange={(e) => setFormData({ ...formData, nameAr: e.target.value })}
-                className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500 text-right"
+                className="w-full px-4 py-2 bg-muted border border-input text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground text-right"
                 placeholder="اسم المنتج"
                 dir="rtl"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
+              <label className="block text-sm font-medium text-muted-foreground mb-2">
                 SKU
               </label>
               <input
                 type="text"
                 value={formData.sku}
                 onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
-                className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500"
+                className="w-full px-4 py-2 bg-muted border border-input text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
                 placeholder="PROD-001"
               />
             </div>
           </div>
 
           <div className="mt-4">
-            <label className="block text-sm font-medium text-slate-300 mb-2">
+            <label className="block text-sm font-medium text-muted-foreground mb-2">
               Description
             </label>
             <textarea
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               rows={4}
-              className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500"
+              className="w-full px-4 py-2 bg-muted border border-input text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
             />
           </div>
 
           <div className="mt-4">
-            <label className="block text-sm font-medium text-slate-300 mb-2">
+            <label className="block text-sm font-medium text-muted-foreground mb-2">
               Arabic Description (الوصف بالعربية)
             </label>
             <textarea
               value={formData.descriptionAr}
               onChange={(e) => setFormData({ ...formData, descriptionAr: e.target.value })}
               rows={4}
-              className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500 text-right"
+              className="w-full px-4 py-2 bg-muted border border-input text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground text-right"
               placeholder="وصف المنتج..."
               dir="rtl"
             />
@@ -359,11 +359,11 @@ export default function EditProductPage() {
 
         {/* Pricing */}
         <div className="mb-8">
-          <h2 className="text-lg font-semibold text-white mb-4">Pricing</h2>
+          <h2 className="text-lg font-semibold text-foreground mb-4">Pricing</h2>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
+              <label className="block text-sm font-medium text-muted-foreground mb-2">
                 Base Price (USD) *
               </label>
               <input
@@ -373,12 +373,12 @@ export default function EditProductPage() {
                 value={formData.basePrice}
                 onChange={(e) => setFormData({ ...formData, basePrice: e.target.value })}
                 required
-                className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500"
+                className="w-full px-4 py-2 bg-muted border border-input text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
+              <label className="block text-sm font-medium text-muted-foreground mb-2">
                 Compare At Price
               </label>
               <input
@@ -387,9 +387,9 @@ export default function EditProductPage() {
                 min="0"
                 value={formData.compareAtPrice}
                 onChange={(e) => setFormData({ ...formData, compareAtPrice: e.target.value })}
-                className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500"
+                className="w-full px-4 py-2 bg-muted border border-input text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
               />
-              <p className="text-xs text-slate-500 mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 Original price for showing discount
               </p>
             </div>
@@ -398,18 +398,18 @@ export default function EditProductPage() {
 
         {/* Inventory & Delivery */}
         <div className="mb-8">
-          <h2 className="text-lg font-semibold text-white mb-4">Inventory & Delivery</h2>
+          <h2 className="text-lg font-semibold text-foreground mb-4">Inventory & Delivery</h2>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
+              <label className="block text-sm font-medium text-muted-foreground mb-2">
                 Delivery Type *
               </label>
               <select
                 value={formData.deliveryType}
                 onChange={(e) => setFormData({ ...formData, deliveryType: e.target.value })}
                 required
-                className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 bg-muted border border-input text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
               >
                 <option value="manual">Manual Delivery</option>
                 <option value="auto_key">Auto Key Delivery</option>
@@ -419,14 +419,14 @@ export default function EditProductPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
+              <label className="block text-sm font-medium text-muted-foreground mb-2">
                 Inventory Template *
               </label>
               <select
                 value={formData.inventoryTemplateId}
                 onChange={(e) => setFormData({ ...formData, inventoryTemplateId: e.target.value })}
                 required
-                className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 bg-muted border border-input text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
               >
                 <option value="">Select a template...</option>
                 {templates.map((template) => (
@@ -438,7 +438,7 @@ export default function EditProductPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
+              <label className="block text-sm font-medium text-muted-foreground mb-2">
                 Stock Count
               </label>
               <input
@@ -446,9 +446,9 @@ export default function EditProductPage() {
                 min="-1"
                 value={formData.currentStock}
                 onChange={(e) => setFormData({ ...formData, currentStock: parseInt(e.target.value) || -1 })}
-                className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500"
+                className="w-full px-4 py-2 bg-muted border border-input text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
               />
-              <p className="text-xs text-slate-500 mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 -1 for unlimited stock
               </p>
             </div>
@@ -456,7 +456,7 @@ export default function EditProductPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
+              <label className="block text-sm font-medium text-muted-foreground mb-2">
                 Max Quantity Per Order
               </label>
               <input
@@ -464,12 +464,12 @@ export default function EditProductPage() {
                 min="1"
                 value={formData.maxQuantity}
                 onChange={(e) => setFormData({ ...formData, maxQuantity: parseInt(e.target.value) || 999 })}
-                className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500"
+                className="w-full px-4 py-2 bg-muted border border-input text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
+              <label className="block text-sm font-medium text-muted-foreground mb-2">
                 Points Reward
               </label>
               <input
@@ -477,7 +477,7 @@ export default function EditProductPage() {
                 min="0"
                 value={formData.pointsReward}
                 onChange={(e) => setFormData({ ...formData, pointsReward: parseInt(e.target.value) || 0 })}
-                className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500"
+                className="w-full px-4 py-2 bg-muted border border-input text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
               />
             </div>
           </div>
@@ -485,30 +485,30 @@ export default function EditProductPage() {
 
         {/* Media */}
         <div className="mb-8">
-          <h2 className="text-lg font-semibold text-white mb-4">Media</h2>
+          <h2 className="text-lg font-semibold text-foreground mb-4">Media</h2>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
+              <label className="block text-sm font-medium text-muted-foreground mb-2">
                 Video URL
               </label>
               <input
                 type="url"
                 value={formData.videoUrl}
                 onChange={(e) => setFormData({ ...formData, videoUrl: e.target.value })}
-                className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500"
+                className="w-full px-4 py-2 bg-muted border border-input text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
+              <label className="block text-sm font-medium text-muted-foreground mb-2">
                 Video Thumbnail URL
               </label>
               <input
                 type="url"
                 value={formData.videoThumbnail}
                 onChange={(e) => setFormData({ ...formData, videoThumbnail: e.target.value })}
-                className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500"
+                className="w-full px-4 py-2 bg-muted border border-input text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
               />
             </div>
           </div>
@@ -518,8 +518,8 @@ export default function EditProductPage() {
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="text-lg font-semibold text-white">Categories</h2>
-              <p className="text-sm text-slate-400">
+              <h2 className="text-lg font-semibold text-foreground">Categories</h2>
+              <p className="text-sm text-muted-foreground">
                 Select which categories this product belongs to
               </p>
             </div>
@@ -541,7 +541,7 @@ export default function EditProductPage() {
         {/* Images */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-white">Images</h2>
+            <h2 className="text-lg font-semibold text-foreground">Images</h2>
             <button
               type="button"
               onClick={addImage}
@@ -559,7 +559,7 @@ export default function EditProductPage() {
                   value={image.url}
                   onChange={(e) => updateImage(index, "url", e.target.value)}
                   placeholder="Image URL (https://...)"
-                  className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500"
+                  className="w-full px-4 py-2 bg-muted border border-input text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
                 />
               </div>
               <input
@@ -567,7 +567,7 @@ export default function EditProductPage() {
                 value={image.alt || ""}
                 onChange={(e) => updateImage(index, "alt", e.target.value)}
                 placeholder="Alt text"
-                className="w-40 px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500"
+                className="w-40 px-4 py-2 bg-muted border border-input text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
               />
               {images.length > 1 && (
                 <button
@@ -589,7 +589,7 @@ export default function EditProductPage() {
 
         {/* Settings */}
         <div className="mb-8">
-          <h2 className="text-lg font-semibold text-white mb-4">Settings</h2>
+          <h2 className="text-lg font-semibold text-foreground mb-4">Settings</h2>
 
           <div className="space-y-4">
             <div className="flex items-center gap-2">
@@ -598,9 +598,9 @@ export default function EditProductPage() {
                 id="isActive"
                 checked={formData.isActive}
                 onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
-                className="w-4 h-4 text-blue-600 bg-slate-800 border-slate-700 rounded focus:ring-blue-500"
+                className="w-4 h-4 text-primary bg-muted border-input rounded focus:ring-ring"
               />
-              <label htmlFor="isActive" className="text-sm font-medium text-slate-300">
+              <label htmlFor="isActive" className="text-sm font-medium text-muted-foreground">
                 Active (visible in store)
               </label>
             </div>
@@ -611,9 +611,9 @@ export default function EditProductPage() {
                 id="isFeatured"
                 checked={formData.isFeatured}
                 onChange={(e) => setFormData({ ...formData, isFeatured: e.target.checked })}
-                className="w-4 h-4 text-blue-600 bg-slate-800 border-slate-700 rounded focus:ring-blue-500"
+                className="w-4 h-4 text-primary bg-muted border-input rounded focus:ring-ring"
               />
-              <label htmlFor="isFeatured" className="text-sm font-medium text-slate-300">
+              <label htmlFor="isFeatured" className="text-sm font-medium text-muted-foreground">
                 Featured Product
               </label>
             </div>
@@ -624,9 +624,9 @@ export default function EditProductPage() {
                 id="isNew"
                 checked={formData.isNew}
                 onChange={(e) => setFormData({ ...formData, isNew: e.target.checked })}
-                className="w-4 h-4 text-blue-600 bg-slate-800 border-slate-700 rounded focus:ring-blue-500"
+                className="w-4 h-4 text-primary bg-muted border-input rounded focus:ring-ring"
               />
-              <label htmlFor="isNew" className="text-sm font-medium text-slate-300">
+              <label htmlFor="isNew" className="text-sm font-medium text-muted-foreground">
                 Mark as New
               </label>
             </div>
@@ -634,7 +634,7 @@ export default function EditProductPage() {
         </div>
 
         {/* Actions */}
-        <div className="flex justify-between pt-6 border-t border-slate-800">
+        <div className="flex justify-between pt-6 border-t border-border">
           <button
             type="button"
             onClick={handleDelete}
@@ -646,14 +646,14 @@ export default function EditProductPage() {
             <button
               type="button"
               onClick={() => router.back()}
-              className="px-6 py-2 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-800"
+              className="px-6 py-2 border border-input text-muted-foreground rounded-lg hover:bg-muted"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={saving}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-6 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {saving ? "Saving..." : "Save Changes"}
             </button>

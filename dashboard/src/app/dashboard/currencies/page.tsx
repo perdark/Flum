@@ -7,6 +7,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { toast } from "sonner";
 
 interface Currency {
   id: string;
@@ -95,10 +96,10 @@ export default function CurrenciesPage() {
       if (data.success) {
         fetchCurrencies();
       } else {
-        alert(data.error || "Failed to delete currency");
+        toast.error(data.error || "Failed to delete currency");
       }
     } catch (err) {
-      alert("Failed to delete currency");
+      toast.error("Failed to delete currency");
     }
   };
 
@@ -124,10 +125,10 @@ export default function CurrenciesPage() {
         fetchCurrencies();
         setModalOpen(false);
       } else {
-        alert(result.error || "Failed to save currency");
+        toast.error(result.error || "Failed to save currency");
       }
     } catch (err) {
-      alert("Failed to save currency");
+      toast.error("Failed to save currency");
     } finally {
       setSaving(false);
     }
@@ -143,14 +144,14 @@ export default function CurrenciesPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-white">Currencies</h1>
-          <p className="text-slate-400 mt-1">
+          <h1 className="text-2xl font-bold text-foreground">Currencies</h1>
+          <p className="text-muted-foreground mt-1">
             Manage supported currencies and exchange rates
           </p>
         </div>
         <button
           onClick={handleCreate}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+          className="px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg transition-colors"
         >
           Add Currency
         </button>
@@ -163,65 +164,65 @@ export default function CurrenciesPage() {
           placeholder="Search currencies..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full max-w-md px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full max-w-md px-4 py-2 bg-muted border border-border rounded-lg text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
         />
       </div>
 
       {/* Content */}
       {loading ? (
-        <div className="text-center py-12 text-slate-400">Loading currencies...</div>
+        <div className="text-center py-12 text-muted-foreground">Loading currencies...</div>
       ) : error ? (
-        <div className="text-center py-12 text-red-400">{error}</div>
+        <div className="text-center py-12 text-destructive">{error}</div>
       ) : filteredCurrencies.length === 0 ? (
-        <div className="text-center py-12 text-slate-400">
+        <div className="text-center py-12 text-muted-foreground">
           {searchQuery ? "No currencies found matching your search." : "No currencies yet. Create your first currency!"}
         </div>
       ) : (
-        <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
+        <div className="bg-card rounded-lg border border-border overflow-hidden">
           <table className="w-full">
-            <thead className="bg-slate-900">
+            <thead className="bg-muted">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Code
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Name
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Symbol
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Exchange Rate
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Status
                 </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-slate-400 uppercase tracking-wider">
+                <th className="px-6 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Actions
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-700">
+            <tbody className="divide-y divide-border">
               {filteredCurrencies.map((currency) => (
-                <tr key={currency.id} className="hover:bg-slate-700/50">
+                <tr key={currency.id} className="hover:bg-accent">
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="font-mono text-white font-medium">{currency.code}</span>
+                    <span className="font-mono text-foreground font-medium">{currency.code}</span>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-white">
+                  <td className="px-6 py-4 whitespace-nowrap text-foreground">
                     {currency.name}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-white">
+                  <td className="px-6 py-4 whitespace-nowrap text-foreground">
                     {currency.symbol}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-white">
+                  <td className="px-6 py-4 whitespace-nowrap text-foreground">
                     {parseFloat(currency.exchangeRate).toFixed(4)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span
                       className={`px-2 py-1 text-xs rounded ${
                         currency.isActive
-                          ? "bg-green-500/20 text-green-400"
-                          : "bg-slate-500/20 text-slate-400"
+                          ? "bg-success/20 text-success"
+                          : "bg-secondary text-muted-foreground"
                       }`}
                     >
                       {currency.isActive ? "Active" : "Inactive"}
@@ -230,13 +231,13 @@ export default function CurrenciesPage() {
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
                     <button
                       onClick={() => handleEdit(currency)}
-                      className="text-blue-400 hover:text-blue-300 mr-3"
+                      className="text-primary hover:text-primary/80 mr-3"
                     >
                       Edit
                     </button>
                     <button
                       onClick={() => handleDelete(currency.id, currency.code)}
-                      className="text-red-400 hover:text-red-300"
+                      className="text-destructive hover:text-destructive/80"
                     >
                       Delete
                     </button>
@@ -251,14 +252,14 @@ export default function CurrenciesPage() {
       {/* Modal */}
       {modalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-slate-800 rounded-lg border border-slate-700 w-full max-w-md p-6">
-            <h2 className="text-xl font-bold text-white mb-4">
+          <div className="bg-card rounded-lg border border-border w-full max-w-md p-6">
+            <h2 className="text-xl font-bold text-foreground mb-4">
               {editingCurrency ? "Edit Currency" : "Add Currency"}
             </h2>
 
             <form onSubmit={handleModalSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">
+                <label className="block text-sm font-medium text-muted-foreground mb-1">
                   Currency Code *
                 </label>
                 <input
@@ -266,43 +267,43 @@ export default function CurrenciesPage() {
                   value={formData.code}
                   onChange={(e) => setFormData({ ...formData, code: e.target.value.toUpperCase() })}
                   maxLength={3}
-                  className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 bg-card border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                   placeholder="USD"
                   required
                 />
-                <p className="text-xs text-slate-500 mt-1">3-letter ISO code (e.g., USD, EUR)</p>
+                <p className="text-xs text-muted-foreground mt-1">3-letter ISO code (e.g., USD, EUR)</p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">
+                <label className="block text-sm font-medium text-muted-foreground mb-1">
                   Currency Name *
                 </label>
                 <input
                   type="text"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 bg-card border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                   placeholder="US Dollar"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">
+                <label className="block text-sm font-medium text-muted-foreground mb-1">
                   Symbol *
                 </label>
                 <input
                   type="text"
                   value={formData.symbol}
                   onChange={(e) => setFormData({ ...formData, symbol: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 bg-card border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                   placeholder="$"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">
+                <label className="block text-sm font-medium text-muted-foreground mb-1">
                   Exchange Rate (to USD)
                 </label>
                 <input
@@ -311,10 +312,10 @@ export default function CurrenciesPage() {
                   min="0"
                   value={formData.exchangeRate}
                   onChange={(e) => setFormData({ ...formData, exchangeRate: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 bg-card border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                   placeholder="1.0000"
                 />
-                <p className="text-xs text-slate-500 mt-1">Rate relative to base currency (USD)</p>
+                <p className="text-xs text-muted-foreground mt-1">Rate relative to base currency (USD)</p>
               </div>
 
               <div className="flex items-center gap-2">
@@ -323,9 +324,9 @@ export default function CurrenciesPage() {
                   id="isActive"
                   checked={formData.isActive}
                   onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
-                  className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-blue-600 focus:ring-2 focus:ring-blue-500"
+                  className="w-4 h-4 rounded border-border bg-card text-primary focus:ring-2 focus:ring-ring"
                 />
-                <label htmlFor="isActive" className="text-sm text-slate-300">
+                <label htmlFor="isActive" className="text-sm text-muted-foreground">
                   Active
                 </label>
               </div>
@@ -334,7 +335,7 @@ export default function CurrenciesPage() {
                 <button
                   type="button"
                   onClick={() => setModalOpen(false)}
-                  className="px-4 py-2 text-slate-300 hover:text-white transition-colors"
+                  className="px-4 py-2 text-muted-foreground hover:text-foreground transition-colors"
                   disabled={saving}
                 >
                   Cancel
@@ -342,7 +343,7 @@ export default function CurrenciesPage() {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                  className="px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg transition-colors disabled:opacity-50"
                 >
                   {saving ? "Saving..." : editingCurrency ? "Save Changes" : "Add Currency"}
                 </button>

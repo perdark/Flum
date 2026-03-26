@@ -55,7 +55,7 @@ export function RatingStars({
       stars.push(
         <Star
           key={`empty-${i}`}
-          className={cn(sizeClasses[size], 'text-slate-600')}
+          className={cn(sizeClasses[size], 'text-muted-foreground')}
         />
       );
     }
@@ -67,7 +67,7 @@ export function RatingStars({
     <div className={cn('flex items-center gap-1', className)}>
       <div className="flex items-center">{renderStars()}</div>
       {showCount && count !== undefined && (
-        <span className="text-sm text-slate-400">
+        <span className="text-sm text-muted-foreground">
           ({count.toLocaleString()})
         </span>
       )}

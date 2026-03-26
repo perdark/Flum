@@ -100,8 +100,8 @@ export function CategoryTreeSelect({ value, onChange, disabled = false }: Catego
     return (
       <div key={node.id}>
         <div
-          className={`flex items-center gap-1 py-1.5 px-2 rounded hover:bg-slate-700/50 ${
-            isSelected ? "bg-blue-900/30" : ""
+          className={`flex items-center gap-1 py-1.5 px-2 rounded hover:bg-accent ${
+            isSelected ? "bg-primary/10" : ""
           }`}
           style={{ paddingLeft: `${depth * 16 + 8}px` }}
         >
@@ -113,10 +113,10 @@ export function CategoryTreeSelect({ value, onChange, disabled = false }: Catego
                 e.preventDefault();
                 toggleExpand(node.id);
               }}
-              className="p-0.5 hover:bg-slate-600 rounded transition-colors"
+              className="p-0.5 hover:bg-muted rounded transition-colors"
             >
               <svg
-                className={`w-3 h-3 text-slate-400 transition-transform ${
+                className={`w-3 h-3 text-muted-foreground transition-transform ${
                   isExpanded ? "rotate-90" : ""
                 }`}
                 fill="none"
@@ -142,23 +142,23 @@ export function CategoryTreeSelect({ value, onChange, disabled = false }: Catego
             disabled={disabled}
             className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${
               disabled
-                ? "bg-slate-700 cursor-not-allowed"
+                ? "bg-secondary cursor-not-allowed"
                 : isSelected
-                ? "bg-blue-600 border-blue-500"
+                ? "bg-primary border-primary"
                 : isPartially
-                ? "bg-blue-600/50 border-blue-500"
-                : "bg-slate-700 border-slate-600 hover:border-slate-500"
+                ? "bg-primary/50 border-primary"
+                : "bg-secondary border-input hover:border-primary"
             }`}
           >
             {isSelected && (
-              <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-3 h-3 text-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
               </svg>
             )}
             {(isPartially || !isSelected) && !disabled && (
               <div
                 className={`w-2 h-2 rounded-sm ${
-                  isPartially ? "bg-white" : "bg-transparent"
+                  isPartially ? "bg-foreground" : "bg-transparent"
                 }`}
               />
             )}
@@ -167,7 +167,7 @@ export function CategoryTreeSelect({ value, onChange, disabled = false }: Catego
           {/* Category Name */}
           <span
             className={`text-sm flex-1 truncate ${
-              !node.isActive ? "text-slate-500 line-through" : "text-white"
+              !node.isActive ? "text-muted-foreground line-through" : "text-foreground"
             }`}
           >
             {node.name}
@@ -201,20 +201,20 @@ export function CategoryTreeSelect({ value, onChange, disabled = false }: Catego
   const selectedCategories = getSelectedCategories(categories);
 
   return (
-    <div className="border border-slate-700 rounded-lg bg-slate-900">
+    <div className="border border-border rounded-lg bg-card">
       {/* Selected categories chips */}
       {selectedCategories.length > 0 && (
-        <div className="flex flex-wrap gap-2 p-3 border-b border-slate-700">
+        <div className="flex flex-wrap gap-2 p-3 border-b border-border">
           {selectedCategories.map((c) => (
             <span
               key={c.id}
-              className="inline-flex items-center gap-1 px-2 py-1 bg-blue-900/50 text-blue-300 text-sm rounded"
+              className="inline-flex items-center gap-1 px-2 py-1 bg-primary/10 text-primary text-sm rounded"
             >
               {c.name}
               {!disabled && (
                 <button
                   onClick={() => toggleSelection(c.id)}
-                  className="hover:text-red-300"
+                  className="hover:text-destructive"
                   type="button"
                 >
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -235,11 +235,11 @@ export function CategoryTreeSelect({ value, onChange, disabled = false }: Catego
       {/* Category tree */}
       <div className="p-3 max-h-64 overflow-y-auto">
         {loading ? (
-          <div className="text-center text-slate-400 py-4">Loading categories...</div>
+          <div className="text-center text-muted-foreground py-4">Loading categories...</div>
         ) : categories.length === 0 ? (
-          <div className="text-center text-slate-400 py-4">
+          <div className="text-center text-muted-foreground py-4">
             No categories available.{" "}
-            <a href="/dashboard/categories" className="text-blue-400 hover:underline">
+            <a href="/dashboard/categories" className="text-primary hover:underline">
               Create categories first
             </a>
           </div>

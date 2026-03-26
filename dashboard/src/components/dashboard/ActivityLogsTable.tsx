@@ -62,11 +62,11 @@ export function ActivityLogsTable() {
 
   const getActionColor = (action: string) => {
     if (action.includes("created") || action.includes("added"))
-      return "text-green-400";
+      return "text-success";
     if (action.includes("deleted") || action.includes("cancelled"))
-      return "text-red-400";
-    if (action.includes("updated")) return "text-blue-400";
-    return "text-slate-400";
+      return "text-destructive";
+    if (action.includes("updated")) return "text-primary";
+    return "text-muted-foreground";
   };
 
   const formatAction = (action: string) => {
@@ -82,10 +82,10 @@ export function ActivityLogsTable() {
 
   if (loading) {
     return (
-      <div className="bg-slate-900 border border-slate-800 rounded-lg shadow-sm p-6">
+      <div className="bg-card border border-border rounded-lg shadow-sm p-6">
         <div className="animate-pulse space-y-4">
           {[...Array(10)].map((_, i) => (
-            <div key={i} className="h-14 bg-slate-800 rounded" />
+            <div key={i} className="h-14 bg-muted rounded" />
           ))}
         </div>
       </div>
@@ -94,16 +94,16 @@ export function ActivityLogsTable() {
 
   if (error) {
     return (
-      <div className="bg-red-950/50 text-red-400 border border-red-900 p-4 rounded-lg">
+      <div className="bg-destructive/10 text-destructive border border-destructive/30 p-4 rounded-lg">
         Error loading activity logs: {error}
       </div>
     );
   }
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-lg shadow-sm overflow-hidden">
+    <div className="bg-card border border-border rounded-lg shadow-sm overflow-hidden">
       {/* Filters */}
-      <div className="p-4 border-b border-slate-800">
+      <div className="p-4 border-b border-border">
         <div className="flex gap-4">
           <select
             value={actionFilter}
@@ -111,7 +111,7 @@ export function ActivityLogsTable() {
               setActionFilter(e.target.value);
               setPage(1);
             }}
-            className="px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="px-4 py-2 bg-muted border border-input text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
           >
             <option value="">All Actions</option>
             <option value="product_created">Product Created</option>
@@ -129,37 +129,37 @@ export function ActivityLogsTable() {
       {/* Table */}
       <div className="overflow-x-auto">
         <table className="w-full">
-          <thead className="bg-slate-800">
+          <thead className="bg-muted">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">
                 Action
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">
                 Entity
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">
                 User
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">
                 IP Address
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">
                 Timestamp
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-800">
+          <tbody className="divide-y divide-border">
             {logs.map((log) => (
-              <tr key={log.id} className="hover:bg-slate-800">
+              <tr key={log.id} className="hover:bg-muted">
                 <td className="px-6 py-4">
                   <span className={`font-medium ${getActionColor(log.action)}`}>
                     {formatAction(log.action)}
                   </span>
                 </td>
-                <td className="px-6 py-4 text-sm text-slate-300">
+                <td className="px-6 py-4 text-sm text-foreground">
                   <div>
-                    <span className="font-medium text-white">{formatEntity(log.entity)}</span>
-                    <span className="text-slate-500 ml-1 font-mono text-xs">
+                    <span className="font-medium text-foreground">{formatEntity(log.entity)}</span>
+                    <span className="text-muted-foreground ml-1 font-mono text-xs">
                       ({log.entityId.slice(0, 8)}...)
                     </span>
                   </div>
@@ -167,19 +167,19 @@ export function ActivityLogsTable() {
                 <td className="px-6 py-4">
                   {log.user ? (
                     <div>
-                      <p className="font-medium text-white">
+                      <p className="font-medium text-foreground">
                         {log.user.name}
                       </p>
-                      <p className="text-sm text-slate-500">{log.user.email}</p>
+                      <p className="text-sm text-muted-foreground">{log.user.email}</p>
                     </div>
                   ) : (
-                    <span className="text-slate-500">System</span>
+                    <span className="text-muted-foreground">System</span>
                   )}
                 </td>
-                <td className="px-6 py-4 text-sm text-slate-500 font-mono">
+                <td className="px-6 py-4 text-sm text-muted-foreground font-mono">
                   {log.ipAddress || "-"}
                 </td>
-                <td className="px-6 py-4 text-sm text-slate-400">
+                <td className="px-6 py-4 text-sm text-muted-foreground">
                   {new Date(log.createdAt).toLocaleString()}
                 </td>
               </tr>
@@ -190,22 +190,22 @@ export function ActivityLogsTable() {
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="px-6 py-4 border-t border-slate-800 flex items-center justify-between">
-          <p className="text-sm text-slate-500">
+        <div className="px-6 py-4 border-t border-border flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
             Page {page} of {totalPages}
           </p>
           <div className="flex gap-2">
             <button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page === 1}
-              className="px-4 py-2 border border-slate-700 text-slate-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-800"
+              className="px-4 py-2 border border-input text-foreground rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-muted"
             >
               Previous
             </button>
             <button
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               disabled={page === totalPages}
-              className="px-4 py-2 border border-slate-700 text-slate-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-800"
+              className="px-4 py-2 border border-input text-foreground rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-muted"
             >
               Next
             </button>

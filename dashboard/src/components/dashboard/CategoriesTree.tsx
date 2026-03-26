@@ -75,17 +75,17 @@ function CategoryTreeNode({
   return (
     <div className="select-none">
       <div
-        className="flex items-center gap-2 py-2 px-3 rounded-lg hover:bg-slate-700/50 transition-colors group"
+        className="flex items-center gap-2 py-2 px-3 rounded-lg hover:bg-accent transition-colors group"
         style={{ paddingLeft: `${level * 16 + 12}px` }}
       >
         {/* Expand/Collapse */}
         {hasChildren && (
           <button
             onClick={() => setExpanded(!expanded)}
-            className="p-1 hover:bg-slate-600 rounded transition-colors"
+            className="p-1 hover:bg-muted rounded transition-colors"
           >
             <svg
-              className={`w-4 h-4 text-slate-400 transition-transform ${
+              className={`w-4 h-4 text-muted-foreground transition-transform ${
                 expanded ? "rotate-90" : ""
               }`}
               fill="none"
@@ -116,7 +116,7 @@ function CategoryTreeNode({
         {/* Category Name */}
         <span
           className={`flex-1 ${
-            !category.isActive ? "text-slate-500 line-through" : "text-white"
+            !category.isActive ? "text-muted-foreground line-through" : "text-foreground"
           }`}
         >
           {category.name}
@@ -124,7 +124,7 @@ function CategoryTreeNode({
 
         {/* Arabic Name */}
         {category.nameAr && (
-          <span className="text-sm text-slate-400" dir="rtl">
+          <span className="text-sm text-muted-foreground" dir="rtl">
             {category.nameAr}
           </span>
         )}
@@ -133,8 +133,8 @@ function CategoryTreeNode({
         <span
           className={`px-2 py-0.5 text-xs rounded ${
             category.isActive
-              ? "bg-green-500/20 text-green-400"
-              : "bg-slate-500/20 text-slate-400"
+              ? "bg-success/20 text-success"
+              : "bg-secondary text-muted-foreground"
           }`}
         >
           {category.isActive ? "Active" : "Inactive"}
@@ -144,7 +144,7 @@ function CategoryTreeNode({
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
             onClick={() => onAddChild(category.id)}
-            className="p-1.5 hover:bg-slate-600 rounded text-slate-400 hover:text-white transition-colors"
+            className="p-1.5 hover:bg-muted rounded text-muted-foreground hover:text-foreground transition-colors"
             title="Add child category"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -153,7 +153,7 @@ function CategoryTreeNode({
           </button>
           <button
             onClick={() => onEdit(category)}
-            className="p-1.5 hover:bg-slate-600 rounded text-slate-400 hover:text-white transition-colors"
+            className="p-1.5 hover:bg-muted rounded text-muted-foreground hover:text-foreground transition-colors"
             title="Edit"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -162,7 +162,7 @@ function CategoryTreeNode({
           </button>
           <button
             onClick={() => onDelete(category.id)}
-            className="p-1.5 hover:bg-red-500/20 rounded text-slate-400 hover:text-red-400 transition-colors"
+            className="p-1.5 hover:bg-red-500/20 rounded text-muted-foreground hover:text-destructive transition-colors"
             title="Delete"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

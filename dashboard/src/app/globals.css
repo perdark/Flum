@@ -1,45 +1,225 @@
 @import "tailwindcss";
 
 @theme inline {
-  --color-background: #0a0a0a;
-  --color-foreground: #ededed;
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 
-  /* Dark mode colors */
-  --color-slate-50: #f8fafc;
-  --color-slate-100: #f1f5f9;
-  --color-slate-200: #e2e8f0;
-  --color-slate-300: #cbd5e1;
-  --color-slate-400: #94a3b8;
-  --color-slate-500: #64748b;
-  --color-slate-600: #475569;
-  --color-slate-700: #334155;
-  --color-slate-800: #1e293b;
-  --color-slate-900: #0f172a;
-  --color-slate-950: #020617;
-
-  /* Dark mode overrides */
-  --color-white: #ffffff;
-  --color-black: #000000;
-
-  /* Warm Sunset Comfort Colors */
-  --color-warm-peach: #FFDAB9;
-  --color-warm-coral: #F88379;
-  --color-warm-amber: #FFB800;
-  --color-warm-warm-cream: #FFF5E6;
-  --color-warm-sunset: #FF7F50;
-  --color-warm-soft-orange: #FFB347;
-  --color-warm-blush-pink: #DE6E70;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-error: var(--error);
+  --color-info: var(--info);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
 }
 
-/* Force dark mode across the app */
 :root {
-  color-scheme: dark;
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
+  --secondary: #f1f5f9;
+  --secondary-foreground: #1e293b;
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+  --accent: #f1f5f9;
+  --accent-foreground: #1e293b;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: #e2e8f0;
+  --input: #e2e8f0;
+  --ring: #2563eb;
+  --brand: #d97706;
+  --brand-foreground: #ffffff;
+  --success: #16a34a;
+  --warning: #d97706;
+  --error: #dc2626;
+  --info: #2563eb;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #334155;
 }
 
-body {
-  background: #0a0a0a;
-  color: #ededed;
-  font-family: Arial, Helvetica, sans-serif;
+.dark {
+  --background: #09090b;
+  --foreground: #fafafa;
+  --card: #111113;
+  --card-foreground: #fafafa;
+  --primary: #3b82f6;
+  --primary-foreground: #ffffff;
+  --secondary: #1e293b;
+  --secondary-foreground: #f8fafc;
+  --muted: #1e293b;
+  --muted-foreground: #94a3b8;
+  --accent: #1e293b;
+  --accent-foreground: #f8fafc;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --border: #1e293b;
+  --input: #1e293b;
+  --ring: #3b82f6;
+  --brand: #f59e0b;
+  --brand-foreground: #1a1a1a;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --error: #ef4444;
+  --info: #3b82f6;
+  --sidebar: #0f0f12;
+  --sidebar-foreground: #e2e8f0;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: Arial, Helvetica, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+:root .bg-card {
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.04), 0 1px 2px -1px rgb(0 0 0 / 0.04);
+}
+
+:root .border-border {
+  border-color: #e8ecf1;
+}
+
+:root .bg-muted {
+  background-color: #f6f8fa;
+}
+
+:root table thead.bg-muted {
+  background: linear-gradient(to bottom, #f8f9fb, #f1f3f6);
+}
+
+:root .bg-primary\/10 {
+  background-color: rgba(37, 99, 235, 0.06);
+}
+
+:root .bg-primary\/5 {
+  background-color: rgba(37, 99, 235, 0.03);
+}
+
+:root .hover\:bg-muted\/50:hover {
+  background-color: rgba(241, 245, 249, 0.7);
+}
+
+:root .bg-success\/20 {
+  background-color: rgba(22, 163, 74, 0.08);
+}
+
+:root .bg-warning\/20 {
+  background-color: rgba(217, 119, 6, 0.08);
+}
+
+:root .bg-info\/20 {
+  background-color: rgba(37, 99, 235, 0.08);
+}
+
+:root .bg-error\/20 {
+  background-color: rgba(220, 38, 38, 0.08);
+}
+
+:root .bg-destructive\/10 {
+  background-color: rgba(239, 68, 68, 0.06);
+}
+
+:root .bg-brand\/10 {
+  background-color: rgba(217, 119, 6, 0.06);
+}
+
+:root .bg-warning\/10 {
+  background-color: rgba(217, 119, 6, 0.06);
+}
+
+:root .bg-info\/10 {
+  background-color: rgba(37, 99, 235, 0.06);
+}
+
+:root .bg-amber-500\/10 {
+  background-color: rgba(245, 158, 11, 0.06);
+}
+
+:root .bg-rose-500\/10 {
+  background-color: rgba(244, 63, 94, 0.06);
+}
+
+:root .bg-emerald-500\/10 {
+  background-color: rgba(16, 185, 129, 0.06);
+}
+
+:root .bg-accent {
+  background-color: #f0f2f5;
+}
+
+:root .hover\:bg-accent:hover {
+  background-color: #e8eaee;
+}
+
+:root input[type="text"],
+:root input[type="email"],
+:root input[type="number"],
+:root input[type="password"],
+:root input[type="search"],
+:root select,
+:root textarea {
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+:root input[type="text"]:focus,
+:root input[type="email"]:focus,
+:root input[type="number"]:focus,
+:root input[type="password"]:focus,
+:root input[type="search"]:focus,
+:root select:focus,
+:root textarea:focus {
+  border-color: #93b4f5;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+:root .bg-card.rounded-lg,
+:root .bg-card.rounded-xl {
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.03), 0 1px 2px -1px rgb(0 0 0 / 0.03);
+}
+
+:root .bg-card.rounded-lg:hover,
+:root .bg-card.rounded-xl:hover {
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.04);
+}
+
+:root .bg-card.rounded-lg.border,
+:root .bg-card.rounded-xl.border {
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.03), 0 1px 2px -1px rgb(0 0 0 / 0.03);
+}
+
+:root .border-border.rounded-lg {
+  border-radius: 0.75rem;
+}
+
+:root .cursor-pointer:hover {
+  color: var(--foreground);
 }

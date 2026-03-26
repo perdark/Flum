@@ -7,10 +7,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { orders, orderItems, products, coupons, users } from "@/db/schema";
+import { orders, orderItems, products, coupons, users, inventoryTemplates } from "@/db/schema";
 import { requirePermission, getCurrentUser } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
-import { eq, and, sql, desc, like, or, inArray, isNull } from "drizzle-orm";
+import { eq, and, sql, desc, asc, like, or, inArray, isNull } from "drizzle-orm";
 import { fulfillOrder } from "@/services/autoDelivery";
 
 // ============================================================================
@@ -26,7 +26,13 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get("search");
     const status = searchParams.get("status");
     const fulfillmentStatus = searchParams.get("fulfillmentStatus");
-    const claimStatus = searchParams.get("claimStatus"); // 'unclaimed', 'mine', 'others', 'any'
+    const claimStatus = searchParams.get("claimStatus");
+    const dateFrom = searchParams.get("dateFrom");
+    const dateTo = searchParams.get("dateTo");
+    const customerSearch = searchParams.get("customerSearch");
+    const orderNumber = searchParams.get("orderNumber");
+    const sortBy = searchParams.get("sortBy") || "createdAt";
+    const sortOrder = searchParams.get("sortOrder") || "desc";
     const page = parseInt(searchParams.get("page") || "1");
     const limit = parseInt(searchParams.get("limit") || "20");
     const offset = (page - 1) * limit;
@@ -43,6 +49,29 @@ export async function GET(request: NextRequest) {
           like(orders.customerName || "", `%${search}%`)
         )!
       );
+    }
+
+    if (customerSearch) {
+      conditions.push(
+        or(
+          like(orders.customerEmail, `%${customerSearch}%`),
+          like(orders.customerName || "", `%${customerSearch}%`)
+        )!
+      );
+    }
+
+    if (orderNumber) {
+      conditions.push(like(orders.orderNumber, `%${orderNumber}%`));
+    }
+
+    if (dateFrom) {
+      conditions.push(sql`${orders.createdAt} >= ${new Date(dateFrom)}`);
+    }
+
+    if (dateTo) {
+      const toDate = new Date(dateTo);
+      toDate.setHours(23, 59, 59, 999);
+      conditions.push(sql`${orders.createdAt} <= ${toDate}`);
     }
 
     if (status) {
@@ -105,7 +134,17 @@ export async function GET(request: NextRequest) {
       .from(orders)
       .leftJoin(users, eq(orders.claimedBy, users.id))
       .where(and(...conditions))
-      .orderBy(desc(orders.createdAt))
+      .orderBy(
+        (() => {
+          const validSortColumns: Record<string, any> = {
+            createdAt: orders.createdAt,
+            total: orders.total,
+            status: orders.status,
+          };
+          const sortColumn = validSortColumns[sortBy] || orders.createdAt;
+          return sortOrder === "asc" ? asc(sortColumn) : desc(sortColumn);
+        })()
+      )
       .limit(limit)
       .offset(offset);
 
@@ -123,9 +162,13 @@ export async function GET(request: NextRequest) {
         deliveredInventoryIds: orderItems.deliveredInventoryIds,
         productName: products.name,
         productSlug: products.slug,
+        inventoryTemplateId: products.inventoryTemplateId,
+        // Ship template fields to avoid client-side N+1 fetching.
+        templateFieldsSchema: inventoryTemplates.fieldsSchema,
       })
       .from(orderItems)
       .innerJoin(products, eq(orderItems.productId, products.id))
+      .leftJoin(inventoryTemplates, eq(products.inventoryTemplateId, inventoryTemplates.id))
       .where(inArray(orderItems.orderId, orderIds));
 
     // Group items by order and add computed fields

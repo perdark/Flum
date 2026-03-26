@@ -8,6 +8,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 
 interface Product {
   id: string;
@@ -93,6 +94,8 @@ export default function ManualSellPage() {
   const [processing, setProcessing] = useState(false);
   const [newCost, setNewCost] = useState("");
   const [showCostField, setShowCostField] = useState(false);
+  const [sortBy, setSortBy] = useState("name");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const [orderResult, setOrderResult] = useState<OrderResult | null>(null);
   const [shortageModal, setShortageModal] = useState<{
     show: boolean;
@@ -106,27 +109,15 @@ export default function ManualSellPage() {
 
   const fetchProducts = async () => {
     try {
-      const res = await fetch("/api/products/summary?limit=100");
+      // Fetch enough products so the picker works for ~150 products.
+      const res = await fetch("/api/products/summary?limit=500");
       const data = await res.json();
       if (data.success) {
-        // Also fetch template info for each product
-        const productsWithTemplates = await Promise.all(
-          data.data.map(async (p: any) => {
-            // Get template fields
-            if (p.inventoryTemplateId) {
-              const templateRes = await fetch("/api/inventory/templates");
-              const templateData = await templateRes.json();
-              if (templateData.success) {
-                const template = templateData.data.find((t: any) => t.id === p.inventoryTemplateId);
-                return {
-                  ...p,
-                  templateFields: template?.fieldsSchema || [],
-                };
-              }
-            }
-            return { ...p, templateFields: [] };
-          })
-        );
+        // Template fields are shipped in /api/products/summary as `fieldsSchema`.
+        const productsWithTemplates = data.data.map((p: any) => ({
+          ...p,
+          templateFields: p.fieldsSchema || [],
+        }));
         setProducts(productsWithTemplates.filter((p: Product) => (p as any).isActive !== false));
       }
     } catch (err) {
@@ -187,12 +178,12 @@ export default function ManualSellPage() {
 
   const checkAvailability = async () => {
     if (sellItems.length === 0) {
-      alert("Please add items to sell");
+      toast.error("Please add items to sell");
       return null;
     }
 
     if (!customerEmail) {
-      alert("Please enter customer email");
+      toast.error("Please enter customer email");
       return null;
     }
 
@@ -217,11 +208,11 @@ export default function ManualSellPage() {
         setOrderResult(data.data);
         return null;
       } else {
-        alert(data.error || "Failed to check availability");
+        toast.error(data.error || "Failed to check availability");
         return null;
       }
     } catch (err) {
-      alert("Failed to check availability");
+      toast.error("Failed to check availability");
       return null;
     } finally {
       setProcessing(false);
@@ -250,10 +241,10 @@ export default function ManualSellPage() {
         setOrderResult(data.data);
         setShortageModal({ show: false, data: null });
       } else {
-        alert(data.error || "Sale failed");
+        toast.error(data.error || "Sale failed");
       }
     } catch (err) {
-      alert("Sale failed");
+      toast.error("Sale failed");
     } finally {
       setProcessing(false);
     }
@@ -287,11 +278,43 @@ export default function ManualSellPage() {
     return sum + (parseFloat(product?.price || "0") * item.quantity);
   }, 0);
 
+  const handleSort = (column: string) => {
+    if (sortBy === column) {
+      setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
+    } else {
+      setSortBy(column);
+      setSortOrder("asc");
+    }
+  };
+
+  const sortIndicator = (column: string) => {
+    if (sortBy !== column) return <span className="ml-1 text-muted-foreground/40">&uarr;&darr;</span>;
+    return <span className="ml-1 text-primary">{sortOrder === "asc" ? "&uarr;" : "&darr;"}</span>;
+  };
+
+  const sortedProducts = [...products].sort((a, b) => {
+    let cmp = 0;
+    switch (sortBy) {
+      case "name":
+        cmp = a.name.localeCompare(b.name);
+        break;
+      case "price":
+        cmp = parseFloat(a.price || "0") - parseFloat(b.price || "0");
+        break;
+      case "stock":
+        cmp = (a.availableCount || 0) - (b.availableCount || 0);
+        break;
+      default:
+        cmp = 0;
+    }
+    return sortOrder === "asc" ? cmp : -cmp;
+  });
+
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-white">Manual Sell</h1>
-        <p className="text-slate-400 mt-1">
+        <h1 className="text-2xl font-bold text-foreground">Manual Sell</h1>
+        <p className="text-muted-foreground mt-1">
           Process manual sales with shortage handling
         </p>
       </div>
@@ -306,14 +329,32 @@ export default function ManualSellPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Product Selection */}
           <div className="lg:col-span-2">
-            <div className="bg-slate-800 rounded-lg border border-slate-700 p-6">
-              <h2 className="text-lg font-semibold text-white mb-4">Select Products</h2>
+            <div className="bg-card rounded-xl border border-border p-6 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-foreground">Select Products</h2>
+                <div className="flex items-center gap-1">
+                  {(["name", "price", "stock"] as const).map((col) => (
+                    <button
+                      key={col}
+                      onClick={() => handleSort(col)}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                        sortBy === col
+                          ? "bg-primary/10 text-primary border border-primary/20"
+                          : "text-muted-foreground hover:bg-accent border border-transparent"
+                      }`}
+                    >
+                      {col === "name" ? "Name" : col === "price" ? "Price" : "Stock"}
+                      {sortIndicator(col)}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
               {loading ? (
-                <div className="text-center py-8 text-slate-400">Loading products...</div>
+                <div className="text-center py-8 text-muted-foreground">Loading products...</div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[600px] overflow-y-auto">
-                  {products.map((product: any) => (
+                  {sortedProducts.map((product: any) => (
                     <ProductCard
                       key={product.id}
                       product={product}
@@ -330,32 +371,32 @@ export default function ManualSellPage() {
 
           {/* Sale Summary */}
           <div>
-            <div className="bg-slate-800 rounded-lg border border-slate-700 p-6 sticky top-6">
-              <h2 className="text-lg font-semibold text-white mb-4">Sale Summary</h2>
+            <div className="bg-card rounded-xl border border-border p-6 sticky top-6 shadow-sm">
+              <h2 className="text-lg font-semibold text-foreground mb-4">Sale Summary</h2>
 
               {/* Customer Info */}
               <div className="space-y-3 mb-6">
                 <div>
-                  <label className="block text-sm text-slate-400 mb-1">
+                  <label className="block text-sm text-muted-foreground mb-1">
                     Customer Email *
                   </label>
                   <input
                     type="email"
                     value={customerEmail}
                     onChange={(e) => setCustomerEmail(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                     placeholder="customer@example.com"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm text-slate-400 mb-1">
+                  <label className="block text-sm text-muted-foreground mb-1">
                     Customer Name
                   </label>
                   <input
                     type="text"
                     value={customerName}
                     onChange={(e) => setCustomerName(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                     placeholder="Optional"
                   />
                 </div>
@@ -368,9 +409,9 @@ export default function ManualSellPage() {
                     type="checkbox"
                     checked={showCostField}
                     onChange={(e) => setShowCostField(e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-blue-600 focus:ring-blue-500"
+                    className="w-4 h-4 rounded border-input bg-background text-primary focus:ring-ring"
                   />
-                  <span className="text-sm text-slate-400">Set new cost for this sale</span>
+                  <span className="text-sm text-muted-foreground">Set new cost for this sale</span>
                 </label>
                 {showCostField && (
                   <div className="mt-2">
@@ -379,7 +420,7 @@ export default function ManualSellPage() {
                       step="0.01"
                       value={newCost}
                       onChange={(e) => setNewCost(e.target.value)}
-                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-3 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                       placeholder="Enter cost per item"
                     />
                   </div>
@@ -395,16 +436,16 @@ export default function ManualSellPage() {
                       return (
                         <div
                           key={item.productId}
-                          className="flex items-center justify-between p-3 bg-slate-900 rounded-lg"
+                          className="flex items-center justify-between p-3 bg-muted rounded-lg"
                         >
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-white truncate">
+                            <p className="text-sm font-medium text-foreground truncate">
                               {item.productName}
                             </p>
-                            <p className="text-xs text-slate-400">
+                            <p className="text-xs text-muted-foreground">
                               Qty: {item.quantity}{" "}
                               {hasShortage && (
-                                <span className="text-yellow-400">
+                                <span className="text-warning">
                                   (only {item.available} available)
                                 </span>
                               )}
@@ -413,20 +454,20 @@ export default function ManualSellPage() {
                           <div className="flex items-center gap-2">
                             <button
                               onClick={() => updateSellItemQuantity(item.productId, item.quantity - 1)}
-                              className="w-8 h-8 flex items-center justify-center bg-slate-700 hover:bg-slate-600 rounded text-white"
+                              className="w-8 h-8 flex items-center justify-center bg-secondary hover:bg-secondary rounded text-foreground"
                             >
                               -
                             </button>
-                            <span className="w-8 text-center text-white">{item.quantity}</span>
+                            <span className="w-8 text-center text-foreground">{item.quantity}</span>
                             <button
                               onClick={() => updateSellItemQuantity(item.productId, item.quantity + 1)}
-                              className="w-8 h-8 flex items-center justify-center bg-slate-700 hover:bg-slate-600 rounded text-white"
+                              className="w-8 h-8 flex items-center justify-center bg-secondary hover:bg-secondary rounded text-foreground"
                             >
                               +
                             </button>
                             <button
                               onClick={() => removeSellItem(item.productId)}
-                              className="ml-2 p-1 text-red-400 hover:text-red-300"
+                              className="ml-2 p-1 text-destructive hover:text-destructive/80"
                             >
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -439,14 +480,14 @@ export default function ManualSellPage() {
                   </div>
 
                   {/* Totals */}
-                  <div className="border-t border-slate-700 pt-4 mb-4">
-                    <div className="flex justify-between text-sm text-slate-400 mb-2">
+                  <div className="border-t border-border pt-4 mb-4">
+                    <div className="flex justify-between text-sm text-muted-foreground mb-2">
                       <span>Total Items:</span>
-                      <span className="text-white">{totalItems}</span>
+                      <span className="text-foreground">{totalItems}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-slate-400">Total Value:</span>
-                      <span className="text-xl font-bold text-white">
+                      <span className="text-muted-foreground">Total Value:</span>
+                      <span className="text-xl font-bold text-foreground">
                         ${totalValue.toFixed(2)}
                       </span>
                     </div>
@@ -456,13 +497,13 @@ export default function ManualSellPage() {
                   <button
                     onClick={handleCompleteSale}
                     disabled={processing || sellItems.length === 0}
-                    className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full py-3 bg-primary text-primary-foreground hover:bg-primary/90 font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {processing ? "Processing..." : "Complete Sale"}
                   </button>
                 </>
               ) : (
-                <div className="text-center py-8 text-slate-400">
+                <div className="text-center py-8 text-muted-foreground">
                   No items added yet
                 </div>
               )}
@@ -509,29 +550,29 @@ function ProductCard({
   };
 
   return (
-    <div className="bg-slate-900 rounded-lg p-4 border border-slate-700">
+    <div className="bg-muted/60 rounded-xl p-4 border border-border hover:border-primary/20 hover:shadow-sm transition-all duration-200">
       <div className="flex justify-between items-start mb-2">
-        <h3 className="font-medium text-white truncate flex-1">{product.name}</h3>
-        <span className="text-sm text-green-400 ml-2">{(product as any).availableCount || 0} avail</span>
+        <h3 className="font-medium text-foreground truncate flex-1 text-sm">{product.name}</h3>
+        <span className="text-xs font-medium text-success ml-2 bg-success/10 px-2 py-0.5 rounded-full">{(product as any).availableCount || 0} avail</span>
       </div>
-      <p className="text-lg font-bold text-white mb-3">${product.price}</p>
+      <p className="text-lg font-bold text-foreground mb-3">${product.price}</p>
       <div className="flex items-center gap-2">
         <input
           type="number"
           min={1}
           value={quantity}
           onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
-          className="w-20 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-white text-center"
+          className="w-20 px-2 py-1.5 bg-card border border-input rounded-lg text-foreground text-center text-sm focus:outline-none focus:ring-2 focus:ring-ring"
         />
         <button
           onClick={handleAdd}
-          className="flex-1 py-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded transition-colors"
+          className="flex-1 py-1.5 bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-medium rounded-lg transition-colors shadow-sm"
         >
           Add
         </button>
       </div>
       {currentQuantity > 0 && (
-        <div className="mt-2 text-xs text-slate-400">
+        <div className="mt-2 text-xs text-primary font-medium bg-primary/5 rounded px-2 py-1 text-center">
           In cart: {currentQuantity}
         </div>
       )}
@@ -550,23 +591,23 @@ function OrderConfirmation({
   onViewDelivery: () => void;
 }) {
   return (
-    <div className="bg-slate-800 rounded-lg border border-slate-700 p-6">
+    <div className="bg-card rounded-lg border border-border p-6">
       <div className="text-center mb-6">
-        <div className="w-16 h-16 mx-auto mb-4 bg-green-500/20 rounded-full flex items-center justify-center">
-          <svg className="w-8 h-8 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="w-16 h-16 mx-auto mb-4 bg-success/20 rounded-full flex items-center justify-center">
+          <svg className="w-8 h-8 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
         </div>
-        <h2 className="text-xl font-bold text-white mb-2">
+        <h2 className="text-xl font-bold text-foreground mb-2">
           {result.hasShortage ? "Sale Processed with Shortage" : "Sale Completed!"}
         </h2>
-        <p className="text-slate-400">Order ID: {result.orderId}</p>
+        <p className="text-muted-foreground">Order ID: {result.orderId}</p>
       </div>
 
       {/* Shortage Warning */}
       {result.hasShortage && result.shortageItems.length > 0 && (
-        <div className="mb-6 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-          <h3 className="font-medium text-yellow-400 mb-2">Shortage Detected</h3>
+        <div className="mb-6 p-4 bg-warning/10 border border-warning/30 rounded-lg">
+          <h3 className="font-medium text-warning mb-2">Shortage Detected</h3>
           <ul className="text-sm text-yellow-200/80">
             {result.shortageItems.map((item) => (
               <li key={item.productId}>
@@ -579,12 +620,12 @@ function OrderConfirmation({
 
       {/* Delivered Items */}
       <div className="mb-6">
-        <h3 className="font-medium text-white mb-3">Delivered Items</h3>
+        <h3 className="font-medium text-foreground mb-3">Delivered Items</h3>
         <div className="space-y-2">
           {result.deliveryItems.map((item) => (
-            <div key={item.productId} className="flex justify-between text-sm p-2 bg-slate-900 rounded">
-              <span className="text-white">{item.productName}</span>
-              <span className="text-green-400">x{item.quantity}</span>
+            <div key={item.productId} className="flex justify-between text-sm p-2 bg-muted rounded">
+              <span className="text-foreground">{item.productName}</span>
+              <span className="text-success">x{item.quantity}</span>
             </div>
           ))}
         </div>
@@ -594,13 +635,13 @@ function OrderConfirmation({
       <div className="flex gap-3">
         <button
           onClick={onReset}
-          className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-white font-medium rounded-lg transition-colors"
+          className="flex-1 py-3 bg-secondary hover:bg-secondary text-foreground font-medium rounded-lg transition-colors"
         >
           New Sale
         </button>
         <button
           onClick={onViewDelivery}
-          className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
+          className="flex-1 py-3 bg-primary text-primary-foreground hover:bg-primary/90 font-medium rounded-lg transition-colors"
         >
           View Delivery
         </button>
@@ -688,7 +729,7 @@ function ShortageOptionsModal({
       const totalItems = getTotalItems(shortageItem.productId);
 
       if (totalItems === 0) {
-        alert(`Please add inventory for ${shortageItem.productName}`);
+        toast.error(`Please add inventory for ${shortageItem.productName}`);
         return;
       }
 
@@ -715,7 +756,7 @@ function ShortageOptionsModal({
     }
 
     if (parsedInventory.length === 0) {
-      alert("Please add at least one inventory item");
+      toast.error("Please add at least one inventory item");
       return;
     }
 
@@ -750,15 +791,15 @@ function ShortageOptionsModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-      <div className="bg-slate-800 rounded-lg border border-slate-700 w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-card rounded-lg border border-border w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="p-6 border-b border-slate-700">
+        <div className="p-6 border-b border-border">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold text-white">Inventory Shortage</h2>
+            <h2 className="text-xl font-bold text-foreground">Inventory Shortage</h2>
             <button
               onClick={onClose}
-              className="p-1 text-slate-400 hover:text-white"
+              className="p-1 text-muted-foreground hover:text-foreground"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -767,7 +808,7 @@ function ShortageOptionsModal({
           </div>
 
           {/* Shortage Summary */}
-          <div className="p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+          <div className="p-4 bg-warning/10 border border-warning/30 rounded-lg">
             <p className="text-yellow-200 text-sm">
               Some items are out of stock. You have:
             </p>
@@ -778,21 +819,21 @@ function ShortageOptionsModal({
                 </li>
               ))}
             </ul>
-            <div className="mt-3 pt-3 border-t border-yellow-500/20 text-sm">
-              <p>Total requested: <span className="text-white font-medium">${data.totals.requested}</span></p>
-              <p>Can deliver now: <span className="text-green-400 font-medium">${data.totals.canDeliver}</span></p>
+            <div className="mt-3 pt-3 border-t border-warning/30 text-sm">
+              <p>Total requested: <span className="text-foreground font-medium">${data.totals.requested}</span></p>
+              <p>Can deliver now: <span className="text-success font-medium">${data.totals.canDeliver}</span></p>
             </div>
           </div>
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-slate-700">
+        <div className="flex border-b border-border">
           <button
             onClick={() => setActiveTab("partial")}
             className={`flex-1 py-3 px-4 text-sm font-medium transition-colors ${
               activeTab === "partial"
-                ? "text-blue-400 border-b-2 border-blue-400"
-                : "text-slate-400 hover:text-white"
+                ? "text-primary border-b-2 border-primary"
+                : "text-muted-foreground hover:text-foreground"
             }`}
           >
             Sell What You Have
@@ -801,8 +842,8 @@ function ShortageOptionsModal({
             onClick={() => setActiveTab("add")}
             className={`flex-1 py-3 px-4 text-sm font-medium transition-colors ${
               activeTab === "add"
-                ? "text-blue-400 border-b-2 border-blue-400"
-                : "text-slate-400 hover:text-white"
+                ? "text-primary border-b-2 border-primary"
+                : "text-muted-foreground hover:text-foreground"
             }`}
           >
             Add Inventory
@@ -811,8 +852,8 @@ function ShortageOptionsModal({
             onClick={() => setActiveTab("pending")}
             className={`flex-1 py-3 px-4 text-sm font-medium transition-colors ${
               activeTab === "pending"
-                ? "text-blue-400 border-b-2 border-blue-400"
-                : "text-slate-400 hover:text-white"
+                ? "text-primary border-b-2 border-primary"
+                : "text-muted-foreground hover:text-foreground"
             }`}
           >
             Pending Order
@@ -823,29 +864,29 @@ function ShortageOptionsModal({
         <div className="p-6 overflow-y-auto flex-1">
           {activeTab === "partial" && (
             <div>
-              <h3 className="text-white font-medium mb-3">Sell Available Items Only</h3>
-              <p className="text-slate-400 text-sm mb-4">
+              <h3 className="text-foreground font-medium mb-3">Sell Available Items Only</h3>
+              <p className="text-muted-foreground text-sm mb-4">
                 Complete the sale with only the items currently available. The order will be marked as completed.
               </p>
               <div className="space-y-2 mb-4">
                 {data.potentialDelivery.map((item) => (
-                  <div key={item.productId} className="flex justify-between p-3 bg-slate-900 rounded">
-                    <span className="text-white">{item.productName}</span>
-                    <span className="text-green-400">{item.canDeliver} / {item.requested}</span>
+                  <div key={item.productId} className="flex justify-between p-3 bg-muted rounded">
+                    <span className="text-foreground">{item.productName}</span>
+                    <span className="text-success">{item.canDeliver} / {item.requested}</span>
                   </div>
                 ))}
               </div>
-              <div className="p-3 bg-slate-900 rounded text-sm">
-                <span className="text-slate-400">Total will be: </span>
-                <span className="text-white font-medium">${data.totals.canDeliver}</span>
+              <div className="p-3 bg-muted rounded text-sm">
+                <span className="text-muted-foreground">Total will be: </span>
+                <span className="text-foreground font-medium">${data.totals.canDeliver}</span>
               </div>
             </div>
           )}
 
           {activeTab === "add" && (
             <div>
-              <h3 className="text-white font-medium mb-3">Add Missing Inventory</h3>
-              <p className="text-slate-400 text-sm mb-4">
+              <h3 className="text-foreground font-medium mb-3">Add Missing Inventory</h3>
+              <p className="text-muted-foreground text-sm mb-4">
                 Add inventory items now. Enter values for each field (one value per line). Items will be created by combining values in order.
               </p>
               <div className="space-y-6">
@@ -859,36 +900,36 @@ function ShortageOptionsModal({
                   const hasMismatch = minCount > 0 && maxCount > minCount;
 
                   return (
-                    <div key={item.productId} className="p-4 bg-slate-900 rounded-lg">
+                    <div key={item.productId} className="p-4 bg-muted rounded-lg">
                       <div className="flex justify-between items-center mb-4">
-                        <span className="text-white font-medium">{item.productName}</span>
+                        <span className="text-foreground font-medium">{item.productName}</span>
                         <div className="flex items-center gap-3">
-                          <span className="text-slate-400 text-sm">Need: {item.shortage}</span>
+                          <span className="text-muted-foreground text-sm">Need: {item.shortage}</span>
                           {totalItems > 0 && (
-                            <span className="text-green-400 text-sm">Will add: {totalItems}</span>
+                            <span className="text-success text-sm">Will add: {totalItems}</span>
                           )}
                         </div>
                       </div>
 
                       {templateFields.length === 0 ? (
-                        <div className="p-3 bg-slate-800/50 rounded border border-slate-700 text-slate-400 text-sm">
+                        <div className="p-3 bg-muted rounded border border-border text-muted-foreground text-sm">
                           No template fields configured for this product.
                         </div>
                       ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           {templateFields.map((field) => (
                             <div key={field.name}>
-                              <label className="block text-sm font-medium text-slate-300 mb-1">
+                              <label className="block text-sm font-medium text-foreground mb-1">
                                 {field.label || field.name}
-                                {field.required && <span className="text-red-400"> *</span>}
-                                <span className="text-slate-500 font-normal ml-2">
+                                {field.required && <span className="text-destructive"> *</span>}
+                                <span className="text-muted-foreground font-normal ml-2">
                                   ({fieldCounts[field.name]} {fieldCounts[field.name] === 1 ? 'line' : 'lines'})
                                 </span>
                               </label>
                               <textarea
                                 value={fieldValues[item.productId]?.[field.name] || ""}
                                 onChange={(e) => updateFieldValue(item.productId, field.name, e.target.value)}
-                                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
+                                className="w-full px-3 py-2 bg-secondary border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring font-mono text-sm"
                                 rows={5}
                                 placeholder={`Enter one value per line\nExample:\nABC\nFVB`}
                               />
@@ -899,7 +940,7 @@ function ShortageOptionsModal({
 
                       {/* Warning for mismatched counts */}
                       {hasMismatch && (
-                        <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                        <div className="mt-4 p-3 bg-warning/10 border border-warning/30 rounded-lg">
                           <p className="text-yellow-200 text-sm">
                             Only the first <strong>{minCount}</strong> items will be created (some fields have fewer values).
                           </p>
@@ -908,11 +949,11 @@ function ShortageOptionsModal({
 
                       {/* Preview */}
                       {totalItems > 0 && templateFields.length > 0 && (
-                        <div className="mt-4 p-3 bg-slate-800/50 rounded border border-slate-700">
-                          <p className="text-xs text-slate-400 mb-2">Preview (first 3 items):</p>
+                        <div className="mt-4 p-3 bg-muted rounded border border-border">
+                          <p className="text-xs text-muted-foreground mb-2">Preview (first 3 items):</p>
                           <div className="space-y-1">
                             {Array.from({ length: Math.min(3, totalItems) }).map((_, i) => (
-                              <div key={i} className="text-xs font-mono text-slate-300">
+                              <div key={i} className="text-xs font-mono text-foreground">
                                 {templateFields.map((f) => {
                                   const lines = getParsedLines(item.productId, f.name);
                                   return lines[i] || "-";
@@ -920,7 +961,7 @@ function ShortageOptionsModal({
                               </div>
                             ))}
                             {totalItems > 3 && (
-                              <div className="text-xs text-slate-500 italic">
+                              <div className="text-xs text-muted-foreground italic">
                                 ... and {totalItems - 3} more
                               </div>
                             )}
@@ -936,24 +977,24 @@ function ShortageOptionsModal({
 
           {activeTab === "pending" && (
             <div>
-              <h3 className="text-white font-medium mb-3">Create Pending Order</h3>
-              <p className="text-slate-400 text-sm mb-4">
+              <h3 className="text-foreground font-medium mb-3">Create Pending Order</h3>
+              <p className="text-muted-foreground text-sm mb-4">
                 Create an order with the available items now. The missing items will be marked as pending and can be fulfilled later from the Orders page.
               </p>
               <div className="space-y-2 mb-4">
                 {data.potentialDelivery.map((item) => (
-                  <div key={item.productId} className="flex justify-between p-3 bg-slate-900 rounded">
+                  <div key={item.productId} className="flex justify-between p-3 bg-muted rounded">
                     <div>
-                      <span className="text-white">{item.productName}</span>
+                      <span className="text-foreground">{item.productName}</span>
                       {item.shortage > 0 && (
-                        <span className="ml-2 text-yellow-400 text-sm">({item.shortage} pending)</span>
+                        <span className="ml-2 text-warning text-sm">({item.shortage} pending)</span>
                       )}
                     </div>
-                    <span className="text-green-400">{item.canDeliver} delivered</span>
+                    <span className="text-success">{item.canDeliver} delivered</span>
                   </div>
                 ))}
               </div>
-              <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded text-sm text-blue-200">
+              <div className="p-3 bg-info/10 border border-info/30 rounded text-sm text-primary">
                 You can fulfill pending items later from the Orders page. Click the "Processing" button on the order to add items and complete it.
               </div>
             </div>
@@ -961,7 +1002,7 @@ function ShortageOptionsModal({
         </div>
 
         {/* Footer */}
-        <div className="p-6 border-t border-slate-700">
+        <div className="p-6 border-t border-border">
           {/* Options */}
           <div className="flex gap-6 mb-4">
             <label className="flex items-center gap-2 cursor-pointer">
@@ -969,9 +1010,9 @@ function ShortageOptionsModal({
                 type="checkbox"
                 checked={showCostField}
                 onChange={(e) => setShowCostField(e.target.checked)}
-                className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-blue-600 focus:ring-blue-500"
+                className="w-4 h-4 rounded border-input bg-background text-primary focus:ring-ring"
               />
-              <span className="text-sm text-slate-400">Set new cost for this sale</span>
+              <span className="text-sm text-muted-foreground">Set new cost for this sale</span>
             </label>
             {showCostField && (
               <input
@@ -979,7 +1020,7 @@ function ShortageOptionsModal({
                 step="0.01"
                 value={newCost ?? ""}
                 onChange={(e) => setNewCost(e.target.value)}
-                className="px-3 py-1 bg-slate-900 border border-slate-700 rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="px-3 py-1 bg-muted border border-input rounded text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 placeholder="Cost per item"
               />
             )}
@@ -989,9 +1030,9 @@ function ShortageOptionsModal({
                   type="checkbox"
                   checked={eachLineIsProduct}
                   onChange={(e) => setEachLineIsProduct(e.target.checked)}
-                  className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-blue-600 focus:ring-blue-500"
+                  className="w-4 h-4 rounded border-input bg-background text-primary focus:ring-ring"
                 />
-                <span className="text-sm text-slate-400">Each line is a separate product</span>
+                <span className="text-sm text-muted-foreground">Each line is a separate product</span>
               </label>
             )}
           </div>
@@ -999,7 +1040,7 @@ function ShortageOptionsModal({
             <button
               onClick={onClose}
               disabled={submitting}
-              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors disabled:opacity-50"
+              className="px-4 py-2 bg-secondary hover:bg-secondary text-foreground rounded-lg transition-colors disabled:opacity-50"
             >
               Cancel
             </button>
@@ -1007,28 +1048,28 @@ function ShortageOptionsModal({
             {activeTab === "partial" && (
             <button
               onClick={onPartialSale}
-              className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors font-medium"
+              className="px-6 py-2 bg-success text-foreground hover:bg-success/90 rounded-lg transition-colors font-medium"
             >
               Sell ${data.totals.canDeliver} Worth
             </button>
-          )}
-          {activeTab === "add" && (
+            )}
+            {activeTab === "add" && (
             <button
               onClick={handleAddInventory}
               disabled={submitting}
-              className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium disabled:opacity-50"
+              className="px-6 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg transition-colors font-medium disabled:opacity-50"
             >
               {submitting ? "Adding..." : `Add ${data.shortageItems.reduce((sum, item) => sum + getTotalItems(item.productId), 0)} Items & Complete Sale`}
             </button>
-          )}
-          {activeTab === "pending" && (
+            )}
+            {activeTab === "pending" && (
             <button
               onClick={onPendingSale}
-              className="px-6 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg transition-colors font-medium"
+              className="px-6 py-2 bg-brand text-brand-foreground hover:bg-brand/90 rounded-lg transition-colors font-medium"
             >
               Create Pending Order
             </button>
-          )}
+            )}
           </div>
         </div>
       </div>

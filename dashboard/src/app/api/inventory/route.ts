@@ -10,7 +10,7 @@ import { getDb } from "@/db";
 import { inventoryItems, products, inventoryBatches, orders, orderItems } from "@/db/schema";
 import { requirePermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
-import { eq, and, sql, desc, like, or, isNull } from "drizzle-orm";
+import { eq, and, sql, desc, asc, like, or, isNull } from "drizzle-orm";
 import { logInventoryAdded, logActivity } from "@/services/activityLog";
 
 // ============================================================================
@@ -28,6 +28,8 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get("limit") || "50");
     const offset = (page - 1) * limit;
     const unlinkedOnly = searchParams.get("unlinked") === "true";
+    const sortBy = searchParams.get("sortBy") || "createdAt";
+    const sortOrder = searchParams.get("sortOrder") || "desc";
 
     const db = getDb();
 
@@ -76,7 +78,17 @@ export async function GET(request: NextRequest) {
       .from(inventoryItems)
       .leftJoin(products, eq(inventoryItems.productId, products.id))
       .where(and(...conditions))
-      .orderBy(desc(inventoryItems.createdAt))
+      .orderBy(
+        (() => {
+          const validSortColumns: Record<string, any> = {
+            status: inventoryItems.status,
+            createdAt: inventoryItems.createdAt,
+            purchasedAt: inventoryItems.purchasedAt,
+          };
+          const sortColumn = validSortColumns[sortBy] || inventoryItems.createdAt;
+          return sortOrder === "asc" ? asc(sortColumn) : desc(sortColumn);
+        })()
+      )
       .limit(limit)
       .offset(offset);
 

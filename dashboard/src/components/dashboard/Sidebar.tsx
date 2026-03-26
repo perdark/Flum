@@ -1,11 +1,5 @@
 "use client";
 
-/**
- * Dashboard Sidebar Component
- *
- * Navigation menu with role-based visibility for Fulmen Empire Admin Dashboard
- */
-
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { PERMISSIONS, ROLE_PERMISSIONS } from "@/types";
@@ -17,8 +11,6 @@ interface SidebarProps {
 export function Sidebar({ userRole }: SidebarProps) {
   const pathname = usePathname();
 
-  // Admin sees all menu items
-  // Staff only sees limited items
   const navItems = [
     {
       href: "/dashboard",
@@ -183,7 +175,6 @@ export function Sidebar({ userRole }: SidebarProps) {
     },
   ];
 
-  // Filter items based on user role
   const userPermissions = ROLE_PERMISSIONS[userRole];
 
   const visibleItems = navItems.filter((item) =>
@@ -191,22 +182,19 @@ export function Sidebar({ userRole }: SidebarProps) {
   );
 
   return (
-    <aside className="w-64 bg-slate-900 text-white min-h-screen p-4 flex flex-col">
-      {/* Logo - Fulmen Empire Branding */}
+    <aside className="w-64 bg-sidebar border-r border-border text-sidebar-foreground min-h-screen p-4 flex flex-col">
       <div className="mb-8 px-2">
-        {/* TODO: Replace with actual Fulmen Empire logo */}
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-gradient-to-br from-amber-500 to-orange-600 rounded-lg flex items-center justify-center">
+          <div className="w-10 h-10 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl flex items-center justify-center shadow-md shadow-amber-500/20">
             <span className="text-white font-bold text-lg">F</span>
           </div>
           <div>
-            <h1 className="text-xl font-bold text-white">Fulmen Empire</h1>
-            <p className="text-slate-400 text-xs capitalize">{userRole} Dashboard</p>
+            <h1 className="text-xl font-bold text-foreground">Fulmen Empire</h1>
+            <p className="text-muted-foreground text-xs capitalize">{userRole} Dashboard</p>
           </div>
         </div>
       </div>
 
-      {/* Navigation */}
       <nav className="space-y-1 flex-1">
         {visibleItems.map((item) => {
           const isActive = pathname?.startsWith(item.href) || (item.href === "/dashboard" && pathname === "/dashboard");
@@ -215,22 +203,21 @@ export function Sidebar({ userRole }: SidebarProps) {
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 ${
                 isActive
-                  ? "bg-amber-600/20 text-amber-400 border border-amber-600/30"
-                  : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                  ? "bg-primary/10 text-primary font-medium shadow-sm"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
               }`}
             >
               {item.icon}
-              <span>{item.label}</span>
+              <span className="text-sm">{item.label}</span>
             </Link>
           );
         })}
       </nav>
 
-      {/* Footer */}
-      <div className="mt-auto pt-4 border-t border-slate-800">
-        <p className="text-xs text-slate-500 text-center">
+      <div className="mt-auto pt-4 border-t border-border">
+        <p className="text-xs text-muted-foreground text-center">
           © {new Date().getFullYear()} Fulmen Empire
         </p>
       </div>

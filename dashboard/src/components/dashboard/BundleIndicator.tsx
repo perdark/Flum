@@ -70,10 +70,10 @@ export function BundleBadge({ fieldCount, totalItems }: BundleBadgeProps) {
         📦 Bundle
       </span>
       {fieldCount && (
-        <span className="text-xs text-slate-500">{fieldCount} fields</span>
+        <span className="text-xs text-muted-foreground">{fieldCount} fields</span>
       )}
       {totalItems && (
-        <span className="text-xs text-slate-500">{totalItems} items</span>
+        <span className="text-xs text-muted-foreground">{totalItems} items</span>
       )}
     </div>
   );

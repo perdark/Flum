@@ -9,7 +9,7 @@ import { ActivityLogsTable } from "@/components/dashboard/ActivityLogsTable";
 export default function ActivityLogsPage() {
   return (
     <div>
-      <h1 className="text-2xl font-bold text-white mb-6">Activity Logs</h1>
+      <h1 className="text-2xl font-bold text-foreground mb-6">Activity Logs</h1>
 
       <ActivityLogsTable />
     </div>

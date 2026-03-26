@@ -110,11 +110,11 @@ export default function InventoryUnitsPage() {
   const getStatusBadge = (unit: InventoryUnit) => {
     switch (unit.status) {
       case "available":
-        return <span className="px-2 py-1 text-xs bg-green-950 text-green-400 rounded border border-green-900">Available</span>;
+        return <span className="px-2 py-1 text-xs bg-success/10 text-success rounded border border-success/30">Available</span>;
       case "in_cooldown":
         return <span className="px-2 py-1 text-xs bg-yellow-950 text-yellow-400 rounded border border-yellow-900">In Cooldown</span>;
       case "exhausted":
-        return <span className="px-2 py-1 text-xs bg-red-950 text-red-400 rounded border border-red-900">Exhausted</span>;
+        return <span className="px-2 py-1 text-xs bg-destructive/10 text-destructive rounded border border-destructive/30">Exhausted</span>;
     }
   };
 
@@ -127,14 +127,14 @@ export default function InventoryUnitsPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-slate-400">Loading...</div>
+        <div className="text-muted-foreground">Loading...</div>
       </div>
     );
   }
 
   if (!product) {
     return (
-      <div className="p-4 bg-red-950/50 text-red-400 border border-red-900 rounded-lg">
+      <div className="p-4 bg-destructive/10 text-destructive border border-destructive/30 rounded-lg">
         Product not found
       </div>
     );
@@ -146,18 +146,18 @@ export default function InventoryUnitsPage() {
       <div className="mb-6">
         <button
           onClick={() => router.back()}
-          className="text-sm text-slate-400 hover:text-white mb-4 flex items-center gap-1"
+          className="text-sm text-muted-foreground hover:text-foreground mb-4 flex items-center gap-1"
         >
           ← Back to Product
         </button>
-        <h1 className="text-2xl font-bold text-white">Inventory Units</h1>
-        <p className="text-slate-400">
+        <h1 className="text-2xl font-bold text-foreground">Inventory Units</h1>
+        <p className="text-muted-foreground">
           {product.name} {product.multiSellEnabled && `(Multi-Sell: ${product.multiSellFactor}x)`}
         </p>
       </div>
 
       {error && (
-        <div className="mb-6 p-4 bg-red-950/50 text-red-400 border border-red-900 rounded-lg">
+        <div className="mb-6 p-4 bg-destructive/10 text-destructive border border-destructive/30 rounded-lg">
           {error}
         </div>
       )}
@@ -170,22 +170,22 @@ export default function InventoryUnitsPage() {
         <>
           {/* Summary Stats */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-            <div className="bg-slate-900 border border-slate-800 rounded-lg p-4">
-              <p className="text-sm text-slate-500">Physical Units</p>
-              <p className="text-2xl font-bold text-white">{units.length}</p>
+            <div className="bg-card border border-border rounded-lg p-4">
+              <p className="text-sm text-muted-foreground">Physical Units</p>
+              <p className="text-2xl font-bold text-foreground">{units.length}</p>
             </div>
-            <div className="bg-slate-900 border border-slate-800 rounded-lg p-4">
-              <p className="text-sm text-slate-500">Virtual Stock</p>
-              <p className="text-2xl font-bold text-blue-400">{virtualStock}</p>
+            <div className="bg-card border border-border rounded-lg p-4">
+              <p className="text-sm text-muted-foreground">Virtual Stock</p>
+              <p className="text-2xl font-bold text-primary">{virtualStock}</p>
             </div>
-            <div className="bg-slate-900 border border-slate-800 rounded-lg p-4">
-              <p className="text-sm text-slate-500">Available</p>
-              <p className="text-2xl font-bold text-green-400">
+            <div className="bg-card border border-border rounded-lg p-4">
+              <p className="text-sm text-muted-foreground">Available</p>
+              <p className="text-2xl font-bold text-success">
                 {units.filter((u) => u.status === "available").length}
               </p>
             </div>
-            <div className="bg-slate-900 border border-slate-800 rounded-lg p-4">
-              <p className="text-sm text-slate-500">In Cooldown</p>
+            <div className="bg-card border border-border rounded-lg p-4">
+              <p className="text-sm text-muted-foreground">In Cooldown</p>
               <p className="text-2xl font-bold text-yellow-400">
                 {units.filter((u) => u.status === "in_cooldown").length}
               </p>
@@ -193,47 +193,47 @@ export default function InventoryUnitsPage() {
           </div>
 
           {/* Units Table */}
-          <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+          <div className="bg-card border border-border rounded-lg overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead className="bg-slate-800 border-b border-slate-700">
+                <thead className="bg-muted border-b border-border">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">Unit ID</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">Sales</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">Capacity</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">Status</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">Cooldown</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase">Last Sale</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-slate-400 uppercase">Actions</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Unit ID</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Sales</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Capacity</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Status</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Cooldown</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Last Sale</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-muted-foreground uppercase">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800">
+                <tbody className="divide-y divide-border">
                   {units.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                      <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
                         No inventory units found. Create units to enable multi-sell for this product.
                       </td>
                     </tr>
                   ) : (
                     units.map((unit) => (
-                      <tr key={unit.id} className="hover:bg-slate-800/50">
+                      <tr key={unit.id} className="hover:bg-accent">
                         <td className="px-4 py-3">
-                          <div className="font-mono text-sm text-slate-300">{unit.physicalUnitId}</div>
-                          <div className="text-xs text-slate-500">{unit.id.slice(0, 8)}...</div>
+                          <div className="font-mono text-sm text-foreground">{unit.physicalUnitId}</div>
+                          <div className="text-xs text-muted-foreground">{unit.id.slice(0, 8)}...</div>
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
-                            <span className="text-white font-medium">{unit.saleCount}</span>
-                            <span className="text-slate-500">/ {unit.maxSales}</span>
+                            <span className="text-foreground font-medium">{unit.saleCount}</span>
+                            <span className="text-muted-foreground">/ {unit.maxSales}</span>
                           </div>
-                          <div className="w-full bg-slate-700 rounded-full h-1.5 mt-1">
+                          <div className="w-full bg-muted rounded-full h-1.5 mt-1">
                             <div
                               className="bg-blue-500 h-1.5 rounded-full"
                               style={{ width: `${(unit.saleCount / unit.maxSales) * 100}%` }}
                             />
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-slate-300">
+                        <td className="px-4 py-3 text-foreground">
                           {unit.maxSales - unit.saleCount} remaining
                         </td>
                         <td className="px-4 py-3">{getStatusBadge(unit)}</td>
@@ -243,10 +243,10 @@ export default function InventoryUnitsPage() {
                               {getCooldownDisplay(unit.cooldownUntil)}
                             </span>
                           ) : (
-                            <span className="text-slate-500">-</span>
+                            <span className="text-muted-foreground">-</span>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-slate-400">
+                        <td className="px-4 py-3 text-muted-foreground">
                           {unit.lastSaleAt
                             ? new Date(unit.lastSaleAt).toLocaleDateString()
                             : "Never"}
@@ -256,7 +256,7 @@ export default function InventoryUnitsPage() {
                             <button
                               onClick={() => resetCooldown(unit.id)}
                               disabled={actionLoading === unit.id}
-                              className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                              className="px-3 py-1 text-sm bg-primary text-primary-foreground rounded hover:bg-primary/80 disabled:opacity-50"
                             >
                               {actionLoading === unit.id ? "..." : "Reset"}
                             </button>
@@ -274,7 +274,7 @@ export default function InventoryUnitsPage() {
           <div className="mt-6 flex justify-end">
             <button
               onClick={() => router.push(`/dashboard/products/${productId}/edit`)}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/80"
             >
               Manage Product Settings
             </button>

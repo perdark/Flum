@@ -7,6 +7,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { toast } from "sonner";
 
 interface Category {
   id: string;
@@ -138,7 +139,7 @@ export function CategoryModal({
     e.preventDefault();
 
     if (!name.trim()) {
-      alert("Name is required");
+      toast.error("Name is required");
       return;
     }
 
@@ -159,22 +160,22 @@ export function CategoryModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-slate-800 rounded-lg border border-slate-700 w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto">
-        <h2 className="text-xl font-bold text-white mb-4">
+      <div className="bg-card rounded-lg border border-border w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto">
+        <h2 className="text-xl font-bold text-foreground mb-4">
           {category ? "Edit Category" : "Add Category"}
         </h2>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Name */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">
+            <label className="block text-sm font-medium text-muted-foreground mb-1">
               Name *
             </label>
             <input
               type="text"
               value={name}
               onChange={(e) => handleNameChange(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               placeholder="e.g., Gaming, Software"
               required
             />
@@ -182,31 +183,31 @@ export function CategoryModal({
 
           {/* Slug */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">
+            <label className="block text-sm font-medium text-muted-foreground mb-1">
               Slug
             </label>
             <input
               type="text"
               value={slug}
               onChange={(e) => setSlug(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               placeholder="gaming"
             />
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="text-xs text-muted-foreground mt-1">
               URL-friendly identifier. Auto-generated from name if left empty.
             </p>
           </div>
 
           {/* Arabic Name */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">
+            <label className="block text-sm font-medium text-muted-foreground mb-1">
               Arabic Name (الاسم بالعربية)
             </label>
             <input
               type="text"
               value={nameAr}
               onChange={(e) => setNameAr(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-right"
+              className="w-full px-3 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring text-right"
               placeholder="اسم الفئة"
               dir="rtl"
             />
@@ -214,28 +215,28 @@ export function CategoryModal({
 
           {/* Description */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">
+            <label className="block text-sm font-medium text-muted-foreground mb-1">
               Description
             </label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
-              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               placeholder="Category description..."
             />
           </div>
 
           {/* Icon URL */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">
+            <label className="block text-sm font-medium text-muted-foreground mb-1">
               Icon URL
             </label>
             <input
               type="url"
               value={icon}
               onChange={(e) => setIcon(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               placeholder="https://example.com/icon.png"
             />
             {icon && (
@@ -247,14 +248,14 @@ export function CategoryModal({
 
           {/* Banner URL */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">
+            <label className="block text-sm font-medium text-muted-foreground mb-1">
               Banner URL
             </label>
             <input
               type="url"
               value={banner}
               onChange={(e) => setBanner(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               placeholder="https://example.com/banner.png"
             />
             {banner && (
@@ -266,13 +267,13 @@ export function CategoryModal({
 
           {/* Parent */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">
+            <label className="block text-sm font-medium text-muted-foreground mb-1">
               Parent Category
             </label>
             <select
               value={parentId || ""}
               onChange={(e) => setParentId(e.target.value || null)}
-              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             >
               <option value="">None (Root Level)</option>
               {flatCategories.map((c) => (
@@ -285,16 +286,16 @@ export function CategoryModal({
 
           {/* Sort Order */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">
+            <label className="block text-sm font-medium text-muted-foreground mb-1">
               Sort Order
             </label>
             <input
               type="number"
               value={sortOrder}
               onChange={(e) => setSortOrder(parseInt(e.target.value) || 0)}
-              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             />
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="text-xs text-muted-foreground mt-1">
               Lower numbers appear first
             </p>
           </div>
@@ -306,9 +307,9 @@ export function CategoryModal({
               id="isActive"
               checked={isActive}
               onChange={(e) => setIsActive(e.target.checked)}
-              className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-blue-600 focus:ring-2 focus:ring-blue-500"
+              className="w-4 h-4 rounded border-input bg-background text-primary focus:ring-2 focus:ring-ring"
             />
-            <label htmlFor="isActive" className="text-sm text-slate-300">
+            <label htmlFor="isActive" className="text-sm text-muted-foreground">
               Active
             </label>
           </div>
@@ -318,7 +319,7 @@ export function CategoryModal({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-slate-300 hover:text-white transition-colors"
+              className="px-4 py-2 text-muted-foreground hover:text-foreground transition-colors"
               disabled={submitting}
             >
               Cancel
@@ -326,7 +327,7 @@ export function CategoryModal({
             <button
               type="submit"
               disabled={submitting}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
+              className="px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg transition-colors disabled:opacity-50"
             >
               {submitting ? "Saving..." : category ? "Save Changes" : "Create Category"}
             </button>

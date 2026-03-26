@@ -148,7 +148,7 @@ export default function SettingsPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-slate-400">Loading settings...</div>
+        <div className="text-muted-foreground">Loading settings...</div>
       </div>
     );
   }
@@ -165,20 +165,20 @@ export default function SettingsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Settings</h1>
-          <p className="text-slate-400 mt-1">
+          <h1 className="text-2xl font-bold text-foreground">Settings</h1>
+          <p className="text-muted-foreground mt-1">
             Configure your Fulmen Empire store settings
           </p>
         </div>
         {success && (
-          <div className="px-4 py-2 bg-green-500/20 text-green-400 border border-green-500/30 rounded-lg">
+          <div className="px-4 py-2 bg-success/20 text-success border border-success/30 rounded-lg">
             Settings saved successfully!
           </div>
         )}
       </div>
 
       {error && (
-        <div className="p-4 bg-red-950/50 text-red-400 border border-red-900 rounded-lg">
+        <div className="p-4 bg-destructive/10 text-destructive border border-destructive/30 rounded-lg">
           {error}
         </div>
       )}
@@ -186,7 +186,7 @@ export default function SettingsPage() {
       <form onSubmit={handleSubmit}>
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Sidebar Navigation */}
-          <div className="bg-slate-900 rounded-xl border border-slate-800 p-4 h-fit">
+          <div className="bg-background rounded-xl border border-border p-4 h-fit">
             <nav className="space-y-1">
               {tabs.map((tab) => (
                 <button
@@ -195,8 +195,8 @@ export default function SettingsPage() {
                   onClick={() => setActiveTab(tab.id)}
                   className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${
                     activeTab === tab.id
-                      ? "bg-amber-600/20 text-amber-400 border border-amber-600/30"
-                      : "text-slate-300 hover:bg-slate-800"
+                      ? "bg-amber-600/20 text-brand border border-amber-600/30"
+                      : "text-foreground hover:bg-secondary"
                   }`}
                 >
                   <span>{tab.icon}</span>
@@ -205,7 +205,7 @@ export default function SettingsPage() {
               ))}
               <a
                 href="/dashboard/currencies"
-                className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-slate-300 hover:bg-slate-800 transition-colors"
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-foreground hover:bg-secondary transition-colors"
               >
                 <span>💰</span>
                 <span>Currencies</span>
@@ -218,85 +218,85 @@ export default function SettingsPage() {
             {/* General Settings */}
             {activeTab === "general" && (
               <>
-                <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
-                  <h2 className="text-lg font-semibold text-white mb-4">General Settings</h2>
+                <div className="bg-background rounded-xl border border-border p-6">
+                  <h2 className="text-lg font-semibold text-foreground mb-4">General Settings</h2>
 
                   <div className="space-y-4">
                     <div>
-                      <label className="block text-sm font-medium text-slate-300 mb-1">
+                      <label className="block text-sm font-medium text-foreground mb-1">
                         Store Name
                       </label>
                       <input
                         type="text"
                         value={formData.storeName || ""}
                         onChange={(e) => updateField("storeName", e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                        className="w-full px-3 py-2 bg-secondary border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-amber-500"
                       />
-                      <p className="text-xs text-slate-500 mt-1">
+                      <p className="text-xs text-muted-foreground mt-1">
                         The name displayed in your storefront
                       </p>
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-slate-300 mb-1">
+                      <label className="block text-sm font-medium text-foreground mb-1">
                         Store Description
                       </label>
                       <textarea
                         rows={3}
                         value={formData.description || ""}
                         onChange={(e) => updateField("description", e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                        className="w-full px-3 py-2 bg-secondary border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-amber-500"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-slate-300 mb-1">
+                      <label className="block text-sm font-medium text-foreground mb-1">
                         Store URL
                       </label>
                       <input
                         type="url"
                         value={formData.storeUrl || ""}
                         onChange={(e) => updateField("storeUrl", e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                        className="w-full px-3 py-2 bg-secondary border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-amber-500"
                         placeholder="https://yourstore.com"
                       />
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm font-medium text-slate-300 mb-1">
+                        <label className="block text-sm font-medium text-foreground mb-1">
                           Logo URL
                         </label>
                         <input
                           type="url"
                           value={formData.logoUrl || ""}
                           onChange={(e) => updateField("logoUrl", e.target.value)}
-                          className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                          className="w-full px-3 py-2 bg-secondary border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-amber-500"
                           placeholder="https://example.com/logo.png"
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-slate-300 mb-1">
+                        <label className="block text-sm font-medium text-foreground mb-1">
                           Favicon URL
                         </label>
                         <input
                           type="url"
                           value={formData.faviconUrl || ""}
                           onChange={(e) => updateField("faviconUrl", e.target.value)}
-                          className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                          className="w-full px-3 py-2 bg-secondary border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-amber-500"
                           placeholder="https://example.com/favicon.ico"
                         />
                       </div>
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-slate-300 mb-1">
+                      <label className="block text-sm font-medium text-foreground mb-1">
                         Default Currency
                       </label>
                       <select
                         value={formData.defaultCurrencyId || ""}
                         onChange={(e) => updateField("defaultCurrencyId", e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                        className="w-full px-3 py-2 bg-secondary border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-amber-500"
                       >
                         <option value="">Select a currency...</option>
                         {currencies.map((c) => (
@@ -307,10 +307,10 @@ export default function SettingsPage() {
                       </select>
                     </div>
 
-                    <div className="flex items-center justify-between py-3 border-t border-slate-800">
+                    <div className="flex items-center justify-between py-3 border-t border-border">
                       <div>
-                        <p className="text-sm font-medium text-slate-300">Maintenance Mode</p>
-                        <p className="text-xs text-slate-500">
+                        <p className="text-sm font-medium text-foreground">Maintenance Mode</p>
+                        <p className="text-xs text-muted-foreground">
                           Temporarily disable the storefront
                         </p>
                       </div>
@@ -318,7 +318,7 @@ export default function SettingsPage() {
                         type="button"
                         onClick={() => updateField("maintenanceMode", !formData.maintenanceMode)}
                         className={`relative w-12 h-6 rounded-full transition-colors ${
-                          formData.maintenanceMode ? "bg-amber-600" : "bg-slate-700"
+                          formData.maintenanceMode ? "bg-amber-600" : "bg-secondary"
                         }`}
                       >
                         <span
@@ -331,14 +331,14 @@ export default function SettingsPage() {
 
                     {formData.maintenanceMode && (
                       <div>
-                        <label className="block text-sm font-medium text-slate-300 mb-1">
+                        <label className="block text-sm font-medium text-foreground mb-1">
                           Maintenance Message
                         </label>
                         <textarea
                           rows={2}
                           value={formData.maintenanceMessage || ""}
                           onChange={(e) => updateField("maintenanceMessage", e.target.value)}
-                          className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                          className="w-full px-3 py-2 bg-secondary border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-amber-500"
                           placeholder="We're currently performing maintenance. Please check back soon."
                         />
                       </div>
@@ -347,43 +347,43 @@ export default function SettingsPage() {
                 </div>
 
                 {/* Contact Settings */}
-                <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
-                  <h2 className="text-lg font-semibold text-white mb-4">Contact Information</h2>
+                <div className="bg-background rounded-xl border border-border p-6">
+                  <h2 className="text-lg font-semibold text-foreground mb-4">Contact Information</h2>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-slate-300 mb-1">
+                      <label className="block text-sm font-medium text-foreground mb-1">
                         Contact Email
                       </label>
                       <input
                         type="email"
                         value={formData.contactEmail || ""}
                         onChange={(e) => updateField("contactEmail", e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                        className="w-full px-3 py-2 bg-secondary border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-amber-500"
                         placeholder="contact@store.com"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-300 mb-1">
+                      <label className="block text-sm font-medium text-foreground mb-1">
                         Support Email
                       </label>
                       <input
                         type="email"
                         value={formData.supportEmail || ""}
                         onChange={(e) => updateField("supportEmail", e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                        className="w-full px-3 py-2 bg-secondary border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-amber-500"
                         placeholder="support@store.com"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-300 mb-1">
+                      <label className="block text-sm font-medium text-foreground mb-1">
                         Support Phone
                       </label>
                       <input
                         type="tel"
                         value={formData.supportPhone || ""}
                         onChange={(e) => updateField("supportPhone", e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                        className="w-full px-3 py-2 bg-secondary border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-amber-500"
                         placeholder="+1 234 567 8900"
                       />
                     </div>
@@ -394,18 +394,18 @@ export default function SettingsPage() {
 
             {/* Localization Settings */}
             {activeTab === "localization" && (
-              <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
-                <h2 className="text-lg font-semibold text-white mb-4">Localization</h2>
+              <div className="bg-background rounded-xl border border-border p-6">
+                <h2 className="text-lg font-semibold text-foreground mb-4">Localization</h2>
 
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1">
+                    <label className="block text-sm font-medium text-foreground mb-1">
                       Default Language
                     </label>
                     <select
                       value={formData.defaultLanguage || "en"}
                       onChange={(e) => updateField("defaultLanguage", e.target.value)}
-                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      className="w-full px-3 py-2 bg-secondary border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-amber-500"
                     >
                       <option value="en">English</option>
                       <option value="ar">العربية (Arabic)</option>
@@ -413,13 +413,13 @@ export default function SettingsPage() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1">
+                    <label className="block text-sm font-medium text-foreground mb-1">
                       Timezone
                     </label>
                     <select
                       value={formData.timezone || "UTC"}
                       onChange={(e) => updateField("timezone", e.target.value)}
-                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      className="w-full px-3 py-2 bg-secondary border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-amber-500"
                     >
                       <option value="UTC">UTC</option>
                       <option value="America/New_York">Eastern Time (US)</option>
@@ -434,13 +434,13 @@ export default function SettingsPage() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1">
+                    <label className="block text-sm font-medium text-foreground mb-1">
                       Date Format
                     </label>
                     <select
                       value={formData.dateFormat || "MM/DD/YYYY"}
                       onChange={(e) => updateField("dateFormat", e.target.value)}
-                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      className="w-full px-3 py-2 bg-secondary border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-amber-500"
                     >
                       <option value="MM/DD/YYYY">MM/DD/YYYY</option>
                       <option value="DD/MM/YYYY">DD/MM/YYYY</option>
@@ -453,14 +453,14 @@ export default function SettingsPage() {
 
             {/* Checkout Settings */}
             {activeTab === "checkout" && (
-              <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
-                <h2 className="text-lg font-semibold text-white mb-4">Checkout Settings</h2>
+              <div className="bg-background rounded-xl border border-border p-6">
+                <h2 className="text-lg font-semibold text-foreground mb-4">Checkout Settings</h2>
 
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between py-3 border-b border-slate-800">
+                  <div className="flex items-center justify-between py-3 border-b border-border">
                     <div>
-                      <p className="text-sm font-medium text-slate-300">Guest Checkout</p>
-                      <p className="text-xs text-slate-500">
+                      <p className="text-sm font-medium text-foreground">Guest Checkout</p>
+                      <p className="text-xs text-muted-foreground">
                         Allow customers to checkout without creating an account
                       </p>
                     </div>
@@ -468,7 +468,7 @@ export default function SettingsPage() {
                       type="button"
                       onClick={() => updateField("allowGuestCheckout", !formData.allowGuestCheckout)}
                       className={`relative w-12 h-6 rounded-full transition-colors ${
-                        formData.allowGuestCheckout ? "bg-blue-600" : "bg-slate-700"
+                        formData.allowGuestCheckout ? "bg-primary" : "bg-secondary"
                       }`}
                     >
                       <span
@@ -479,10 +479,10 @@ export default function SettingsPage() {
                     </button>
                   </div>
 
-                  <div className="flex items-center justify-between py-3 border-b border-slate-800">
+                  <div className="flex items-center justify-between py-3 border-b border-border">
                     <div>
-                      <p className="text-sm font-medium text-slate-300">Email Verification</p>
-                      <p className="text-xs text-slate-500">
+                      <p className="text-sm font-medium text-foreground">Email Verification</p>
+                      <p className="text-xs text-muted-foreground">
                         Require email verification for new accounts
                       </p>
                     </div>
@@ -490,7 +490,7 @@ export default function SettingsPage() {
                       type="button"
                       onClick={() => updateField("requireEmailVerification", !formData.requireEmailVerification)}
                       className={`relative w-12 h-6 rounded-full transition-colors ${
-                        formData.requireEmailVerification ? "bg-blue-600" : "bg-slate-700"
+                        formData.requireEmailVerification ? "bg-primary" : "bg-secondary"
                       }`}
                     >
                       <span
@@ -503,8 +503,8 @@ export default function SettingsPage() {
 
                   <div className="flex items-center justify-between py-3">
                     <div>
-                      <p className="text-sm font-medium text-slate-300">Auto-approve Reviews</p>
-                      <p className="text-xs text-slate-500">
+                      <p className="text-sm font-medium text-foreground">Auto-approve Reviews</p>
+                      <p className="text-xs text-muted-foreground">
                         Automatically approve customer reviews
                       </p>
                     </div>
@@ -512,7 +512,7 @@ export default function SettingsPage() {
                       type="button"
                       onClick={() => updateField("autoApproveReviews", !formData.autoApproveReviews)}
                       className={`relative w-12 h-6 rounded-full transition-colors ${
-                        formData.autoApproveReviews ? "bg-blue-600" : "bg-slate-700"
+                        formData.autoApproveReviews ? "bg-primary" : "bg-secondary"
                       }`}
                     >
                       <span
@@ -524,12 +524,12 @@ export default function SettingsPage() {
                   </div>
 
                   {/* Points & Rewards */}
-                  <div className="pt-4 border-t border-slate-800">
-                    <h3 className="text-md font-semibold text-white mb-4">Points & Rewards</h3>
+                  <div className="pt-4 border-t border-border">
+                    <h3 className="text-md font-semibold text-foreground mb-4">Points & Rewards</h3>
 
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm font-medium text-slate-300 mb-1">
+                        <label className="block text-sm font-medium text-foreground mb-1">
                           Points per Dollar
                         </label>
                         <input
@@ -537,14 +537,14 @@ export default function SettingsPage() {
                           min="0"
                           value={formData.pointsPerDollar || 10}
                           onChange={(e) => updateField("pointsPerDollar", parseInt(e.target.value) || 10)}
-                          className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                          className="w-full px-3 py-2 bg-secondary border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-amber-500"
                         />
-                        <p className="text-xs text-slate-500 mt-1">
+                        <p className="text-xs text-muted-foreground mt-1">
                           Points earned per $1 spent
                         </p>
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-slate-300 mb-1">
+                        <label className="block text-sm font-medium text-foreground mb-1">
                           Max Redemption
                         </label>
                         <input
@@ -552,9 +552,9 @@ export default function SettingsPage() {
                           min="0"
                           value={formData.maxPointsRedemption || 1000}
                           onChange={(e) => updateField("maxPointsRedemption", parseInt(e.target.value) || 1000)}
-                          className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                          className="w-full px-3 py-2 bg-secondary border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-amber-500"
                         />
-                        <p className="text-xs text-slate-500 mt-1">
+                        <p className="text-xs text-muted-foreground mt-1">
                           Max points per order
                         </p>
                       </div>
@@ -566,61 +566,61 @@ export default function SettingsPage() {
 
             {/* SEO & Analytics */}
             {activeTab === "seo" && (
-              <div className="bg-slate-900 rounded-xl border border-slate-800 p-6">
-                <h2 className="text-lg font-semibold text-white mb-4">SEO & Analytics</h2>
+              <div className="bg-background rounded-xl border border-border p-6">
+                <h2 className="text-lg font-semibold text-foreground mb-4">SEO & Analytics</h2>
 
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1">
+                    <label className="block text-sm font-medium text-foreground mb-1">
                       Meta Title
                     </label>
                     <input
                       type="text"
                       value={formData.metaTitle || ""}
                       onChange={(e) => updateField("metaTitle", e.target.value)}
-                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      className="w-full px-3 py-2 bg-secondary border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-amber-500"
                       placeholder="Fulmen Empire - Digital Products Store"
                     />
-                    <p className="text-xs text-slate-500 mt-1">
+                    <p className="text-xs text-muted-foreground mt-1">
                       Default title for search engines
                     </p>
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1">
+                    <label className="block text-sm font-medium text-foreground mb-1">
                       Meta Description
                     </label>
                     <textarea
                       rows={2}
                       value={formData.metaDescription || ""}
                       onChange={(e) => updateField("metaDescription", e.target.value)}
-                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      className="w-full px-3 py-2 bg-secondary border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-amber-500"
                       placeholder="Your destination for premium digital products"
                     />
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-slate-300 mb-1">
+                      <label className="block text-sm font-medium text-foreground mb-1">
                         Google Analytics ID
                       </label>
                       <input
                         type="text"
                         value={formData.googleAnalyticsId || ""}
                         onChange={(e) => updateField("googleAnalyticsId", e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                        className="w-full px-3 py-2 bg-secondary border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-amber-500"
                         placeholder="G-XXXXXXXXXX"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-300 mb-1">
+                      <label className="block text-sm font-medium text-foreground mb-1">
                         Facebook Pixel ID
                       </label>
                       <input
                         type="text"
                         value={formData.facebookPixelId || ""}
                         onChange={(e) => updateField("facebookPixelId", e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                        className="w-full px-3 py-2 bg-secondary border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-amber-500"
                         placeholder="XXXXXXXXXX"
                       />
                     </div>
@@ -634,7 +634,7 @@ export default function SettingsPage() {
               <button
                 type="button"
                 onClick={() => router.back()}
-                className="px-4 py-2 text-slate-300 hover:text-white transition-colors"
+                className="px-4 py-2 text-foreground hover:text-foreground transition-colors"
               >
                 Cancel
               </button>

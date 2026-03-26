@@ -23,10 +23,10 @@ interface InventorySearchResultsProps {
 }
 
 const statusColors = {
-  available: "bg-green-500/20 text-green-400",
-  reserved: "bg-yellow-500/20 text-yellow-400",
-  sold: "bg-blue-500/20 text-blue-400",
-  expired: "bg-red-500/20 text-red-400",
+  available: "bg-success/20 text-success",
+  reserved: "bg-warning/20 text-warning",
+  sold: "bg-info/20 text-primary",
+  expired: "bg-error/20 text-destructive",
 };
 
 export function InventorySearchResults({ results, query }: InventorySearchResultsProps) {
@@ -34,7 +34,7 @@ export function InventorySearchResults({ results, query }: InventorySearchResult
     if (!text) return "";
     const str = String(text);
     const regex = new RegExp(`(${query})`, "gi");
-    return str.replace(regex, '<mark class="bg-yellow-500/50 text-white px-0.5 rounded">$1</mark>');
+    return str.replace(regex, '<mark class="bg-warning/50 text-foreground px-0.5 rounded">$1</mark>');
   };
 
   // Get all unique field names from results
@@ -47,11 +47,11 @@ export function InventorySearchResults({ results, query }: InventorySearchResult
   const fields = Array.from(fieldNames);
 
   return (
-    <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
+    <div className="bg-card rounded-lg border border-border overflow-hidden">
       {/* Results Count */}
-      <div className="px-6 py-4 border-b border-slate-700">
-        <p className="text-slate-300">
-          Found <span className="font-bold text-white">{results.length}</span>{" "}
+      <div className="px-6 py-4 border-b border-border">
+        <p className="text-foreground">
+          Found <span className="font-bold text-foreground">{results.length}</span>{" "}
           result{results.length !== 1 ? "s" : ""}
         </p>
       </div>
@@ -59,42 +59,42 @@ export function InventorySearchResults({ results, query }: InventorySearchResult
       {/* Table */}
       <div className="overflow-x-auto">
         <table className="w-full">
-          <thead className="bg-slate-900/50">
+          <thead className="bg-muted">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">
                 Product
               </th>
               {fields.slice(0, 3).map((field) => (
                 <th
                   key={field}
-                  className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase"
+                  className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase"
                 >
                   {field}
                 </th>
               ))}
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">
                 Status
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">
                 Batch
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">
                 Created
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-700">
+          <tbody className="divide-y divide-border">
             {results.map((item) => (
-              <tr key={item.id} className="hover:bg-slate-700/50">
+              <tr key={item.id} className="hover:bg-accent">
                 <td className="px-6 py-4">
-                  <div className="text-sm font-medium text-white">
+                  <div className="text-sm font-medium text-foreground">
                     {item.productName}
                   </div>
                 </td>
                 {fields.slice(0, 3).map((field) => (
                   <td key={field} className="px-6 py-4">
                     <div
-                      className="text-sm text-slate-300"
+                      className="text-sm text-foreground"
                       dangerouslySetInnerHTML={{
                         __html: highlightMatch(String(item.values?.[field] ?? "")),
                       }}
@@ -111,12 +111,12 @@ export function InventorySearchResults({ results, query }: InventorySearchResult
                   </span>
                 </td>
                 <td className="px-6 py-4">
-                  <div className="text-sm text-slate-400">
+                  <div className="text-sm text-muted-foreground">
                     {item.batchName || "-"}
                   </div>
                 </td>
                 <td className="px-6 py-4">
-                  <div className="text-sm text-slate-400">
+                  <div className="text-sm text-muted-foreground">
                     {new Date(item.createdAt).toLocaleDateString()}
                   </div>
                 </td>
