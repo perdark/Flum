@@ -13,7 +13,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { products, orders, orderItems, inventoryItems, orderDeliverySnapshots } from "@/db/schema";
+import { products, orders, orderItems, inventoryItems, orderDeliverySnapshots, productPricing } from "@/db/schema";
 import { requirePermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
 import { eq, and, sql, inArray } from "drizzle-orm";
@@ -33,6 +33,8 @@ interface ManualSellRequest {
     productId: string;
     values: Record<string, string | number | boolean>;
   }>;
+  newCost?: number; // New cost for this sale
+  eachLineIsProduct?: boolean; // Treat each line as separate product
 }
 
 interface ShortageItem {
@@ -238,6 +240,8 @@ export async function POST(request: NextRequest) {
       customerEmail,
       customerName,
       inventoryItemsToAdd,
+      newCost,
+      eachLineIsProduct,
     } = body;
     let shortageAction: "fail" | "partial" | "add-inventory" | "pending" | undefined = body.shortageAction;
 
@@ -258,7 +262,7 @@ export async function POST(request: NextRequest) {
 
     const db = getDb();
 
-    // Get product details
+    // Get product details with pricing info
     const productIds = items.map((i) => i.productId);
     const productsData = await db
       .select({
@@ -271,6 +275,23 @@ export async function POST(request: NextRequest) {
       })
       .from(products)
       .where(inArray(products.id, productIds));
+
+    // Get default costs from ProductPricing for admin view
+    const productCosts = await db
+      .select({
+        productId: productPricing.productId,
+        cost: productPricing.cost,
+      })
+      .from(productPricing)
+      .where(inArray(productPricing.productId, productIds));
+
+    // Create a map of productId -> cost
+    const costMap = new Map<string, number | null>();
+    productCosts.forEach((pc) => {
+      if (pc.cost !== null) {
+        costMap.set(pc.productId, parseFloat(pc.cost));
+      }
+    });
 
     if (productsData.length !== productIds.length) {
       return NextResponse.json(
@@ -514,6 +535,11 @@ export async function POST(request: NextRequest) {
           : deliveredQuantity;
         const itemSubtotal = (unitPrice * deliveredQuantity).toString();
 
+        // Use provided newCost, or fetch from product pricing, or null
+        const itemCost = newCost
+          ? newCost.toString()
+          : (costMap.get(deliveryItem.productId)?.toString() || null);
+
         const [orderItem] = await tx
           .insert(orderItems)
           .values({
@@ -525,6 +551,7 @@ export async function POST(request: NextRequest) {
             price: unitPrice.toString(),
             quantity: itemQuantity,
             subtotal: itemSubtotal,
+            cost: itemCost,
             deliveredInventoryIds: sql`${JSON.stringify(
               deliveryItem.items.map((i) => i.inventoryId)
             )}::jsonb`,

@@ -38,8 +38,6 @@ async function getOrCreateSettings(db: any) {
       requireEmailVerification: false,
       enableReviews: true,
       autoApproveReviews: false,
-      pointsPerDollar: 10,
-      maxPointsRedemption: 1000,
       timezone: "UTC",
       dateFormat: "MM/DD/YYYY",
     })
@@ -118,8 +116,6 @@ export async function PUT(request: NextRequest) {
       requireEmailVerification,
       enableReviews,
       autoApproveReviews,
-      pointsPerDollar,
-      maxPointsRedemption,
       timezone,
       dateFormat,
       metaTitle,
@@ -162,7 +158,7 @@ export async function PUT(request: NextRequest) {
       "defaultCurrencyId", "defaultLanguage", "contactEmail", "supportEmail",
       "supportPhone", "maintenanceMode", "maintenanceMessage", "allowGuestCheckout",
       "requireEmailVerification", "enableReviews", "autoApproveReviews",
-      "pointsPerDollar", "maxPointsRedemption", "timezone", "dateFormat",
+      "timezone", "dateFormat",
       "metaTitle", "metaDescription", "googleAnalyticsId", "facebookPixelId"
     ] as const;
 

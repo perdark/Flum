@@ -9,10 +9,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { orders, orderItems, inventoryItems, products, users } from "@/db/schema";
+import { orders, orderItems, inventoryItems, products, users, productPricing } from "@/db/schema";
 import { requirePermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, inArray } from "drizzle-orm";
 import { logActivity } from "@/services/activityLog";
 import { getOrderDeliveryData } from "@/services/autoDelivery";
 
@@ -23,6 +23,8 @@ interface InventoryItemRequest {
 
 interface FulfillPendingRequest {
   inventoryItems: InventoryItemRequest[];
+  newCost?: number; // New cost for this fulfillment
+  eachLineIsProduct?: boolean; // Treat each line as separate product
 }
 
 type RouteContext = {
@@ -36,7 +38,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const { id: orderId } = await context.params;
 
     const body: FulfillPendingRequest = await request.json();
-    const { inventoryItems: inputInventoryItems = [] } = body;
+    const { inventoryItems: inputInventoryItems = [], newCost, eachLineIsProduct } = body;
 
     // Validate and filter input
     const validInventoryItems = inputInventoryItems.filter(
@@ -130,6 +132,35 @@ export async function POST(request: NextRequest, context: RouteContext) {
       .innerJoin(products, eq(orderItems.productId, products.id))
       .where(eq(orderItems.orderId, orderId));
 
+    // Get product costs for items that need fulfillment
+    const productIdsNeedingFulfillment = orderItemsData
+      .filter(item => (item.deliveredInventoryIds?.length || 0) < item.quantity)
+      .map(item => item.productId);
+
+    // Fetch costs from ProductPricing using inArray from drizzle
+    let productCosts: Array<{ productId: string; cost: string | null }> = [];
+    if (productIdsNeedingFulfillment.length > 0) {
+      const costs = await db
+        .select({
+          productId: productPricing.productId,
+          cost: productPricing.cost,
+        })
+        .from(productPricing)
+        .where(inArray(productPricing.productId, productIdsNeedingFulfillment));
+      productCosts = costs.map((c) => ({
+        productId: c.productId,
+        cost: c.cost?.toString() || null,
+      }));
+    }
+
+    // Create a map of productId -> cost
+    const costMap = new Map<string, number | null>();
+    productCosts.forEach((pc) => {
+      if (pc.cost !== null) {
+        costMap.set(pc.productId, parseFloat(pc.cost));
+      }
+    });
+
     // Group valid inventory items by product
     const inventoryByProduct = new Map<string, InventoryItemRequest[]>();
     for (const item of validInventoryItems) {
@@ -220,13 +251,23 @@ export async function POST(request: NextRequest, context: RouteContext) {
             .where(eq(products.id, orderItem.productId));
         }
 
-        // Update order item with new inventory IDs
+        // Update order item with new inventory IDs and cost
         const updatedIds = [...(orderItem.deliveredInventoryIds || []), ...newSoldIds];
+        const updateValues: any = {
+          deliveredInventoryIds: sql`${JSON.stringify(updatedIds)}::jsonb`,
+        };
+        // Use provided newCost, or fetch from product pricing, or keep existing
+        if (newCost !== undefined) {
+          updateValues.cost = newCost.toString();
+        } else if (costMap.has(orderItem.productId)) {
+          const productCost = costMap.get(orderItem.productId);
+          if (productCost !== null && productCost !== undefined) {
+            updateValues.cost = productCost.toString();
+          }
+        }
         await tx
           .update(orderItems)
-          .set({
-            deliveredInventoryIds: sql`${JSON.stringify(updatedIds)}::jsonb`,
-          })
+          .set(updateValues)
           .where(eq(orderItems.id, orderItem.id));
 
         const remainingAfterAdd = stillNeeded - toFulfillCount;

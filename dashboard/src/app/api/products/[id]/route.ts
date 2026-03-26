@@ -8,7 +8,16 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { products, productCategories, productImages, categories, inventoryTemplates } from "@/db/schema";
+import {
+  products,
+  productCategories,
+  productImages,
+  categories,
+  inventoryTemplates,
+  inventoryUnits,
+  bundleItems,
+  productPricing,
+} from "@/db/schema";
 import { requirePermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
 import { eq, and, sql, inArray } from "drizzle-orm";
@@ -48,7 +57,6 @@ export async function GET(
         isActive: products.isActive,
         isFeatured: products.isFeatured,
         isNew: products.isNew,
-        pointsReward: products.pointsReward,
         maxQuantity: products.maxQuantity,
         stockCount: products.stockCount,
         totalSold: products.totalSold,
@@ -63,6 +71,14 @@ export async function GET(
         createdAt: products.createdAt,
         updatedAt: products.updatedAt,
         templateName: inventoryTemplates.name,
+        // Multi-sell fields
+        multiSellEnabled: products.multiSellEnabled,
+        multiSellFactor: products.multiSellFactor,
+        cooldownEnabled: products.cooldownEnabled,
+        cooldownDurationHours: products.cooldownDurationHours,
+        // Bundle fields
+        isBundle: products.isBundle,
+        bundleTemplateId: products.bundleTemplateId,
       })
       .from(products)
       .leftJoin(inventoryTemplates, eq(products.inventoryTemplateId, inventoryTemplates.id))
@@ -137,13 +153,21 @@ export async function PUT(
       isActive,
       isFeatured,
       isNew,
-      pointsReward,
       maxQuantity,
       currentStock,
       videoUrl,
       videoThumbnail,
       categoryIds,
       images,
+      // Multi-sell fields
+      multiSellEnabled,
+      multiSellFactor,
+      cooldownEnabled,
+      cooldownDurationHours,
+      // Bundle fields
+      isBundle,
+      bundleTemplateId,
+      bundleItems,
     } = body;
 
     const db = getDb();
@@ -222,10 +246,6 @@ export async function PUT(
       changes.isNew = { from: existing.isNew, to: isNew };
       updateData.isNew = isNew;
     }
-    if (pointsReward !== undefined) {
-      changes.pointsReward = { from: existing.pointsReward, to: pointsReward };
-      updateData.pointsReward = pointsReward;
-    }
     if (maxQuantity !== undefined) {
       changes.maxQuantity = { from: existing.maxQuantity, to: maxQuantity };
       updateData.maxQuantity = maxQuantity;
@@ -241,6 +261,34 @@ export async function PUT(
     if (videoThumbnail !== undefined) {
       changes.videoThumbnail = { from: existing.videoThumbnail, to: videoThumbnail };
       updateData.videoThumbnail = videoThumbnail?.trim() || null;
+    }
+
+    // Multi-sell fields
+    if (multiSellEnabled !== undefined) {
+      changes.multiSellEnabled = { from: existing.multiSellEnabled, to: multiSellEnabled };
+      updateData.multiSellEnabled = multiSellEnabled;
+    }
+    if (multiSellFactor !== undefined) {
+      changes.multiSellFactor = { from: existing.multiSellFactor, to: multiSellFactor };
+      updateData.multiSellFactor = multiSellFactor;
+    }
+    if (cooldownEnabled !== undefined) {
+      changes.cooldownEnabled = { from: existing.cooldownEnabled, to: cooldownEnabled };
+      updateData.cooldownEnabled = cooldownEnabled;
+    }
+    if (cooldownDurationHours !== undefined) {
+      changes.cooldownDurationHours = { from: existing.cooldownDurationHours, to: cooldownDurationHours };
+      updateData.cooldownDurationHours = cooldownDurationHours;
+    }
+
+    // Bundle fields
+    if (isBundle !== undefined) {
+      changes.isBundle = { from: existing.isBundle, to: isBundle };
+      updateData.isBundle = isBundle;
+    }
+    if (bundleTemplateId !== undefined) {
+      changes.bundleTemplateId = { from: existing.bundleTemplateId, to: bundleTemplateId };
+      updateData.bundleTemplateId = bundleTemplateId || null;
     }
 
     // Update product

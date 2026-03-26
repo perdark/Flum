@@ -3,7 +3,11 @@
 /**
  * Inventory Templates Management Page
  *
- * Create and manage inventory templates
+ * Create and manage inventory templates with support for:
+ * - Bundle fields (repeatable, eachLineIsProduct)
+ * - Field visibility (admin, merchant, customer)
+ * - Field nesting (parentId)
+ * - Field types: string, number, boolean, group, multiline
  */
 
 import { useState, useEffect } from "react";
@@ -13,6 +17,12 @@ interface FieldSchema {
   type: "string" | "number" | "boolean";
   required: boolean;
   label: string;
+  isVisibleToAdmin: boolean;
+  isVisibleToMerchant: boolean;
+  isVisibleToCustomer: boolean;
+  repeatable: boolean;
+  parentId: string | null;
+  displayOrder: number;
 }
 
 interface InventoryTemplate {
@@ -29,6 +39,8 @@ export default function InventoryTemplatesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<InventoryTemplate | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchTemplates();
@@ -56,8 +68,13 @@ export default function InventoryTemplatesPage() {
     fieldsSchema: FieldSchema[];
   }) => {
     try {
-      const response = await fetch("/api/inventory/templates", {
-        method: "POST",
+      const url = editingTemplate
+        ? `/api/inventory/templates/${editingTemplate.id}`
+        : "/api/inventory/templates";
+      const method = editingTemplate ? "PUT" : "POST";
+
+      const response = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(template),
       });
@@ -66,9 +83,34 @@ export default function InventoryTemplatesPage() {
 
       if (result.success) {
         setShowCreateModal(false);
+        setEditingTemplate(null);
         fetchTemplates();
       } else {
-        setError(result.error || "Failed to create template");
+        setError(result.error || "Failed to save template");
+      }
+    } catch (err) {
+      setError("Network error");
+    }
+  };
+
+  const handleEditTemplate = (template: InventoryTemplate) => {
+    setEditingTemplate(template);
+    setShowCreateModal(true);
+  };
+
+  const handleDeleteTemplate = async (id: string) => {
+    try {
+      const response = await fetch(`/api/inventory/templates/${id}`, {
+        method: "DELETE",
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        setDeleteConfirmId(null);
+        fetchTemplates();
+      } else {
+        setError(result.error || "Failed to delete template");
       }
     } catch (err) {
       setError("Network error");
@@ -128,6 +170,43 @@ export default function InventoryTemplatesPage() {
               </span>
             </div>
 
+            {/* Action buttons */}
+            <div className="flex gap-2 mb-4">
+              <button
+                onClick={() => handleEditTemplate(template)}
+                className="px-3 py-1 text-sm bg-slate-800 text-blue-400 rounded hover:bg-slate-700 transition-colors"
+              >
+                Edit
+              </button>
+              <button
+                onClick={() => setDeleteConfirmId(template.id)}
+                className="px-3 py-1 text-sm bg-slate-800 text-red-400 rounded hover:bg-slate-700 transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+
+            {/* Delete confirmation */}
+            {deleteConfirmId === template.id && (
+              <div className="mb-4 p-3 bg-red-950/30 border border-red-900/50 rounded-lg">
+                <p className="text-sm text-red-300 mb-2">Delete this template?</p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleDeleteTemplate(template.id)}
+                    className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700"
+                  >
+                    Confirm
+                  </button>
+                  <button
+                    onClick={() => setDeleteConfirmId(null)}
+                    className="px-3 py-1 text-sm bg-slate-700 text-slate-300 rounded hover:bg-slate-600"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="mb-4">
               <h4 className="text-xs font-medium text-slate-500 uppercase mb-2">Fields</h4>
               <div className="space-y-1">
@@ -136,11 +215,19 @@ export default function InventoryTemplatesPage() {
                     key={field.name}
                     className="flex items-center gap-2 text-sm text-slate-300"
                   >
-                    <span className="font-mono text-xs bg-slate-800 px-1 rounded text-slate-400">
+                    <span className={`font-mono text-xs px-1 rounded ${
+                      field.type === 'string' ? 'bg-slate-800 text-slate-400' :
+                      field.type === 'number' ? 'bg-amber-950 text-amber-400' :
+                      field.type === 'boolean' ? 'bg-green-950 text-green-400' :
+                      'bg-slate-800 text-slate-400'
+                    }`}>
                       {field.type}
                     </span>
                     <span>{field.label}</span>
                     {field.required && <span className="text-red-400">*</span>}
+                    {field.repeatable && (
+                      <span className="text-xs bg-blue-950 text-blue-400 px-1 rounded">repeatable</span>
+                    )}
                   </div>
                 ))}
               </div>
@@ -167,8 +254,12 @@ export default function InventoryTemplatesPage() {
 
       {showCreateModal && (
         <CreateTemplateModal
-          onClose={() => setShowCreateModal(false)}
+          onClose={() => {
+            setShowCreateModal(false);
+            setEditingTemplate(null);
+          }}
           onCreate={handleCreateTemplate}
+          editingTemplate={editingTemplate}
         />
       )}
     </div>
@@ -182,32 +273,55 @@ interface CreateTemplateModalProps {
     description: string;
     fieldsSchema: FieldSchema[];
   }) => void;
+  editingTemplate: InventoryTemplate | null;
 }
 
-function CreateTemplateModal({ onClose, onCreate }: CreateTemplateModalProps) {
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [fields, setFields] = useState<FieldSchema[]>([
-    { name: "key", type: "string", required: true, label: "Key" },
-  ]);
+function CreateTemplateModal({ onClose, onCreate, editingTemplate }: CreateTemplateModalProps) {
+  const [name, setName] = useState(editingTemplate?.name || "");
+  const [description, setDescription] = useState(editingTemplate?.description || "");
+  const [fields, setFields] = useState<FieldSchema[]>(
+    editingTemplate?.fieldsSchema || [
+      {
+        name: "key",
+        type: "string",
+        required: true,
+        label: "Key",
+        isVisibleToAdmin: true,
+        isVisibleToMerchant: false,
+        isVisibleToCustomer: true,
+        repeatable: false,
+        parentId: null,
+        displayOrder: 0,
+      },
+    ]
+  );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [expandedField, setExpandedField] = useState<number | null>(0);
 
   const addField = () => {
-    setFields([
-      ...fields,
-      {
-        name: `field_${fields.length + 1}`,
-        type: "string",
-        required: false,
-        label: `Field ${fields.length + 1}`,
-      },
-    ]);
+    const newField: FieldSchema = {
+      name: `field_${Date.now()}`,
+      type: "string",
+      required: false,
+      label: `Field ${fields.length + 1}`,
+      isVisibleToAdmin: true,
+      isVisibleToMerchant: true,
+      isVisibleToCustomer: true,
+      repeatable: false,
+      parentId: null,
+      displayOrder: fields.length,
+    };
+    setFields([...fields, newField]);
+    setExpandedField(fields.length);
   };
 
   const removeField = (index: number) => {
     if (fields.length > 1) {
-      setFields(fields.filter((_, i) => i !== index));
+      const newFields = fields.filter((_, i) => i !== index);
+      // Update displayOrder
+      newFields.forEach((f, i) => f.displayOrder = i);
+      setFields(newFields);
     }
   };
 
@@ -255,12 +369,20 @@ function CreateTemplateModal({ onClose, onCreate }: CreateTemplateModalProps) {
     }
   };
 
+  // Get available parent fields (exclude self and descendants)
+  const getParentOptions = (currentIndex: number) => {
+    return fields.filter((f, i) => i !== currentIndex);
+  };
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+      <div className="bg-slate-900 border border-slate-800 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
         <div className="p-6 border-b border-slate-800">
-          <h2 className="text-xl font-bold text-white">Create Inventory Template</h2>
+          <h2 className="text-xl font-bold text-white">
+            {editingTemplate ? "Edit Inventory Template" : "Create Inventory Template"}
+          </h2>
+          <p className="text-sm text-slate-400 mt-1">Define fields for inventory items and bundle products</p>
         </div>
 
         {/* Content */}
@@ -272,41 +394,46 @@ function CreateTemplateModal({ onClose, onCreate }: CreateTemplateModalProps) {
           )}
 
           {/* Basic Info */}
-          <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">
-              Template Name *
-            </label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g., Game Key, Account, Gift Card"
-              required
-              className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500"
-            />
-          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-2">
+                Template Name *
+              </label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g., Game Bundle, Account, Gift Card"
+                required
+                className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500"
+              />
+            </div>
 
-          <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">
-              Description
-            </label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={2}
-              placeholder="Optional description"
-              className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500"
-            />
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-2">
+                Description
+              </label>
+              <input
+                type="text"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Optional description"
+                className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500"
+              />
+            </div>
           </div>
 
           {/* Fields */}
           <div>
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-medium text-slate-300">Fields Schema</h3>
+              <div>
+                <h3 className="text-sm font-medium text-slate-300">Fields Schema</h3>
+                <p className="text-xs text-slate-500">Define the structure for inventory data</p>
+              </div>
               <button
                 type="button"
                 onClick={addField}
-                className="text-sm text-blue-400 hover:text-blue-300"
+                className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
               >
                 + Add Field
               </button>
@@ -316,82 +443,209 @@ function CreateTemplateModal({ onClose, onCreate }: CreateTemplateModalProps) {
               {fields.map((field, index) => (
                 <div
                   key={index}
-                  className="bg-slate-800/50 p-4 rounded-lg border border-slate-800"
+                  className={`bg-slate-800/50 rounded-lg border border-slate-800 overflow-hidden ${
+                    field.parentId ? "ml-6 border-l-2 border-l-blue-800" : ""
+                  }`}
                 >
-                  <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium text-slate-400 mb-1">
-                        Field Name *
-                      </label>
-                      <input
-                        type="text"
-                        value={field.name}
-                        onChange={(e) => updateField(index, { name: e.target.value })}
-                        placeholder="key"
-                        required
-                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm placeholder:text-slate-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-medium text-slate-400 mb-1">
-                        Label *
-                      </label>
-                      <input
-                        type="text"
-                        value={field.label}
-                        onChange={(e) => updateField(index, { label: e.target.value })}
-                        placeholder="Activation Key"
-                        required
-                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm placeholder:text-slate-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-medium text-slate-400 mb-1">
-                        Type
-                      </label>
-                      <select
-                        value={field.type}
-                        onChange={(e) =>
-                          updateField(index, {
-                            type: e.target.value as "string" | "number" | "boolean",
-                          })
-                        }
-                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                      >
-                        <option value="string">String</option>
-                        <option value="number">Number</option>
-                        <option value="boolean">Boolean</option>
-                      </select>
-                    </div>
-
-                    <div className="flex items-end">
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={field.required}
-                          onChange={(e) =>
-                            updateField(index, { required: e.target.checked })
-                          }
-                          className="w-4 h-4 text-blue-600 bg-slate-800 border-slate-700 rounded focus:ring-blue-500"
-                        />
-                        <span className="text-sm text-slate-300">Required</span>
-                      </label>
-                    </div>
-
-                    <div className="flex items-end">
-                      {fields.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => removeField(index)}
-                          className="px-3 py-2 text-red-400 hover:text-red-300 text-sm"
-                        >
-                          Remove
-                        </button>
-                      )}
+                  {/* Field Header - Always Visible */}
+                  <div
+                    className="p-4 cursor-pointer hover:bg-slate-800/70"
+                    onClick={() => setExpandedField(expandedField === index ? null : index)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <span className="text-slate-500">#{index + 1}</span>
+                        <span className="font-medium text-white">{field.label || "Untitled Field"}</span>
+                        <span className="font-mono text-xs bg-slate-900 px-2 py-0.5 rounded text-slate-400">
+                          {field.name}
+                        </span>
+                        <span className={`text-xs px-2 py-0.5 rounded ${
+                          field.type === 'string' ? 'bg-slate-700 text-slate-300' :
+                          field.type === 'number' ? 'bg-amber-950 text-amber-400' :
+                          field.type === 'boolean' ? 'bg-green-950 text-green-400' :
+                          'bg-slate-700 text-slate-300'
+                        }`}>
+                          {field.type}
+                        </span>
+                        {field.repeatable && (
+                          <span className="text-xs bg-blue-950 text-blue-400 px-2 py-0.5 rounded">repeatable</span>
+                        )}
+                        {field.required && (
+                          <span className="text-xs text-red-400">required</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-500">
+                          {expandedField === index ? "▼" : "▶"}
+                        </span>
+                        {fields.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); removeField(index); }}
+                            className="px-2 py-1 text-red-400 hover:text-red-300 text-sm"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
+
+                  {/* Expanded Field Details */}
+                  {expandedField === index && (
+                    <div className="p-4 pt-0 border-t border-slate-700/50">
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
+                        {/* Field Name - Also generates label automatically */}
+                        <div>
+                          <label className="block text-xs font-medium text-slate-400 mb-1">
+                            Field Name *
+                          </label>
+                          <input
+                            type="text"
+                            value={field.name}
+                            onChange={(e) => {
+                              const newName = e.target.value;
+                              // Auto-generate label from field name
+                              const newLabel = newName
+                                .replace(/_/g, ' ')
+                                .replace(/([A-Z])/g, ' $1')
+                                .trim()
+                                .split(' ')
+                                .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                                .join(' ');
+                              updateField(index, { name: newName, label: newLabel });
+                            }}
+                            placeholder="field_name"
+                            required
+                            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm placeholder:text-slate-500"
+                          />
+                          <p className="text-xs text-slate-500 mt-1">Label auto-generated from name</p>
+                        </div>
+
+                        {/* Type */}
+                        <div>
+                          <label className="block text-xs font-medium text-slate-400 mb-1">
+                            Field Type
+                          </label>
+                          <select
+                            value={field.type}
+                            onChange={(e) =>
+                              updateField(index, {
+                                type: e.target.value as FieldSchema["type"],
+                              })
+                            }
+                            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                          >
+                            <option value="string">String</option>
+                            <option value="number">Number</option>
+                            <option value="boolean">Boolean</option>
+                          </select>
+                        </div>
+
+                        {/* Parent Field */}
+                        <div>
+                          <label className="block text-xs font-medium text-slate-400 mb-1">
+                            Parent Field (for nesting)
+                          </label>
+                          <select
+                            value={field.parentId || ""}
+                            onChange={(e) =>
+                              updateField(index, { parentId: e.target.value || null })
+                            }
+                            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                          >
+                            <option value="">None (Root Level)</option>
+                            {getParentOptions(index).map((parent, i) => (
+                              <option key={parent.name} value={parent.name}>
+                                {parent.label} ({parent.name})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Display Order */}
+                        <div>
+                          <label className="block text-xs font-medium text-slate-400 mb-1">
+                            Display Order
+                          </label>
+                          <input
+                            type="number"
+                            value={field.displayOrder}
+                            onChange={(e) => updateField(index, { displayOrder: parseInt(e.target.value) || 0 })}
+                            className="w-full px-3 py-2 bg-slate-800 border border-slate-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                          />
+                        </div>
+
+                        {/* Required */}
+                        <div className="flex items-end">
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={field.required}
+                              onChange={(e) => updateField(index, { required: e.target.checked })}
+                              className="w-4 h-4 text-blue-600 bg-slate-800 border-slate-700 rounded focus:ring-blue-500"
+                            />
+                            <span className="text-sm text-slate-300">Required Field</span>
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* Visibility Section */}
+                      <div className="mt-4 p-3 bg-slate-900/50 rounded-lg">
+                        <h4 className="text-xs font-medium text-slate-400 mb-2">Field Visibility</h4>
+                        <div className="flex flex-wrap gap-4">
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={field.isVisibleToAdmin}
+                              onChange={(e) => updateField(index, { isVisibleToAdmin: e.target.checked })}
+                              className="w-4 h-4 text-blue-600 bg-slate-800 border-slate-700 rounded focus:ring-blue-500"
+                            />
+                            <span className="text-sm text-slate-300">Admin</span>
+                          </label>
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={field.isVisibleToMerchant}
+                              onChange={(e) => updateField(index, { isVisibleToMerchant: e.target.checked })}
+                              className="w-4 h-4 text-blue-600 bg-slate-800 border-slate-700 rounded focus:ring-blue-500"
+                            />
+                            <span className="text-sm text-slate-300">Merchant</span>
+                          </label>
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={field.isVisibleToCustomer}
+                              onChange={(e) => updateField(index, { isVisibleToCustomer: e.target.checked })}
+                              className="w-4 h-4 text-blue-600 bg-slate-800 border-slate-700 rounded focus:ring-blue-500"
+                            />
+                            <span className="text-sm text-slate-300">Customer</span>
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* Bundle Options Section */}
+                      <div className="mt-4 p-3 bg-blue-950/20 rounded-lg border border-blue-900/30">
+                        <h4 className="text-xs font-medium text-blue-400 mb-2">Bundle Options</h4>
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <label className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={field.repeatable}
+                                  onChange={(e) => updateField(index, { repeatable: e.target.checked })}
+                                  className="w-4 h-4 text-blue-600 bg-slate-800 border-slate-700 rounded focus:ring-blue-500"
+                                />
+                                <span className="text-sm text-slate-300">Repeatable Field</span>
+                              </label>
+                              <p className="text-xs text-slate-500 ml-6">Allow multiple values/lines for this field</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -414,7 +668,7 @@ function CreateTemplateModal({ onClose, onCreate }: CreateTemplateModalProps) {
             onClick={handleSubmit}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {submitting ? "Creating..." : "Create Template"}
+            {submitting ? (editingTemplate ? "Saving..." : "Creating...") : (editingTemplate ? "Save Template" : "Create Template")}
           </button>
         </div>
       </div>

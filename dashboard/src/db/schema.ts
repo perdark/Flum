@@ -33,10 +33,11 @@ export const users = pgTable('users', {
   passwordHash: varchar('password_hash', { length: 255 }),
   firstName: varchar('first_name', { length: 100 }),
   lastName: varchar('last_name', { length: 100 }),
-  name: varchar('name', { length: 255 }), // For admin users
+  name: varchar('name', { length: 255 }),
   avatar: varchar('avatar', { length: 500 }),
   phoneNumber: varchar('phone_number', { length: 20 }),
-  role: varchar('role', { length: 20 }), // 'admin', 'staff', or null for customers
+  role: varchar('role', { length: 20 }),
+  customerId: uuid('customer_id').references(() => customers.id),
   isActive: boolean('is_active').default(true).notNull(),
   emailVerified: timestamp('email_verified'),
   lastLoginAt: timestamp('last_login_at'),
@@ -46,6 +47,7 @@ export const users = pgTable('users', {
 }, (table) => ({
   emailIdx: index('users_email_idx').on(table.email),
   roleIdx: index('users_role_idx').on(table.role),
+  customerIdx: index('users_customer_idx').on(table.customerId),
 }));
 
 // Sessions for admin authentication
@@ -58,6 +60,25 @@ export const sessions = pgTable('sessions', {
 }, (table) => ({
   tokenIdx: index('sessions_token_idx').on(table.token),
   userIdIdx: index('sessions_user_id_idx').on(table.userId),
+}));
+
+// Customers - B2B/B2C customer records
+export const customers = pgTable('customers', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  email: varchar('email', { length: 255 }).unique().notNull(),
+  name: varchar('name', { length: 255 }).notNull(),
+  phone: varchar('phone', { length: 50 }),
+  type: varchar('type', { length: 20 }).default('retail').notNull(),
+  businessName: varchar('business_name', { length: 255 }),
+  taxId: varchar('tax_id', { length: 100 }),
+  status: varchar('status', { length: 20 }).default('active').notNull(),
+  metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at'),
+}, (table) => ({
+  emailIdx: index('customers_email_idx').on(table.email),
+  typeIdx: index('customers_type_idx').on(table.type),
 }));
 
 // ============================================================================
@@ -122,8 +143,6 @@ export const storeSettings = pgTable('store_settings', {
   requireEmailVerification: boolean('require_email_verification').default(false).notNull(),
   enableReviews: boolean('enable_reviews').default(true).notNull(),
   autoApproveReviews: boolean('auto_approve_reviews').default(false).notNull(),
-  pointsPerDollar: integer('points_per_dollar').default(10).notNull(),
-  maxPointsRedemption: integer('max_points_redemption').default(1000).notNull(),
   timezone: varchar('timezone', { length: 50 }).default('UTC').notNull(),
   dateFormat: varchar('date_format', { length: 20 }).default('MM/DD/YYYY').notNull(),
   metaTitle: varchar('meta_title', { length: 255 }),
@@ -147,9 +166,18 @@ export const inventoryTemplates = pgTable('inventory_templates', {
   description: text('description'),
   fieldsSchema: jsonb('fields_schema').notNull().$type<Array<{
     name: string;
-    type: 'string' | 'number' | 'boolean';
+    type: 'string' | 'number' | 'boolean' | 'group' | 'multiline';
     required: boolean;
     label: string;
+    // Field visibility options
+    isVisibleToAdmin: boolean;
+    isVisibleToMerchant: boolean;
+    isVisibleToCustomer: boolean;
+    // Bundle field options
+    repeatable: boolean;
+    eachLineIsProduct: boolean;
+    parentId: string | null;
+    displayOrder: number;
   }>>(),
   isActive: boolean('is_active').default(true).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -176,7 +204,7 @@ export const inventoryBatches = pgTable('inventory_batches', {
 export const inventoryItems = pgTable('inventory_items', {
   id: uuid('id').defaultRandom().primaryKey(),
   templateId: uuid('template_id').notNull().references(() => inventoryTemplates.id, { onDelete: 'restrict' }),
-  productId: uuid('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+  productId: uuid('product_id').references(() => products.id, { onDelete: 'cascade' }),
   batchId: uuid('batch_id').references(() => inventoryBatches.id, { onDelete: 'set null' }),
   values: jsonb('values').notNull(),
   status: varchar('status', { length: 20 }).default('available').notNull(), // available, reserved, sold, expired
@@ -195,6 +223,28 @@ export const inventoryItems = pgTable('inventory_items', {
   availableIdx: index('inventory_items_available_idx').on(table.productId, table.status),
 }));
 
+// Inventory Units - tracks individual sellable units for multi-sell logic
+export const inventoryUnits = pgTable('inventory_units', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  productId: uuid('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+  physicalUnitId: varchar('physical_unit_id', { length: 100 }).notNull(),
+  saleCount: integer('sale_count').default(0).notNull(),
+  maxSales: integer('max_sales').default(5).notNull(),
+  cooldownUntil: timestamp('cooldown_until'),
+  cooldownDurationHours: integer('cooldown_duration_hours').default(12).notNull(),
+  status: varchar('status', { length: 20 }).default('available').notNull(),
+  lastSaleAt: timestamp('last_sale_at'),
+  metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  productIdx: index('inventory_units_product_idx').on(table.productId),
+  physicalUnitIdx: index('inventory_units_physical_unit_idx').on(table.physicalUnitId),
+  statusIdx: index('inventory_units_status_idx').on(table.status),
+  cooldownIdx: index('inventory_units_cooldown_idx').on(table.cooldownUntil),
+  availableIdx: index('inventory_units_available_idx').on(table.productId, table.status),
+}));
+
 // ============================================================================
 // PRODUCTS
 // ============================================================================
@@ -209,16 +259,15 @@ export const products = pgTable('products', {
   sku: varchar('sku', { length: 100 }).unique(),
   basePrice: decimal('base_price', { precision: 10, scale: 2 }).notNull(),
   compareAtPrice: decimal('compare_at_price', { precision: 10, scale: 2 }),
-  deliveryType: varchar('delivery_type', { length: 50 }).notNull(), // auto_key, auto_account, manual, contact
+  deliveryType: varchar('delivery_type', { length: 50 }).notNull(),
   inventoryTemplateId: uuid('inventory_template_id').references(() => inventoryTemplates.id),
   isActive: boolean('is_active').default(true).notNull(),
   isFeatured: boolean('is_featured').default(false).notNull(),
   isNew: boolean('is_new').default(false).notNull(),
-  pointsReward: integer('points_reward').default(0),
   maxQuantity: integer('max_quantity').default(999),
   stockCount: integer('stock_count').default(0),
   totalSold: integer('total_sold').default(0),
-  currentStock: integer('current_stock').default(-1), // -1 for unlimited
+  currentStock: integer('current_stock').default(-1),
   videoUrl: varchar('video_url', { length: 500 }),
   videoThumbnail: varchar('video_thumbnail', { length: 500 }),
   metadata: jsonb('metadata').$type<Record<string, unknown>>(),
@@ -227,6 +276,14 @@ export const products = pgTable('products', {
   averageRating: decimal('average_rating', { precision: 3, scale: 2 }).default('0.00'),
   ratingCount: integer('rating_count').default(0).notNull(),
   reviewCount: integer('review_count').default(0).notNull(),
+  // Multi-sell fields
+  multiSellEnabled: boolean('multi_sell_enabled').default(false).notNull(),
+  multiSellFactor: integer('multi_sell_factor').default(5),
+  cooldownEnabled: boolean('cooldown_enabled').default(false).notNull(),
+  cooldownDurationHours: integer('cooldown_duration_hours').default(12),
+  // Bundle fields
+  isBundle: boolean('is_bundle').default(false).notNull(),
+  bundleTemplateId: uuid('bundle_template_id').references(() => inventoryTemplates.id),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
@@ -236,6 +293,7 @@ export const products = pgTable('products', {
   featuredIdx: index('products_featured_idx').on(table.isFeatured),
   ratingIdx: index('products_rating_idx').on(table.averageRating),
   templateIdx: index('products_template_idx').on(table.inventoryTemplateId),
+  bundleTemplateIdx: index('products_bundle_template_idx').on(table.bundleTemplateId),
 }));
 
 // Product-Category Relationship (Many-to-Many)
@@ -264,6 +322,45 @@ export const productImages = pgTable('product_images', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (table) => ({
   productIdx: index('product_images_product_idx').on(table.productId),
+}));
+
+// Product Pricing - Tiered pricing per product (B2B/B2C)
+export const productPricing = pgTable('product_pricing', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  productId: uuid('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+  customerType: varchar('customer_type', { length: 20 }).notNull(),
+  cost: decimal('cost', { precision: 10, scale: 2 }),
+  wholesalePrice: decimal('wholesale_price', { precision: 10, scale: 2 }),
+  retailPrice: decimal('retail_price', { precision: 10, scale: 2 }),
+  currency: varchar('currency', { length: 3 }).default('USD').notNull(),
+  minQuantity: integer('min_quantity'),
+  creditEligible: boolean('credit_eligible').default(false).notNull(),
+  creditTermsDays: integer('credit_terms_days'),
+  validFrom: timestamp('valid_from').defaultNow().notNull(),
+  validUntil: timestamp('valid_until'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  productIdx: index('product_pricing_product_idx').on(table.productId),
+  customerTypeIdx: index('product_pricing_customer_type_idx').on(table.customerType),
+  uniqueProductCustomer: index('product_pricing_unique_idx').on(table.productId, table.customerType),
+}));
+
+// Bundle Items - Items within a bundle product
+export const bundleItems = pgTable('bundle_items', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  bundleProductId: uuid('bundle_product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+  templateFieldId: varchar('template_field_id', { length: 255 }).notNull(),
+  lineIndex: integer('line_index').default(0).notNull(),
+  productId: uuid('product_id').references(() => products.id),
+  productName: varchar('product_name', { length: 255 }).notNull(),
+  quantity: integer('quantity').default(1).notNull(),
+  priceOverride: decimal('price_override', { precision: 10, scale: 2 }),
+  metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  bundleProductIdx: index('bundle_items_bundle_product_idx').on(table.bundleProductId),
+  productIdx: index('bundle_items_product_idx').on(table.productId),
 }));
 
 // ============================================================================
@@ -302,9 +399,9 @@ export const orders = pgTable('orders', {
   userId: uuid('user_id').references(() => users.id),
   customerEmail: varchar('customer_email', { length: 255 }).notNull(),
   customerName: varchar('customer_name', { length: 255 }),
-  email: varchar('email', { length: 255 }), // Deprecated, use customerEmail
-  status: varchar('status', { length: 50 }).default('pending').notNull(), // pending, processing, delivered, cancelled
-  fulfillmentStatus: varchar('fulfillment_status', { length: 50 }).default('pending').notNull(), // pending, processing, delivered, partial, failed
+  email: varchar('email', { length: 255 }),
+  status: varchar('status', { length: 50 }).default('pending').notNull(),
+  fulfillmentStatus: varchar('fulfillment_status', { length: 50 }).default('pending').notNull(),
   paymentMethod: varchar('payment_method', { length: 50 }).notNull(),
   paymentStatus: varchar('payment_status', { length: 50 }).default('pending').notNull(),
   currencyId: uuid('currency_id').references(() => currencies.id),
@@ -313,8 +410,6 @@ export const orders = pgTable('orders', {
   discount: decimal('discount', { precision: 10, scale: 2 }).default('0').notNull(),
   tax: decimal('tax', { precision: 10, scale: 2 }).default('0').notNull(),
   total: decimal('total', { precision: 10, scale: 2 }).notNull(),
-  pointsUsed: integer('points_used').default(0),
-  pointsEarned: integer('points_earned').default(0),
   couponId: uuid('coupon_id').references(() => coupons.id),
   notes: text('notes'),
   processedBy: uuid('processed_by').references(() => users.id),
@@ -322,6 +417,14 @@ export const orders = pgTable('orders', {
   claimedAt: timestamp('claimed_at'),
   claimExpiresAt: timestamp('claim_expires_at'),
   deliveredAt: timestamp('delivered_at'),
+  // B2B fields
+  customerId: uuid('customer_id').references(() => customers.id),
+  customerType: varchar('customer_type', { length: 20 }),
+  pricingTierUsed: varchar('pricing_tier_used', { length: 50 }),
+  isAdjusted: boolean('is_adjusted').default(false).notNull(),
+  originalTotal: decimal('original_total', { precision: 10, scale: 2 }),
+  approvedBy: uuid('approved_by').references(() => users.id),
+  approvedAt: timestamp('approved_at'),
   metadata: jsonb('metadata').$type<Record<string, unknown>>(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -335,6 +438,7 @@ export const orders = pgTable('orders', {
   customerEmailIdx: index('orders_customer_email_idx').on(table.customerEmail),
   claimedByIdx: index('orders_claimed_by_idx').on(table.claimedBy),
   createdAtIdx: index('orders_created_at_idx').on(table.createdAt),
+  customerIdx: index('orders_customer_idx').on(table.customerId),
 }));
 
 export const orderItems = pgTable('order_items', {
@@ -347,8 +451,12 @@ export const orderItems = pgTable('order_items', {
   price: decimal('price', { precision: 10, scale: 2 }).notNull(),
   quantity: integer('quantity').default(1).notNull(),
   subtotal: decimal('subtotal', { precision: 10, scale: 2 }).notNull(),
+  cost: decimal('cost', { precision: 10, scale: 2 }),
   deliveryData: jsonb('delivery_data').$type<Record<string, unknown>>(),
   deliveredInventoryIds: jsonb('delivered_inventory_ids').$type<string[]>(),
+  // Bundle fields
+  bundlePath: varchar('bundle_path', { length: 500 }),
+  fulfilledQuantity: integer('fulfilled_quantity').default(0),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (table) => ({
   orderIdx: index('order_items_order_idx').on(table.orderId),
@@ -705,3 +813,15 @@ export type NewActivityLog = typeof activityLogs.$inferInsert;
 
 export type DailyAnalytics = typeof dailyAnalytics.$inferSelect;
 export type NewDailyAnalytics = typeof dailyAnalytics.$inferInsert;
+
+export type Customer = typeof customers.$inferSelect;
+export type NewCustomer = typeof customers.$inferInsert;
+
+export type InventoryUnit = typeof inventoryUnits.$inferSelect;
+export type NewInventoryUnit = typeof inventoryUnits.$inferInsert;
+
+export type ProductPricing = typeof productPricing.$inferSelect;
+export type NewProductPricing = typeof productPricing.$inferInsert;
+
+export type BundleItem = typeof bundleItems.$inferSelect;
+export type NewBundleItem = typeof bundleItems.$inferInsert;

@@ -3,12 +3,14 @@
 /**
  * New Product Page
  *
- * Form to create a new product with category tree selection and images
+ * Form to create a new product with category tree selection, images,
+ * multi-sell configuration, and bundle builder
  */
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { CategoryTreeSelect } from "@/components/dashboard/CategoryTreeSelect";
+import { BundleBuilder, BundleItem } from "@/components/dashboard/BundleBuilder";
 
 interface Image {
   url: string;
@@ -20,6 +22,13 @@ interface InventoryTemplate {
   id: string;
   name: string;
   description: string | null;
+  fieldsSchema?: Array<{
+    name: string;
+    type: "string" | "number" | "boolean";
+    required: boolean;
+    label: string;
+    repeatable: boolean;
+  }>;
 }
 
 export default function NewProductPage() {
@@ -30,23 +39,29 @@ export default function NewProductPage() {
 
   const [formData, setFormData] = useState({
     name: "",
-    slug: "",
     nameAr: "",
     description: "",
     descriptionAr: "",
-    sku: "",
+    cost: "",
     basePrice: "",
+    enableDiscount: false,
     compareAtPrice: "",
     deliveryType: "manual",
     inventoryTemplateId: "",
     isActive: true,
     isFeatured: false,
     isNew: false,
-    pointsReward: 0,
-    maxQuantity: 999,
-    currentStock: -1,
     videoUrl: "",
     videoThumbnail: "",
+    // Multi-sell fields
+    multiSellEnabled: false,
+    multiSellFactor: 5,
+    cooldownEnabled: false,
+    cooldownDurationHours: 12,
+    // Bundle fields
+    isBundle: false,
+    bundleTemplateId: "",
+    bundleItems: [] as BundleItem[],
   });
 
   const [categoryIds, setCategoryIds] = useState<string[]>([]);
@@ -75,7 +90,7 @@ export default function NewProductPage() {
   };
 
   const handleNameChange = (value: string) => {
-    setFormData({ ...formData, name: value, slug: generateSlug(value) });
+    setFormData({ ...formData, name: value });
   };
 
   const addImage = () => {
@@ -103,13 +118,18 @@ export default function NewProductPage() {
     try {
       const validImages = images.filter((img) => img.url.trim() !== "");
 
+      // Auto-generate slug from name
+      const slug = generateSlug(formData.name);
+
       const response = await fetch("/api/products", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...formData,
+          slug,
           basePrice: parseFloat(formData.basePrice) || 0,
-          compareAtPrice: formData.compareAtPrice ? parseFloat(formData.compareAtPrice) : undefined,
+          cost: formData.cost ? parseFloat(formData.cost) : undefined,
+          compareAtPrice: formData.enableDiscount && formData.compareAtPrice ? parseFloat(formData.compareAtPrice) : undefined,
           categoryIds,
           images: validImages,
         }),
@@ -164,20 +184,6 @@ export default function NewProductPage() {
 
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-2">
-                Slug *
-              </label>
-              <input
-                type="text"
-                value={formData.slug}
-                onChange={(e) => setFormData({ ...formData, slug: e.target.value })}
-                required
-                className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500"
-                placeholder="steam-game-account"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
                 Arabic Name (الاسم بالعربية)
               </label>
               <input
@@ -187,19 +193,6 @@ export default function NewProductPage() {
                 className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500 text-right"
                 placeholder="اسم المنتج"
                 dir="rtl"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
-                SKU
-              </label>
-              <input
-                type="text"
-                value={formData.sku}
-                onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
-                className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500"
-                placeholder="PROD-001"
               />
             </div>
           </div>
@@ -236,10 +229,28 @@ export default function NewProductPage() {
         <div className="mb-8">
           <h2 className="text-lg font-semibold text-white mb-4">Pricing</h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-2">
-                Base Price (USD) *
+                Cost (USD)
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={formData.cost}
+                onChange={(e) => setFormData({ ...formData, cost: e.target.value })}
+                className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500"
+                placeholder="15.00"
+              />
+              <p className="text-xs text-slate-500 mt-1">
+                Your cost (internal use)
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-2">
+                Price (USD) *
               </label>
               <input
                 type="number"
@@ -251,24 +262,37 @@ export default function NewProductPage() {
                 className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500"
                 placeholder="29.99"
               />
+              <p className="text-xs text-slate-500 mt-1">
+                Selling price
+              </p>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
-                Compare At Price
+              <label className="flex items-center gap-2 mb-2">
+                <input
+                  type="checkbox"
+                  checked={formData.enableDiscount}
+                  onChange={(e) => setFormData({ ...formData, enableDiscount: e.target.checked })}
+                  className="w-4 h-4 text-blue-600 bg-slate-800 border-slate-700 rounded focus:ring-blue-500"
+                />
+                <span className="text-sm font-medium text-slate-300">Enable Discount</span>
               </label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={formData.compareAtPrice}
-                onChange={(e) => setFormData({ ...formData, compareAtPrice: e.target.value })}
-                className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500"
-                placeholder="39.99"
-              />
-              <p className="text-xs text-slate-500 mt-1">
-                Original price for showing discount
-              </p>
+              {formData.enableDiscount && (
+                <div>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.compareAtPrice}
+                    onChange={(e) => setFormData({ ...formData, compareAtPrice: e.target.value })}
+                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500"
+                    placeholder="39.99"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    Compare at price (original price)
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -288,10 +312,8 @@ export default function NewProductPage() {
                 required
                 className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                <option value="manual">Manual Delivery</option>
-                <option value="auto_key">Auto Key Delivery</option>
-                <option value="auto_account">Auto Account Delivery</option>
-                <option value="contact">Contact Required</option>
+                <option value="manual">Manual</option>
+                <option value="auto">Automatic</option>
               </select>
             </div>
 
@@ -313,54 +335,159 @@ export default function NewProductPage() {
                 ))}
               </select>
             </div>
+          </div>
+        </div>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
-                Stock Count
-              </label>
+        {/* Multi-Sell Configuration */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-white">Multi-Sell Configuration</h2>
+            <label className="flex items-center gap-2 cursor-pointer">
               <input
-                type="number"
-                min="-1"
-                value={formData.currentStock}
-                onChange={(e) => setFormData({ ...formData, currentStock: parseInt(e.target.value) || -1 })}
-                className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500"
-                placeholder="-1"
+                type="checkbox"
+                checked={formData.multiSellEnabled}
+                onChange={(e) => setFormData({ ...formData, multiSellEnabled: e.target.checked })}
+                className="w-4 h-4 text-blue-600 bg-slate-800 border-slate-700 rounded focus:ring-blue-500"
               />
-              <p className="text-xs text-slate-500 mt-1">
-                -1 for unlimited stock
-              </p>
-            </div>
+              <span className="text-sm text-slate-300">Enable Multi-Sell</span>
+            </label>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
-                Max Quantity Per Order
-              </label>
-              <input
-                type="number"
-                min="1"
-                value={formData.maxQuantity}
-                onChange={(e) => setFormData({ ...formData, maxQuantity: parseInt(e.target.value) || 999 })}
-                className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500"
-                placeholder="999"
-              />
-            </div>
+          <p className="text-sm text-slate-400 mb-4">
+            Allow this product to be sold multiple times before each unit enters cooldown
+          </p>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
-                Points Reward
-              </label>
-              <input
-                type="number"
-                min="0"
-                value={formData.pointsReward}
-                onChange={(e) => setFormData({ ...formData, pointsReward: parseInt(e.target.value) || 0 })}
-                className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500"
-                placeholder="0"
-              />
+          {formData.multiSellEnabled && (
+            <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Sales Factor *
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={formData.multiSellFactor}
+                    onChange={(e) => setFormData({ ...formData, multiSellFactor: parseInt(e.target.value) || 5 })}
+                    className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500"
+                    placeholder="5"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    How many times each unit can be sold
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Enable Cooldown
+                  </label>
+                  <div className="flex items-center h-10">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.cooldownEnabled}
+                        onChange={(e) => setFormData({ ...formData, cooldownEnabled: e.target.checked })}
+                        className="w-4 h-4 text-blue-600 bg-slate-800 border-slate-700 rounded focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-slate-300">
+                        {formData.cooldownEnabled ? "Enabled" : "Disabled"}
+                      </span>
+                    </label>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Require cooldown between sales cycles
+                  </p>
+                </div>
+
+                {formData.cooldownEnabled && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-2">
+                      Cooldown Duration (hours) *
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={formData.cooldownDurationHours}
+                      onChange={(e) => setFormData({ ...formData, cooldownDurationHours: parseInt(e.target.value) || 12 })}
+                      className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-500"
+                      placeholder="12"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">
+                      Hours before unit can sell again
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {formData.cooldownEnabled && (
+                <div className="mt-3 text-xs text-slate-500">
+                  <span className="text-yellow-400">⚠</span> After a unit reaches {formData.multiSellFactor} sales, it will enter cooldown for {formData.cooldownDurationHours} hour{formData.cooldownDurationHours > 1 ? "s" : ""} before becoming available again.
+                </div>
+              )}
             </div>
+          )}
+        </div>
+
+        {/* Bundle Configuration */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-white">Bundle Configuration</h2>
+              <p className="text-sm text-slate-400">Group multiple products into one bundle product</p>
+            </div>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={formData.isBundle}
+                onChange={(e) => setFormData({ ...formData, isBundle: e.target.checked })}
+                className="w-4 h-4 text-blue-600 bg-slate-800 border-slate-700 rounded focus:ring-blue-500"
+              />
+              <span className="text-sm text-slate-300">This is a Bundle Product</span>
+            </label>
           </div>
+
+          {formData.isBundle && (
+            <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700">
+              {/* Template Selection */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                  Bundle Template *
+                </label>
+                <select
+                  value={formData.bundleTemplateId}
+                  onChange={(e) => setFormData({ ...formData, bundleTemplateId: e.target.value })}
+                  className="w-full px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select a template...</option>
+                  {templates
+                    .filter((t) => t.fieldsSchema && t.fieldsSchema.some((f: any) => f.repeatable))
+                    .map((template) => (
+                      <option key={template.id} value={template.id}>
+                        {template.name} {template.description && `- ${template.description}`}
+                      </option>
+                    ))}
+                </select>
+                <p className="text-xs text-slate-500 mt-1">
+                  Only templates with repeatable fields are shown
+                </p>
+              </div>
+
+              {/* Bundle Builder */}
+              {formData.bundleTemplateId && (
+                <BundleBuilder
+                  bundleTemplateId={formData.bundleTemplateId}
+                  bundleItems={formData.bundleItems}
+                  onChange={(items) => setFormData({ ...formData, bundleItems: items })}
+                />
+              )}
+
+              {!formData.bundleTemplateId && (
+                <div className="p-4 bg-slate-900/50 rounded border border-slate-700 text-center">
+                  <p className="text-slate-500">Select a template to configure bundle items</p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Media */}

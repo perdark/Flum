@@ -10,7 +10,27 @@ import { users, products, orders, inventoryItems, coupons, reviews } from "@/db/
 // USER TYPES
 // ============================================================================
 
-export type UserRole = "admin" | "staff";
+export type UserRole = "admin" | "staff" | "merchant" | null;
+
+// Customer Types
+export type CustomerType = "retail" | "merchant";
+export type CustomerStatus = "active" | "suspended" | "pending";
+
+export interface Customer {
+  id: string;
+  email: string;
+  name: string;
+  phone?: string;
+  type: CustomerType;
+  businessName?: string;
+  taxId?: string;
+  status: CustomerStatus;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// Field Visibility Context
+export type VisibilityContext = "admin" | "merchant" | "customer";
 
 export interface UserWithPermissions {
   id: string;
@@ -69,10 +89,31 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
 
 export type InventoryFieldDefinition = {
   name: string;
-  type: "string" | "number" | "boolean";
+  type: "string" | "number" | "boolean" | "group" | "multiline";
   required: boolean;
   label: string;
+  isVisibleToAdmin: boolean;
+  isVisibleToMerchant: boolean;
+  isVisibleToCustomer: boolean;
+  repeatable: boolean;
+  eachLineIsProduct: boolean;
+  parentId: string | null;
+  displayOrder: number;
 };
+
+export interface TemplateField {
+  name: string;
+  type: "string" | "number" | "boolean" | "group" | "multiline";
+  required: boolean;
+  label: string;
+  isVisibleToAdmin: boolean;
+  isVisibleToMerchant: boolean;
+  isVisibleToCustomer: boolean;
+  repeatable?: boolean;
+  eachLineIsProduct?: boolean;
+  parentId?: string | null;
+  displayOrder?: number;
+}
 
 export type InventoryTemplate = {
   id: string;
@@ -114,6 +155,54 @@ export type InventoryItem = {
   reservedUntil: Date | null;
   purchasedAt: Date | null;
 };
+
+// Multi-Sell Inventory Unit
+export interface InventoryUnit {
+  id: string;
+  productId: string;
+  physicalUnitId: string;
+  saleCount: number;
+  maxSales: number;
+  cooldownUntil: Date | null;
+  cooldownDurationHours: number;
+  status: "available" | "in_cooldown" | "exhausted";
+  lastSaleAt: Date | null;
+  metadata?: Record<string, unknown>;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// Product Pricing Tier
+export interface ProductPricing {
+  id: string;
+  productId: string;
+  customerType: "retail" | "merchant" | "admin";
+  cost?: string;
+  wholesalePrice?: string;
+  retailPrice?: string;
+  currency: string;
+  minQuantity?: number;
+  creditEligible: boolean;
+  creditTermsDays?: number;
+  validFrom: Date;
+  validUntil?: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// Bundle Item
+export interface BundleItem {
+  id: string;
+  bundleProductId: string;
+  templateFieldId: string;
+  lineIndex: number;
+  productId?: string;
+  productName: string;
+  quantity: number;
+  priceOverride?: string;
+  metadata?: Record<string, unknown>;
+  createdAt: Date;
+}
 
 // ============================================================================
 // ORDER TYPES

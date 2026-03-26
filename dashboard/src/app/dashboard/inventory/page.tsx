@@ -60,6 +60,11 @@ export default function InventoryPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showStandaloneStockModal, setShowStandaloneStockModal] = useState(false);
+  const [showUnlinkedModal, setShowUnlinkedModal] = useState(false);
+  const [unlinkedItems, setUnlinkedItems] = useState<InventoryItem[]>([]);
+  const [linkingProductId, setLinkingProductId] = useState<string>("");
+  const [selectedUnlinkedIds, setSelectedUnlinkedIds] = useState<string[]>([]);
 
   // Fetch products summary and categories
   useEffect(() => {
@@ -217,6 +222,18 @@ export default function InventoryPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <button
+            onClick={() => setShowStandaloneStockModal(true)}
+            className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+          >
+            + Add Stock
+          </button>
+          <button
+            onClick={() => setShowUnlinkedModal(true)}
+            className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg transition-colors"
+          >
+            Link Stock
+          </button>
           <a
             href="/dashboard/inventory/search"
             className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors"
@@ -518,6 +535,29 @@ export default function InventoryPage() {
           }}
         />
       )}
+
+      {/* Standalone Stock Modal */}
+      {showStandaloneStockModal && (
+        <StandaloneStockModal
+          onClose={() => setShowStandaloneStockModal(false)}
+          onSuccess={() => {
+            setShowStandaloneStockModal(false);
+            fetchProducts();
+          }}
+        />
+      )}
+
+      {/* Link Stock Modal */}
+      {showUnlinkedModal && (
+        <LinkStockModal
+          onClose={() => setShowUnlinkedModal(false)}
+          onSuccess={() => {
+            setShowUnlinkedModal(false);
+            fetchProducts();
+            if (selectedProductId) fetchInventory();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -539,6 +579,7 @@ function AddInventoryModal({
   // State for each field's textarea values
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
   const [batchName, setBatchName] = useState("");
+  const [eachLineIsProduct, setEachLineIsProduct] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [pendingData, setPendingData] = useState<{ pendingItems: number; pendingOrdersCount: number } | null>(null);
   const [sellPendingFirst, setSellPendingFirst] = useState(false);
@@ -638,6 +679,7 @@ function AddInventoryModal({
           items: parsedItems,
           batchName: batchName || undefined,
           sellPendingFirst: sellPendingFirst,
+          eachLineIsProduct,
         }),
       });
 
@@ -704,6 +746,22 @@ function AddInventoryModal({
               className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="e.g., Import 2024-03-15"
             />
+          </div>
+
+          {/* Each Line Is Product Option */}
+          <div className="mb-4">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={eachLineIsProduct}
+                onChange={(e) => setEachLineIsProduct(e.target.checked)}
+                className="w-4 h-4 text-blue-600 bg-slate-800 border-slate-700 rounded focus:ring-blue-500"
+              />
+              <span className="text-sm text-slate-300">Each line is a separate product</span>
+            </label>
+            <p className="text-xs text-slate-500 ml-6">
+              When checked, each line will be treated as a separate item when fulfilling orders
+            </p>
           </div>
 
           {/* Field inputs */}
@@ -822,6 +880,541 @@ function AddInventoryModal({
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+// Standalone Stock Modal - Add stock without requiring a product
+function StandaloneStockModal({
+  onClose,
+  onSuccess,
+}: {
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [selectedProductId, setSelectedProductId] = useState("");
+  const [templateFields, setTemplateFields] = useState<TemplateField[]>([]);
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
+  const [batchName, setBatchName] = useState("");
+  const [eachLineIsProduct, setEachLineIsProduct] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  // Fetch templates and products on mount
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [templatesRes, productsRes] = await Promise.all([
+          fetch("/api/inventory/templates"),
+          fetch("/api/products?limit=500"),
+        ]);
+
+        const templatesData = await templatesRes.json();
+        const productsData = await productsRes.json();
+
+        if (templatesData.success) {
+          setTemplates(templatesData.data);
+        }
+        if (productsData.success) {
+          setProducts(productsData.data);
+        }
+      } catch (err) {
+        console.error("Failed to load data:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
+
+  // When template changes, update fields
+  useEffect(() => {
+    if (!selectedTemplateId) {
+      setTemplateFields([]);
+      setFieldValues({});
+      return;
+    }
+
+    const template = templates.find((t) => t.id === selectedTemplateId);
+    if (template?.fieldsSchema) {
+      setTemplateFields(template.fieldsSchema);
+      // Initialize field values
+      const initialValues: Record<string, string> = {};
+      template.fieldsSchema.forEach((field: TemplateField) => {
+        initialValues[field.name] = "";
+      });
+      setFieldValues(initialValues);
+    }
+  }, [selectedTemplateId, templates]);
+
+  const getParsedLines = (fieldName: string): string[] => {
+    const value = fieldValues[fieldName] || "";
+    return value
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line);
+  };
+
+  const fieldCounts = templateFields.reduce((acc, field) => {
+    acc[field.name] = getParsedLines(field.name).length;
+    return acc;
+  }, {} as Record<string, number>);
+
+  const counts = Object.values(fieldCounts);
+  const minCount = counts.length > 0 ? Math.min(...counts) : 0;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (minCount === 0) {
+      alert("Please enter values in at least one field");
+      return;
+    }
+
+    // Build items by combining values row by row
+    const parsedItems: Record<string, string>[] = [];
+    for (let i = 0; i < minCount; i++) {
+      const itemObj: Record<string, string> = {};
+      templateFields.forEach((field) => {
+        const lines = getParsedLines(field.name);
+        itemObj[field.name] = lines[i] || "";
+      });
+      parsedItems.push(itemObj);
+    }
+
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/inventory/standalone", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          templateId: selectedTemplateId,
+          productId: selectedProductId || null,
+          items: parsedItems,
+          batchName: batchName || undefined,
+          eachLineIsProduct,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        alert(`Added ${data.data.count} stock item(s) successfully!`);
+        onSuccess();
+      } else {
+        alert(data.error || "Failed to add stock");
+      }
+    } catch (err) {
+      alert("Failed to add stock");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 overflow-y-auto py-8">
+      <div className="bg-slate-800 rounded-lg border border-slate-700 w-full max-w-3xl p-6 my-auto max-h-[90vh] overflow-y-auto">
+        <h2 className="text-xl font-bold text-white mb-4">
+          Add Stock (Standalone)
+        </h2>
+        <p className="text-sm text-slate-400 mb-4">
+          Add stock inventory without linking to a product. You can link it to a product later.
+        </p>
+
+        {loading ? (
+          <div className="text-center py-8 text-slate-400">Loading...</div>
+        ) : (
+          <form onSubmit={handleSubmit}>
+            {/* Template Selection */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-slate-300 mb-2">
+                Inventory Template *
+              </label>
+              <select
+                value={selectedTemplateId}
+                onChange={(e) => setSelectedTemplateId(e.target.value)}
+                required
+                className="w-full px-4 py-2 bg-slate-900 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Select a template...</option>
+                {templates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.name} {template.description && `- ${template.description}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Product Selection (Optional) */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-slate-300 mb-2">
+                Link to Product (Optional)
+              </label>
+              <select
+                value={selectedProductId}
+                onChange={(e) => setSelectedProductId(e.target.value)}
+                className="w-full px-4 py-2 bg-slate-900 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">No product (add stock without linking)</option>
+                {products.map((product) => (
+                  <option key={product.id} value={product.id}>
+                    {product.name}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-slate-500 mt-1">
+                Leave empty to add stock without linking. You can link it later.
+              </p>
+            </div>
+
+            {/* Batch Name */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-slate-300 mb-2">
+                Batch Name (optional)
+              </label>
+              <input
+                type="text"
+                value={batchName}
+                onChange={(e) => setBatchName(e.target.value)}
+                className="w-full px-4 py-2 bg-slate-900 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="e.g., Import 2024-03-15"
+              />
+            </div>
+
+            {/* Each Line Is Product Option */}
+            <div className="mb-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={eachLineIsProduct}
+                  onChange={(e) => setEachLineIsProduct(e.target.checked)}
+                  className="w-4 h-4 text-blue-600 bg-slate-800 border-slate-700 rounded focus:ring-blue-500"
+                />
+                <span className="text-sm text-slate-300">Each line is a separate product</span>
+              </label>
+              <p className="text-xs text-slate-500 ml-6">
+                When checked, each line will create a separate product connection
+              </p>
+            </div>
+
+            {/* Field inputs */}
+            {templateFields.length > 0 && (
+              <div className="mb-4">
+                <h3 className="text-sm font-medium text-slate-300 mb-2">Field Values</h3>
+                <p className="text-xs text-slate-500 mb-3">
+                  Enter values for each field (one value per line)
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {templateFields.map((field) => (
+                    <div key={field.name}>
+                      <label className="block text-sm font-medium text-slate-300 mb-1">
+                        {field.label || field.name}
+                        {field.required && <span className="text-red-400"> *</span>}
+                        <span className="text-slate-500 font-normal ml-2">
+                          ({fieldCounts[field.name] || 0} lines)
+                        </span>
+                      </label>
+                      {field.type === "boolean" ? (
+                        <select
+                          value={fieldValues[field.name] || ""}
+                          onChange={(e) => setFieldValues({ ...fieldValues, [field.name]: e.target.value })}
+                          className="w-full px-4 py-2 bg-slate-900 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="">Select...</option>
+                          <option value="true">True</option>
+                          <option value="false">False</option>
+                        </select>
+                      ) : field.type === "number" ? (
+                        <input
+                          type="number"
+                          value={fieldValues[field.name] || ""}
+                          onChange={(e) => setFieldValues({ ...fieldValues, [field.name]: e.target.value })}
+                          className="w-full px-4 py-2 bg-slate-900 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="Enter number"
+                        />
+                      ) : (
+                        <textarea
+                          value={fieldValues[field.name] || ""}
+                          onChange={(e) => setFieldValues({ ...fieldValues, [field.name]: e.target.value })}
+                          className="w-full px-4 py-2 bg-slate-900 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
+                          rows={6}
+                          placeholder={`Enter one value per line\nExample:\nABC\nDEF`}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Items count preview */}
+            {minCount > 0 && (
+              <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                <span className="text-blue-200 text-sm">
+                  Will create <strong>{minCount}</strong> stock item(s)
+                </span>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={submitting}
+                className="px-4 py-2 text-slate-300 hover:text-white transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={submitting || minCount === 0}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
+              >
+                {submitting ? "Adding..." : `Add ${minCount} Stock Item${minCount !== 1 ? 's' : ''}`}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Link Stock Modal - View unlinked stock and link to products
+function LinkStockModal({
+  onClose,
+  onSuccess,
+}: {
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [products, setProducts] = useState<any[]>([]);
+  const [unlinkedItems, setUnlinkedItems] = useState<InventoryItem[]>([]);
+  const [selectedProductId, setSelectedProductId] = useState("");
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
+  const [linking, setLinking] = useState(false);
+
+  // Fetch products and unlinked items
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [productsRes, itemsRes] = await Promise.all([
+          fetch("/api/products?limit=500"),
+          fetch("/api/inventory?unlinked=true&limit=100"),
+        ]);
+
+        const productsData = await productsRes.json();
+        const itemsData = await itemsRes.json();
+
+        if (productsData.success) setProducts(productsData.data);
+        if (itemsData.success) setUnlinkedItems(itemsData.data);
+      } catch (err) {
+        console.error("Failed to load data:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
+
+  const toggleItem = (id: string) => {
+    const newSelected = new Set(selectedItemIds);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedItemIds(newSelected);
+  };
+
+  const toggleAll = () => {
+    if (selectedItemIds.size === unlinkedItems.length) {
+      setSelectedItemIds(new Set());
+    } else {
+      setSelectedItemIds(new Set(unlinkedItems.map((item) => item.id)));
+    }
+  };
+
+  const handleLink = async () => {
+    if (selectedItemIds.size === 0) {
+      alert("Please select at least one stock item to link");
+      return;
+    }
+    if (!selectedProductId) {
+      alert("Please select a product to link to");
+      return;
+    }
+
+    setLinking(true);
+    try {
+      const res = await fetch("/api/inventory/link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          inventoryIds: Array.from(selectedItemIds),
+          productId: selectedProductId,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        alert(`Successfully linked ${selectedItemIds.size} stock item(s) to product!`);
+        onSuccess();
+      } else {
+        alert(data.error || "Failed to link stock");
+      }
+    } catch (err) {
+      alert("Failed to link stock");
+    } finally {
+      setLinking(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 overflow-y-auto py-8">
+      <div className="bg-slate-800 rounded-lg border border-slate-700 w-full max-w-4xl p-6 my-auto max-h-[90vh] overflow-y-auto">
+        <h2 className="text-xl font-bold text-white mb-4">
+          Link Stock to Product
+        </h2>
+        <p className="text-sm text-slate-400 mb-4">
+          Select unlinked stock items and link them to a product.
+        </p>
+
+        {loading ? (
+          <div className="text-center py-8 text-slate-400">Loading...</div>
+        ) : (
+          <>
+            {unlinkedItems.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-slate-400 mb-4">No unlinked stock items found.</p>
+                <button
+                  onClick={onClose}
+                  className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600"
+                >
+                  Close
+                </button>
+              </div>
+            ) : (
+              <>
+                {/* Product Selection */}
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Select Product *
+                  </label>
+                  <select
+                    value={selectedProductId}
+                    onChange={(e) => setSelectedProductId(e.target.value)}
+                    className="w-full px-4 py-2 bg-slate-900 border border-slate-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select a product...</option>
+                    {products.map((product) => (
+                      <option key={product.id} value={product.id}>
+                        {product.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Unlinked Items Table */}
+                <div className="mb-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-sm font-medium text-slate-300">
+                      Unlinked Stock Items ({unlinkedItems.length})
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={toggleAll}
+                      className="text-xs text-blue-400 hover:text-blue-300"
+                    >
+                      {selectedItemIds.size === unlinkedItems.length ? "Deselect All" : "Select All"}
+                    </button>
+                  </div>
+
+                  <div className="border border-slate-700 rounded-lg overflow-hidden max-h-64 overflow-y-auto">
+                    <table className="w-full">
+                      <thead className="bg-slate-900/50 sticky top-0">
+                        <tr>
+                          <th className="px-4 py-2 text-left">
+                            <input
+                              type="checkbox"
+                              checked={selectedItemIds.size === unlinkedItems.length && unlinkedItems.length > 0}
+                              onChange={toggleAll}
+                              className="w-4 h-4 rounded"
+                            />
+                          </th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-slate-400 uppercase">Values</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-slate-400 uppercase">Created</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-700">
+                        {unlinkedItems.map((item) => (
+                          <tr
+                            key={item.id}
+                            className={`hover:bg-slate-700/30 cursor-pointer ${
+                              selectedItemIds.has(item.id) ? "bg-blue-900/20" : ""
+                            }`}
+                            onClick={() => toggleItem(item.id)}
+                          >
+                            <td className="px-4 py-2">
+                              <input
+                                type="checkbox"
+                                checked={selectedItemIds.has(item.id)}
+                                onChange={() => toggleItem(item.id)}
+                                className="w-4 h-4 rounded"
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            </td>
+                            <td className="px-4 py-2 text-sm text-slate-300">
+                              {Object.entries(item.values || {})
+                                .map(([key, value]) => `${key}: ${value}`)
+                                .join(", ")}
+                            </td>
+                            <td className="px-4 py-2 text-sm text-slate-400">
+                              {new Date(item.createdAt).toLocaleDateString()}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Selected count */}
+                {selectedItemIds.size > 0 && (
+                  <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                    <span className="text-blue-200 text-sm">
+                      {selectedItemIds.size} item(s) selected
+                    </span>
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    disabled={linking}
+                    className="px-4 py-2 text-slate-300 hover:text-white transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleLink}
+                    disabled={linking || selectedItemIds.size === 0 || !selectedProductId}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    {linking ? "Linking..." : `Link ${selectedItemIds.size} Item(s)`}
+                  </button>
+                </div>
+              </>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

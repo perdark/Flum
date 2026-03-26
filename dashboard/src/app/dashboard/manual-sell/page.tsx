@@ -91,6 +91,8 @@ export default function ManualSellPage() {
   const [customerEmail, setCustomerEmail] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [processing, setProcessing] = useState(false);
+  const [newCost, setNewCost] = useState("");
+  const [showCostField, setShowCostField] = useState(false);
   const [orderResult, setOrderResult] = useState<OrderResult | null>(null);
   const [shortageModal, setShortageModal] = useState<{
     show: boolean;
@@ -238,6 +240,7 @@ export default function ManualSellPage() {
           customerName: customerName || undefined,
           shortageAction: action,
           inventoryItemsToAdd,
+          newCost: showCostField && newCost ? parseFloat(newCost) : undefined,
         }),
       });
 
@@ -358,6 +361,31 @@ export default function ManualSellPage() {
                 </div>
               </div>
 
+              {/* New Cost Override */}
+              <div className="mb-6">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showCostField}
+                    onChange={(e) => setShowCostField(e.target.checked)}
+                    className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-slate-400">Set new cost for this sale</span>
+                </label>
+                {showCostField && (
+                  <div className="mt-2">
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={newCost}
+                      onChange={(e) => setNewCost(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Enter cost per item"
+                    />
+                  </div>
+                )}
+              </div>
+
               {/* Items List */}
               {sellItems.length > 0 ? (
                 <>
@@ -450,9 +478,13 @@ export default function ManualSellPage() {
           onClose={() => setShortageModal({ show: false, data: null })}
           onPartialSale={() => processSale("partial")}
           onPendingSale={() => processSale("pending")}
-          onAddInventory={(inventory) => processSale("add-inventory", inventory)}
+          onAddInventory={(inventory, eachLineIsProduct) => processSale("add-inventory", inventory)}
           products={products}
           templates={templates}
+          newCost={showCostField && newCost ? parseFloat(newCost) : undefined}
+          setNewCost={setNewCost}
+          showCostField={showCostField}
+          setShowCostField={setShowCostField}
         />
       )}
     </div>
@@ -586,19 +618,28 @@ function ShortageOptionsModal({
   onAddInventory,
   products,
   templates,
+  newCost,
+  setNewCost,
+  showCostField,
+  setShowCostField,
 }: {
   data: AvailabilityCheck;
   onClose: () => void;
   onPartialSale: () => void;
   onPendingSale: () => void;
-  onAddInventory: (inventory: Array<{ productId: string; values: Record<string, string | number | boolean> }>) => void;
+  onAddInventory: (inventory: Array<{ productId: string; values: Record<string, string | number | boolean> }>, eachLineIsProduct?: boolean) => void;
   products: Product[];
   templates: any[];
+  newCost?: number;
+  setNewCost: (cost: string) => void;
+  showCostField: boolean;
+  setShowCostField: (show: boolean) => void;
 }) {
   const [activeTab, setActiveTab] = useState<"partial" | "pending" | "add">("partial");
   // State for field values: Record<productId, Record<fieldName, string>>
   const [fieldValues, setFieldValues] = useState<Record<string, Record<string, string>>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [eachLineIsProduct, setEachLineIsProduct] = useState(false);
 
   // Get product template fields
   const getProductTemplateFields = (productId: string): TemplateField[] => {
@@ -680,7 +721,7 @@ function ShortageOptionsModal({
 
     setSubmitting(true);
     try {
-      onAddInventory(parsedInventory);
+      onAddInventory(parsedInventory, eachLineIsProduct);
     } finally {
       setSubmitting(false);
     }
@@ -920,16 +961,50 @@ function ShortageOptionsModal({
         </div>
 
         {/* Footer */}
-        <div className="p-6 border-t border-slate-700 flex gap-3">
-          <button
-            onClick={onClose}
-            disabled={submitting}
-            className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          <div className="flex-1" />
-          {activeTab === "partial" && (
+        <div className="p-6 border-t border-slate-700">
+          {/* Options */}
+          <div className="flex gap-6 mb-4">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showCostField}
+                onChange={(e) => setShowCostField(e.target.checked)}
+                className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-sm text-slate-400">Set new cost for this sale</span>
+            </label>
+            {showCostField && (
+              <input
+                type="number"
+                step="0.01"
+                value={newCost ?? ""}
+                onChange={(e) => setNewCost(e.target.value)}
+                className="px-3 py-1 bg-slate-900 border border-slate-700 rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Cost per item"
+              />
+            )}
+            {activeTab === "add" && (
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={eachLineIsProduct}
+                  onChange={(e) => setEachLineIsProduct(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm text-slate-400">Each line is a separate product</span>
+              </label>
+            )}
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={onClose}
+              disabled={submitting}
+              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <div className="flex-1" />
+            {activeTab === "partial" && (
             <button
               onClick={onPartialSale}
               className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors font-medium"
@@ -954,6 +1029,7 @@ function ShortageOptionsModal({
               Create Pending Order
             </button>
           )}
+          </div>
         </div>
       </div>
     </div>

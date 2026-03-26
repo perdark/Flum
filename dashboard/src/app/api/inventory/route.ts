@@ -10,7 +10,7 @@ import { getDb } from "@/db";
 import { inventoryItems, products, inventoryBatches, orders, orderItems } from "@/db/schema";
 import { requirePermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
-import { eq, and, sql, desc, like, or } from "drizzle-orm";
+import { eq, and, sql, desc, like, or, isNull } from "drizzle-orm";
 import { logInventoryAdded, logActivity } from "@/services/activityLog";
 
 // ============================================================================
@@ -27,16 +27,20 @@ export async function GET(request: NextRequest) {
     const page = parseInt(searchParams.get("page") || "1");
     const limit = parseInt(searchParams.get("limit") || "50");
     const offset = (page - 1) * limit;
+    const unlinkedOnly = searchParams.get("unlinked") === "true";
 
     const db = getDb();
 
     // Build conditions
     const conditions = [
       sql`${inventoryItems.deletedAt} IS NULL`,
-      sql`${products.deletedAt} IS NULL`,
     ];
 
-    if (productId) {
+    if (unlinkedOnly) {
+      // Only show items without a product
+      conditions.push(isNull(inventoryItems.productId));
+    } else if (productId) {
+      // Filter by specific product
       conditions.push(eq(inventoryItems.productId, productId));
     }
 
@@ -44,16 +48,16 @@ export async function GET(request: NextRequest) {
       conditions.push(eq(inventoryItems.status, status as "available" | "reserved" | "sold" | "expired"));
     }
 
-    // Get total count (need to join products to filter deleted products)
+    // Get total count using leftJoin to include standalone items
     const countResult = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(inventoryItems)
-      .innerJoin(products, eq(inventoryItems.productId, products.id))
+      .leftJoin(products, eq(inventoryItems.productId, products.id))
       .where(and(...conditions));
 
     const total = countResult[0]?.count || 0;
 
-    // Get inventory with product details
+    // Get inventory with product details (using leftJoin for standalone items)
     const inventory = await db
       .select({
         id: inventoryItems.id,
@@ -70,7 +74,7 @@ export async function GET(request: NextRequest) {
         productSlug: products.slug,
       })
       .from(inventoryItems)
-      .innerJoin(products, eq(inventoryItems.productId, products.id))
+      .leftJoin(products, eq(inventoryItems.productId, products.id))
       .where(and(...conditions))
       .orderBy(desc(inventoryItems.createdAt))
       .limit(limit)
@@ -119,7 +123,7 @@ export async function POST(request: NextRequest) {
     const user = await requirePermission(PERMISSIONS.MANAGE_INVENTORY);
 
     const body = await request.json();
-    const { productId, items, batchId, batchName, sellPendingFirst } = body;
+    const { productId, items, batchId, batchName, sellPendingFirst, eachLineIsProduct } = body;
 
     // Validate input
     if (!productId || !Array.isArray(items) || items.length === 0) {
@@ -228,13 +232,21 @@ export async function POST(request: NextRequest) {
           const soldItemIds: string[] = [];
           for (let j = 0; j < toFulfill; j++) {
             const values = items[itemsConsumed + j];
+            // Add metadata to values
+            const valuesWithMetadata = {
+              ...values,
+              _metadata: {
+                eachLineIsProduct,
+                batchName: batchName || undefined,
+              },
+            };
             const [inserted] = await tx
               .insert(inventoryItems)
               .values({
                 productId,
                 templateId: product.inventoryTemplateId!,
                 batchId: finalBatchId || null,
-                values,
+                values: valuesWithMetadata,
                 status: "sold",
                 purchasedAt: new Date(),
                 orderItemId: pendingItem.orderItemId,
@@ -304,13 +316,23 @@ export async function POST(request: NextRequest) {
         insertedItems = await tx
           .insert(inventoryItems)
           .values(
-            itemsToCreate.map((values: Record<string, unknown>) => ({
-              productId,
-              templateId: product.inventoryTemplateId!,
-              batchId: finalBatchId || null,
-              values,
-              status: "available" as const,
-            }))
+            itemsToCreate.map((values: Record<string, unknown>) => {
+              // Add metadata to values
+              const valuesWithMetadata = {
+                ...values,
+                _metadata: {
+                  eachLineIsProduct,
+                  batchName: batchName || undefined,
+                },
+              };
+              return {
+                productId,
+                templateId: product.inventoryTemplateId!,
+                batchId: finalBatchId || null,
+                values: valuesWithMetadata,
+                status: "available" as const,
+              };
+            })
           )
           .returning();
 

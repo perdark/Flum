@@ -2,16 +2,20 @@
  * Mock Data Seeding Script
  *
  * Run with: npx tsx src/seed.ts
+ * Run with database reset: npx tsx src/seed.ts reset
  *
  * This script seeds the database with:
  * 1. Store Settings
  * 2. Currencies (USD, EUR, SAR)
  * 3. Categories (hierarchical tree)
- * 4. Products (5 realistic games/software)
+ * 4. Products (multi-sell, bundle, and regular products)
  * 5. Inventory Items (auto-delivery keys)
- * 6. Offer & Coupon
+ * 6. Multi-sell Inventory Units
+ * 7. Bundle Items
+ * 8. Offer & Coupon
  */
 
+import 'dotenv/config';
 import { getDb } from "./db";
 import {
   users,
@@ -29,8 +33,11 @@ import {
   orders,
   orderItems,
   storeSettings,
+  inventoryUnits,
+  bundleItems,
+  productPricing,
 } from "./db/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, ne } from "drizzle-orm";
 
 // ============================================================================
 // DATA TEMPLATES
@@ -153,6 +160,126 @@ const CATEGORIES = [
 
 // Products
 const PRODUCTS = [
+  // ==================== MULTI-SELL PRODUCT EXAMPLE ====================
+  {
+    name: "Netflix Shared Account",
+    slug: "netflix-shared",
+    nameAr: "حساب نتفليكس مشترك",
+    description: "Shared Netflix Premium account. Can be sold 5 times per account with 12 hour cooldown.",
+    descriptionAr: "حساب نتفليكس بريميوم مشترك. يمكن بيعه 5 مرات لكل حساب مع فترة تبريد 12 ساعة.",
+    sku: "NETFLIX-SHARED",
+    basePrice: "2.99",
+    compareAtPrice: null,
+    deliveryType: "auto_account",
+    categoryName: "Streaming",
+    categorySlug: "streaming",
+    isActive: true,
+    isFeatured: true,
+    isNew: true,
+    maxQuantity: 5,
+    currentStock: 50,
+    // Multi-sell configuration
+    multiSellEnabled: true,
+    multiSellFactor: 5,
+    cooldownEnabled: true,
+    cooldownDurationHours: 12,
+    images: [
+      "https://upload.wikimedia.org/wikipedia/commons/6/69/Netflix_2016_logo.svg"
+    ],
+    inventory: {
+      templateName: "Shared Account",
+      fields: [
+        { email: "netflix_shared1@email.com", password: "Netflix123!" },
+        { email: "netflix_shared2@email.com", password: "Netflix123!" },
+        { email: "netflix_shared3@email.com", password: "Netflix123!" },
+        { email: "netflix_shared4@email.com", password: "Netflix123!" },
+        { email: "netflix_shared5@email.com", password: "Netflix123!" },
+      ],
+    },
+  },
+  // ==================== BUNDLE PRODUCT EXAMPLE ====================
+  {
+    name: "Call of Duty Series Bundle",
+    slug: "cod-series-bundle",
+    nameAr: "حزمة سلسلة كول أوف ديوتي",
+    description: "Complete Call of Duty collection: COD 1, COD 2, COD 3, MW, MW2, MW3, Black Ops, Black Ops 2, Black Ops 3.",
+    descriptionAr: "مجموعة كول أوف ديوتي الكاملة: كول أوف ديوتي 1 و 2 و 3 و MW و MW2 و MW3 وبلاك أوبس.",
+    sku: "BUNDLE-COD-SERIES",
+    basePrice: "89.99",
+    compareAtPrice: "179.99",
+    deliveryType: "manual",
+    categoryName: "PC Games",
+    categorySlug: "pc-games",
+    isActive: true,
+    isFeatured: true,
+    isNew: true,
+    maxQuantity: 10,
+    currentStock: 25,
+    // Bundle configuration
+    isBundle: true,
+    bundleTemplateId: null, // Will be set to Game Bundle Template
+    bundleItems: [
+      {
+        templateFieldId: "games",
+        lineIndex: 0,
+        productName: "Call of Duty 1",
+        quantity: 1,
+      },
+      {
+        templateFieldId: "games",
+        lineIndex: 1,
+        productName: "Call of Duty 2",
+        quantity: 1,
+      },
+      {
+        templateFieldId: "games",
+        lineIndex: 2,
+        productName: "Call of Duty 3",
+        quantity: 1,
+      },
+      {
+        templateFieldId: "games",
+        lineIndex: 3,
+        productName: "Call of Duty: Modern Warfare",
+        quantity: 1,
+      },
+      {
+        templateFieldId: "games",
+        lineIndex: 4,
+        productName: "Call of Duty: Modern Warfare 2",
+        quantity: 1,
+      },
+      {
+        templateFieldId: "games",
+        lineIndex: 5,
+        productName: "Call of Duty: Modern Warfare 3",
+        quantity: 1,
+      },
+      {
+        templateFieldId: "games",
+        lineIndex: 6,
+        productName: "Call of Duty: Black Ops",
+        quantity: 1,
+      },
+      {
+        templateFieldId: "games",
+        lineIndex: 7,
+        productName: "Call of Duty: Black Ops 2",
+        quantity: 1,
+      },
+      {
+        templateFieldId: "bonusContent",
+        lineIndex: 0,
+        productName: "COD Wallpaper Pack",
+        quantity: 1,
+      },
+    ],
+    images: [
+      "https://upload.wikimedia.org/wikipedia/en/3/30/Call_of_Duty_Cover.png"
+    ],
+    inventory: null, // Bundle products don't have direct inventory
+  },
+  // ==================== REGULAR PRODUCTS ====================
   {
     name: "Elden Ring",
     slug: "elden-ring",
@@ -168,7 +295,6 @@ const PRODUCTS = [
     isActive: true,
     isFeatured: true,
     isNew: false,
-    pointsReward: 60,
     maxQuantity: 5,
     currentStock: 50,
     videoUrl: "https://www.youtube.com/watch?v=example",
@@ -201,7 +327,6 @@ const PRODUCTS = [
     isActive: true,
     isFeatured: true,
     isNew: false,
-    pointsReward: 30,
     maxQuantity: 3,
     currentStock: 15,
     images: [
@@ -233,7 +358,6 @@ const PRODUCTS = [
     isActive: true,
     isFeatured: false,
     isNew: true,
-    pointsReward: 10,
     maxQuantity: 10,
     currentStock: 25,
     images: [
@@ -265,52 +389,19 @@ const PRODUCTS = [
     isActive: true,
     isFeatured: false,
     isNew: false,
-    pointsReward: 150,
     maxQuantity: 10,
     currentStock: 30,
     images: [
       "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6f/Windows_11_logo.svg/1200px-Windows_11_logo.svg.png"
     ],
     inventory: {
-      templateName: "Windows License Key",
+      templateName: "Steam Key",
       fields: [
-        { productKey: "XXXXX-XXXXX-XXXXX-XXXXX", edition: "Pro OEM" },
-        { productKey: "YYYYY-YYYYY-YYYYY-YYYYY", edition: "Pro Retail" },
-        { productKey: "ZZZZZ-ZZZZZ-ZZZZZ-ZZZZZ", edition: "Pro Upgrade" },
-        { productKey: "AAAAA-AAAAA-AAAAA-AAAAA", edition: "Pro OEM" },
-        { productKey: "BBBBB-BBBBB-BBBBB-BBBBB", edition: "Pro Retail" },
-      ],
-    },
-  },
-  {
-    name: "Netflix Premium 1 Month",
-    slug: "netflix-premium-1-month",
-    nameAr: "نتفليكس بريميوم 1 شهر",
-    description: "Premium streaming service with 4K Ultra HD and multiple screens.",
-    descriptionAr: "خدمة بث متميزة بدقة 4K Ultra HD وشاشات متعددة.",
-    sku: "NETFLIX-1M-PREMIUM",
-    basePrice: "15.99",
-    compareAtPrice: null,
-    deliveryType: "manual",
-    categoryName: "Streaming",
-    categorySlug: "streaming",
-    isActive: true,
-    isFeatured: true,
-    isNew: false,
-    pointsReward: 15,
-    maxQuantity: 20,
-    currentStock: 50,
-    images: [
-      "https://upload.wikimedia.org/wikipedia/commons/6/69/Netflix_2016_logo.svg"
-    ],
-    inventory: {
-      templateName: "Subscription Account",
-      fields: [
-        { email: "netflix_user1@email.com", password: "Stream123!", profile: "Main Profile" },
-        { email: "netflix_user2@email.com", password: "Stream123!", profile: "Kids Profile" },
-        { email: "netflix_user3@email.com", password: "Stream123!", profile: "Main Profile" },
-        { email: "netflix_user4@email.com", password: "Stream123!", profile: "Main Profile" },
-        { email: "netflix_user5@email.com", password: "Stream123!", profile: "Main Profile" },
+        { steamKey: "XXXXX-XXXXX-XXXXX-XXXXX", edition: "Pro OEM" },
+        { steamKey: "YYYYY-YYYYY-YYYYY-YYYYY", edition: "Pro Retail" },
+        { steamKey: "ZZZZZ-ZZZZZ-ZZZZZ-ZZZZZ", edition: "Pro Upgrade" },
+        { steamKey: "AAAAA-AAAAA-AAAAA-AAAAA", edition: "Pro OEM" },
+        { steamKey: "BBBBB-BBBBB-BBBBB-BBBBB", edition: "Pro Retail" },
       ],
     },
   },
@@ -352,6 +443,44 @@ const COUPON = {
 // SEEDING FUNCTIONS
 // ============================================================================
 
+/**
+ * Reset database - delete all existing data
+ */
+async function resetDatabase(db: any) {
+  console.log("🗑️  Resetting database...");
+
+  // Helper to safely delete using raw SQL
+  const safeDelete = async (tableName: string) => {
+    try {
+      await db.execute(sql`DELETE FROM ${sql.identifier(tableName)}`);
+    } catch (err: any) {
+      // Table doesn't exist or other error - ignore
+    }
+  };
+
+  // Delete in order of dependencies (only tables that exist)
+  await safeDelete("bundle_items");
+  await safeDelete("inventory_units");
+  await safeDelete("product_pricing");
+  await safeDelete("order_items");
+  await safeDelete("orders");
+  await safeDelete("inventory_items");
+  await safeDelete("inventory_batches");
+  await safeDelete("product_images");
+  await safeDelete("product_categories");
+  await safeDelete("product_offers");
+  await safeDelete("products");
+  await safeDelete("inventory_templates");
+  await safeDelete("categories");
+  await safeDelete("coupons");
+  await safeDelete("offers");
+  await safeDelete("store_settings");
+  await safeDelete("currencies");
+  // Don't delete users table - keep admin accounts
+
+  console.log("  ✓ Database cleared.\n");
+}
+
 async function seedCurrencies(db: any) {
   console.log("Seeding currencies...");
   const existing = await db.select({ count: sql<number>`count(*)::int` }).from(currencies);
@@ -391,8 +520,6 @@ async function seedStoreSettings(db: any, defaultCurrencyId: string) {
     requireEmailVerification: false,
     enableReviews: true,
     autoApproveReviews: false,
-    pointsPerDollar: 10,
-    maxPointsRedemption: 1000,
     timezone: "UTC",
     dateFormat: "MM/DD/YYYY",
   });
@@ -408,7 +535,19 @@ async function seedInventoryTemplates(db: any) {
       name: "Steam Key",
       description: "Steam game activation key",
       fieldsSchema: [
-        { name: "steamKey", type: "string", required: true, label: "Steam Key" },
+        {
+          name: "steamKey",
+          type: "string",
+          required: true,
+          label: "Steam Key",
+          isVisibleToAdmin: true,
+          isVisibleToMerchant: true,
+          isVisibleToCustomer: true,
+          repeatable: false,
+          eachLineIsProduct: false,
+          parentId: null,
+          displayOrder: 0,
+        },
       ],
       isActive: true,
     },
@@ -416,37 +555,111 @@ async function seedInventoryTemplates(db: any) {
       name: "Social Club Account",
       description: "Rockstar Social Club login credentials",
       fieldsSchema: [
-        { name: "email", type: "string", required: true, label: "Email" },
-        { name: "password", type: "string", required: true, label: "Password" },
-        { name: "note", type: "string", required: false, label: "Notes" },
+        {
+          name: "email",
+          type: "string",
+          required: true,
+          label: "Email",
+          isVisibleToAdmin: true,
+          isVisibleToMerchant: true,
+          isVisibleToCustomer: false,
+          repeatable: false,
+          eachLineIsProduct: false,
+          parentId: null,
+          displayOrder: 0,
+        },
+        {
+          name: "password",
+          type: "string",
+          required: true,
+          label: "Password",
+          isVisibleToAdmin: true,
+          isVisibleToMerchant: true,
+          isVisibleToCustomer: false,
+          repeatable: false,
+          eachLineIsProduct: false,
+          parentId: null,
+          displayOrder: 1,
+        },
+        {
+          name: "note",
+          type: "string",
+          required: false,
+          label: "Notes",
+          isVisibleToAdmin: true,
+          isVisibleToMerchant: true,
+          isVisibleToCustomer: true,
+          repeatable: false,
+          eachLineIsProduct: false,
+          parentId: null,
+          displayOrder: 2,
+        },
       ],
       isActive: true,
     },
     {
-      name: "PSN Account",
-      description: "PlayStation Network account credentials",
+      name: "Game Bundle Template",
+      description: "Template for game series bundles (e.g., COD Series)",
       fieldsSchema: [
-        { name: "email", type: "string", required: true, label: "Email" },
-        { name: "password", type: "string", required: true, label: "Password" },
+        {
+          name: "games",
+          type: "multiline",
+          required: true,
+          label: "Games in Bundle (one per line)",
+          isVisibleToAdmin: true,
+          isVisibleToMerchant: true,
+          isVisibleToCustomer: true,
+          repeatable: false,
+          eachLineIsProduct: true,
+          parentId: null,
+          displayOrder: 0,
+        },
+        {
+          name: "bonusContent",
+          type: "multiline",
+          required: false,
+          label: "Bonus Content (one per line)",
+          isVisibleToAdmin: true,
+          isVisibleToMerchant: true,
+          isVisibleToCustomer: true,
+          repeatable: false,
+          eachLineIsProduct: false,
+          parentId: null,
+          displayOrder: 1,
+        },
       ],
       isActive: true,
     },
     {
-      name: "Windows License Key",
-      description: "Windows product key",
+      name: "Shared Account",
+      description: "Multi-sell shared account with cooldown",
       fieldsSchema: [
-        { name: "productKey", type: "string", required: true, label: "Product Key" },
-        { name: "edition", type: "string", required: true, label: "Edition" },
-      ],
-      isActive: true,
-    },
-    {
-      name: "Subscription Account",
-      description: "Streaming service login credentials",
-      fieldsSchema: [
-        { name: "email", type: "string", required: true, label: "Email" },
-        { name: "password", type: "string", required: true, label: "Password" },
-        { name: "profile", type: "string", required: false, label: "Profile" },
+        {
+          name: "email",
+          type: "string",
+          required: true,
+          label: "Account Email",
+          isVisibleToAdmin: true,
+          isVisibleToMerchant: true,
+          isVisibleToCustomer: false,
+          repeatable: false,
+          eachLineIsProduct: false,
+          parentId: null,
+          displayOrder: 0,
+        },
+        {
+          name: "password",
+          type: "string",
+          required: true,
+          label: "Password",
+          isVisibleToAdmin: true,
+          isVisibleToMerchant: true,
+          isVisibleToCustomer: false,
+          repeatable: false,
+          eachLineIsProduct: false,
+          parentId: null,
+          displayOrder: 1,
+        },
       ],
       isActive: true,
     },
@@ -543,12 +756,20 @@ async function seedProductsAndInventory(db: any, categoryMap: Map<string, string
     }
 
     // Find template
-    const template = templates.find((t: any) => t.name === productData.inventory.templateName);
+    const template = productData.inventory
+      ? templates.find((t: any) => t.name === productData.inventory.templateName)
+      : null;
 
     // Find category
     const categoryId = categoryMap.get(productData.categoryName);
 
-    // Insert product
+    // Find bundle template if this is a bundle
+    let bundleTemplateId = null;
+    if (productData.isBundle) {
+      bundleTemplateId = templates.find((t: any) => t.name === "Game Bundle Template")?.id || null;
+    }
+
+    // Insert product with all fields
     const [product] = await db.insert(products).values({
       name: productData.name,
       slug: productData.slug,
@@ -563,10 +784,17 @@ async function seedProductsAndInventory(db: any, categoryMap: Map<string, string
       isActive: productData.isActive,
       isFeatured: productData.isFeatured,
       isNew: productData.isNew,
-      pointsReward: productData.pointsReward,
       maxQuantity: productData.maxQuantity,
       currentStock: productData.currentStock,
       videoUrl: productData.videoUrl,
+      // Multi-sell fields
+      multiSellEnabled: productData.multiSellEnabled || false,
+      multiSellFactor: productData.multiSellFactor || 5,
+      cooldownEnabled: productData.cooldownEnabled || false,
+      cooldownDurationHours: productData.cooldownDurationHours || 12,
+      // Bundle fields
+      isBundle: productData.isBundle || false,
+      bundleTemplateId: bundleTemplateId,
     }).returning();
 
     // Link to category
@@ -590,15 +818,64 @@ async function seedProductsAndInventory(db: any, categoryMap: Map<string, string
       ).onConflictDoNothing();
     }
 
-    // Insert inventory items
-    const inventoryItemsToInsert = productData.inventory.fields.map((values) => ({
-      templateId: template?.id || "",
-      productId: product.id,
-      values: JSON.stringify(values),
-      status: "available",
-    }));
+    // Handle inventory based on product type
+    if (productData.isBundle) {
+      // Handle bundle items
+      if (productData.bundleItems && productData.bundleItems.length > 0) {
+        const bundleItemsToInsert = productData.bundleItems.map((item: any) => ({
+          bundleProductId: product.id,
+          templateFieldId: item.templateFieldId,
+          lineIndex: item.lineIndex,
+          productName: item.productName,
+          quantity: item.quantity,
+        }));
+        await db.insert(bundleItems).values(bundleItemsToInsert).onConflictDoNothing();
+        console.log(`    → Created bundle with ${bundleItemsToInsert.length} items`);
+      }
+    } else if (productData.inventory && template) {
+      // Handle regular inventory items
+      const inventoryItemsToInsert = productData.inventory.fields.map((values) => ({
+        templateId: template.id,
+        productId: product.id,
+        values: JSON.stringify(values),
+        status: "available",
+      }));
+      await db.insert(inventoryItems).values(inventoryItemsToInsert).onConflictDoNothing();
 
-    await db.insert(inventoryItems).values(inventoryItemsToInsert).onConflictDoNothing();
+      // Create inventory units for multi-sell products
+      if (productData.multiSellEnabled) {
+        const unitsToCreate = Math.min(productData.currentStock || 50, 50);
+        const inventoryUnitsToInsert = Array.from({ length: unitsToCreate }, (_, i) => ({
+          productId: product.id,
+          physicalUnitId: `${product.slug.slice(0, 8)}-${i + 1}`,
+          maxSales: productData.multiSellFactor || 5,
+          cooldownDurationHours: productData.cooldownDurationHours || 12,
+          status: "available" as const,
+          saleCount: 0,
+        }));
+        await db.insert(inventoryUnits).values(inventoryUnitsToInsert).onConflictDoNothing();
+        console.log(`    → Created ${unitsToCreate} inventory units (multi-sell: ${productData.multiSellFactor}x each)`);
+      }
+    }
+
+    // Create pricing tiers for the product
+    await db.insert(productPricing).values([
+      {
+        productId: product.id,
+        customerType: "retail",
+        retailPrice: productData.basePrice,
+        currency: "USD",
+        creditEligible: false,
+      },
+      {
+        productId: product.id,
+        customerType: "merchant",
+        wholesalePrice: (parseFloat(productData.basePrice) * 0.7).toFixed(2), // 30% off for merchants
+        currency: "USD",
+        creditEligible: true,
+        creditTermsDays: 30,
+      },
+    ]).onConflictDoNothing();
 
     insertedCount++;
   }
@@ -682,10 +959,14 @@ async function seedOfferAndCoupon(db: any, products: any[]) {
 // MAIN SEED FUNCTION
 // ============================================================================
 
-export async function seed() {
+export async function seed(reset = false) {
   const db = getDb();
 
   try {
+    if (reset) {
+      await resetDatabase(db);
+    }
+
     console.log("🌱 Starting database seeding...\n");
 
     // 1. Seed currencies
@@ -712,7 +993,9 @@ export async function seed() {
     console.log("  • Currencies: " + CURRENCIES.length);
     console.log("  • Categories: " + CATEGORIES.reduce((acc, cat) => acc + 1 + cat.children.length, 0));
     console.log("  • Products: " + PRODUCTS.length);
-    console.log("  • Inventory Items: " + PRODUCTS.reduce((acc, p) => acc + p.inventory.fields.length, 0));
+    console.log("  • Multi-sell products: 1 (Netflix Shared - 5x sales per unit)");
+    console.log("  • Bundle products: 1 (COD Series Bundle)");
+    console.log("  • Regular products: " + (PRODUCTS.length - 2));
     console.log("  • Offers: 1 (Summer Sale - 20% off)");
     console.log("  • Coupons: 1 (TEST20 - 20% off, min purchase $25)");
 
@@ -723,4 +1006,7 @@ export async function seed() {
 }
 
 // Run seed function if called directly
-seed();
+// Pass 'reset' as argument to clear database first: npx tsx src/seed.ts reset
+const args = process.argv.slice(2);
+const shouldReset = args.includes('reset');
+seed(shouldReset);

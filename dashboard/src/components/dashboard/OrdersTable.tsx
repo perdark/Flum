@@ -72,6 +72,9 @@ export function OrdersTable() {
   // State for field values: Record<productId, Record<fieldName, string>>
   const [fieldValues, setFieldValues] = useState<Record<string, Record<string, string>>>({});
   const [submittingProcessing, setSubmittingProcessing] = useState(false);
+  const [newCost, setNewCost] = useState("");
+  const [showCostField, setShowCostField] = useState(false);
+  const [eachLineIsProduct, setEachLineIsProduct] = useState(false);
   const [claimingOrderId, setClaimingOrderId] = useState<string | null>(null);
   const [deletingOrders, setDeletingOrders] = useState<Record<string, boolean>>({});
   const [userRole, setUserRole] = useState<'admin' | 'staff' | 'unknown'>('unknown');
@@ -353,7 +356,11 @@ export function OrdersTable() {
       const response = await fetch(`/api/orders/${order.id}/fulfill-pending`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inventoryItems }),
+        body: JSON.stringify({
+          inventoryItems,
+          newCost: showCostField && newCost ? parseFloat(newCost) : undefined,
+          eachLineIsProduct,
+        }),
       });
 
       const result = await response.json();
@@ -814,22 +821,55 @@ export function OrdersTable() {
             </div>
 
             {/* Footer */}
-            <div className="p-6 border-t border-slate-700 flex gap-3">
-              <button
-                onClick={() => setProcessingModal({ show: false, order: null })}
-                disabled={submittingProcessing}
-                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <div className="flex-1" />
-              <button
-                onClick={handleAddInventoryAndComplete}
-                disabled={submittingProcessing}
-                className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors font-medium disabled:opacity-50"
-              >
-                {submittingProcessing ? "Adding..." : "Add Items & Fulfill Order"}
-              </button>
+            <div className="p-6 border-t border-slate-700">
+              {/* Options */}
+              <div className="flex gap-6 mb-4 flex-wrap">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showCostField}
+                    onChange={(e) => setShowCostField(e.target.checked)}
+                    className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-slate-400">Set new cost for this fulfillment</span>
+                </label>
+                {showCostField && (
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={newCost}
+                    onChange={(e) => setNewCost(e.target.value)}
+                    className="px-3 py-1 bg-slate-900 border border-slate-700 rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Cost per item"
+                  />
+                )}
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={eachLineIsProduct}
+                    onChange={(e) => setEachLineIsProduct(e.target.checked)}
+                    className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-slate-400">Each line is a separate product</span>
+                </label>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setProcessingModal({ show: false, order: null })}
+                  disabled={submittingProcessing}
+                  className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <div className="flex-1" />
+                <button
+                  onClick={handleAddInventoryAndComplete}
+                  disabled={submittingProcessing}
+                  className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors font-medium disabled:opacity-50"
+                >
+                  {submittingProcessing ? "Adding..." : "Add Items & Fulfill Order"}
+                </button>
+              </div>
             </div>
           </div>
         </div>

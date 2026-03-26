@@ -7,7 +7,16 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { products, productCategories, productImages, categories, inventoryTemplates } from "@/db/schema";
+import {
+  products,
+  productCategories,
+  productImages,
+  categories,
+  inventoryTemplates,
+  inventoryUnits,
+  bundleItems,
+  productPricing,
+} from "@/db/schema";
 import { requirePermission, getCurrentUser } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
 import { eq, like, or, desc, sql, and, inArray } from "drizzle-orm";
@@ -73,7 +82,6 @@ export async function GET(request: NextRequest) {
         isActive: products.isActive,
         isFeatured: products.isFeatured,
         isNew: products.isNew,
-        pointsReward: products.pointsReward,
         maxQuantity: products.maxQuantity,
         stockCount: products.stockCount,
         totalSold: products.totalSold,
@@ -88,6 +96,14 @@ export async function GET(request: NextRequest) {
         createdAt: products.createdAt,
         updatedAt: products.updatedAt,
         templateName: inventoryTemplates.name,
+        // Multi-sell fields
+        multiSellEnabled: products.multiSellEnabled,
+        multiSellFactor: products.multiSellFactor,
+        cooldownEnabled: products.cooldownEnabled,
+        cooldownDurationHours: products.cooldownDurationHours,
+        // Bundle fields
+        isBundle: products.isBundle,
+        bundleTemplateId: products.bundleTemplateId,
       })
       .from(products)
       .leftJoin(inventoryTemplates, eq(products.inventoryTemplateId, inventoryTemplates.id))
@@ -180,6 +196,7 @@ export async function POST(request: NextRequest) {
       descriptionAr,
       sku,
       basePrice,
+      cost,
       compareAtPrice,
       deliveryType = "manual",
       inventoryTemplateId,
@@ -188,11 +205,19 @@ export async function POST(request: NextRequest) {
       isActive = true,
       isFeatured = false,
       isNew = false,
-      pointsReward = 0,
       maxQuantity = 999,
       currentStock = -1,
       videoUrl,
       videoThumbnail,
+      // Multi-sell fields
+      multiSellEnabled = false,
+      multiSellFactor = 5,
+      cooldownEnabled = false,
+      cooldownDurationHours = 12,
+      // Bundle fields
+      isBundle = false,
+      bundleTemplateId = null,
+      bundleItems = [],
     } = body;
 
     // Validate input
@@ -210,7 +235,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const validDeliveryTypes = ["auto_key", "auto_account", "manual", "contact"];
+    const validDeliveryTypes = ["manual", "auto"];
     if (!validDeliveryTypes.includes(deliveryType)) {
       return NextResponse.json(
         { success: false, error: `Invalid delivery type. Must be one of: ${validDeliveryTypes.join(", ")}` },
@@ -291,7 +316,6 @@ export async function POST(request: NextRequest) {
         isActive,
         isFeatured,
         isNew,
-        pointsReward,
         maxQuantity,
         currentStock,
         stockCount: 0,
@@ -303,6 +327,14 @@ export async function POST(request: NextRequest) {
         averageRating: "0.00",
         ratingCount: 0,
         reviewCount: 0,
+        // Multi-sell fields
+        multiSellEnabled,
+        multiSellFactor,
+        cooldownEnabled,
+        cooldownDurationHours,
+        // Bundle fields
+        isBundle,
+        bundleTemplateId: bundleTemplateId || null,
       })
       .returning();
 
@@ -327,6 +359,57 @@ export async function POST(request: NextRequest) {
         }))
       );
     }
+
+    // Create inventory units for multi-sell products
+    if (multiSellEnabled && currentStock > 0) {
+      const unitsToCreate = Math.min(currentStock, 100);
+      const inventoryUnitsToInsert = Array.from(
+        { length: unitsToCreate },
+        (_, i) => ({
+          productId: newProduct.id,
+          physicalUnitId: `${newProduct.id.slice(0, 8)}-${i + 1}`,
+          maxSales: multiSellFactor,
+          cooldownDurationHours,
+          status: "available" as const,
+          saleCount: 0,
+        })
+      );
+      await db.insert(inventoryUnits).values(inventoryUnitsToInsert);
+    }
+
+    // Create bundle items if it's a bundle
+    if (isBundle && bundleItems && bundleItems.length > 0) {
+      const bundleItemsToInsert = bundleItems.map((item: any) => ({
+        bundleProductId: newProduct.id,
+        templateFieldId: item.templateFieldId || "default",
+        lineIndex: item.lineIndex || 0,
+        productName: item.productName,
+        quantity: item.quantity || 1,
+        priceOverride: item.priceOverride ? item.priceOverride.toString() : null,
+      }));
+      await db.insert(bundleItems).values(bundleItemsToInsert);
+    }
+
+    // Create default pricing tiers
+    await db.insert(productPricing).values([
+      {
+        productId: newProduct.id,
+        customerType: "retail",
+        cost: cost ? cost.toString() : null,
+        retailPrice: basePrice.toString(),
+        currency: "USD",
+        creditEligible: false,
+      },
+      {
+        productId: newProduct.id,
+        customerType: "merchant",
+        cost: cost ? cost.toString() : null,
+        wholesalePrice: (parseFloat(basePrice) * 0.7).toFixed(2),
+        currency: "USD",
+        creditEligible: true,
+        creditTermsDays: 30,
+      },
+    ]).onConflictDoNothing();
 
     // Log activity
     await logProductCreated(user.id, newProduct.id, name);
