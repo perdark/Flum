@@ -52,6 +52,17 @@ export async function PUT(
       }
     }
 
+    // Validate linked pair references
+    const fieldNames = new Set(fieldsSchema.map((f: any) => f.name));
+    for (const field of fieldsSchema) {
+      if (field.linkedTo && !fieldNames.has(field.linkedTo)) {
+        return NextResponse.json(
+          { success: false, error: `Linked field "${field.linkedTo}" not found in fieldsSchema` },
+          { status: 400 }
+        );
+      }
+    }
+
     const db = getDb();
 
     // Check if template exists

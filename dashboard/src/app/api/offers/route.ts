@@ -42,13 +42,9 @@ export async function GET(request: NextRequest) {
     }
 
     const db = getDb();
-    let query = db
-      .select()
-      .from(offers)
-      .where(isNull(offers.deletedAt));
 
-    // Apply filters
-    const conditions = [];
+    // Build conditions
+    const conditions = [isNull(offers.deletedAt)];
     if (type) {
       conditions.push(eq(offers.displayType, type));
     }
@@ -58,7 +54,7 @@ export async function GET(request: NextRequest) {
           eq(offers.isActive, true),
           sql`${offers.startDate} <= NOW()`,
           sql`${offers.endDate} >= NOW()`
-        )
+        )!
       );
     } else if (active === "false") {
       conditions.push(eq(offers.isActive, false));
@@ -69,25 +65,20 @@ export async function GET(request: NextRequest) {
         or(
           like(offers.name, safeSearch),
           like(sql`coalesce(${offers.nameAr}, '')`, safeSearch)
-        )
+        )!
       );
     }
 
-    if (conditions.length > 0) {
-      query = query.where(and(...conditions, isNull(offers.deletedAt)));
-    }
-
     // Order by display position (for hero) then created date
-    query = query.orderBy(
-      offers.displayPosition,
-      desc(offers.createdAt)
-    ) as typeof query;
-
-    if (limit) {
-      query = query.limit(limit) as typeof query;
-    }
-
-    const allOffers = await query;
+    const allOffers = await db
+      .select()
+      .from(offers)
+      .where(and(...conditions))
+      .orderBy(
+        offers.displayPosition,
+        desc(offers.createdAt)
+      )
+      .limit(limit ?? 1000);
 
     return NextResponse.json({ success: true, data: allOffers });
   } catch (error) {

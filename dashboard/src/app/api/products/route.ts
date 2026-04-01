@@ -13,9 +13,9 @@ import {
   productImages,
   categories,
   inventoryTemplates,
-  inventoryUnits,
   bundleItems,
   productPricing,
+  productVariants,
 } from "@/db/schema";
 import { requirePermission, getCurrentUser } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
@@ -108,7 +108,6 @@ export async function GET(request: NextRequest) {
         createdAt: products.createdAt,
         updatedAt: products.updatedAt,
         templateName: inventoryTemplates.name,
-        // Multi-sell fields
         multiSellEnabled: products.multiSellEnabled,
         multiSellFactor: products.multiSellFactor,
         cooldownEnabled: products.cooldownEnabled,
@@ -234,11 +233,6 @@ export async function POST(request: NextRequest) {
       currentStock = -1,
       videoUrl,
       videoThumbnail,
-      // Multi-sell fields
-      multiSellEnabled = false,
-      multiSellFactor = 5,
-      cooldownEnabled = false,
-      cooldownDurationHours = 12,
       // Bundle fields
       isBundle = false,
       bundleTemplateId = null,
@@ -267,6 +261,9 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Auto-set delivery type based on template
+    const finalDeliveryType = inventoryTemplateId ? deliveryType : "manual";
 
     // Generate slug if not provided
     const slug = providedSlug || generateSlug(name);
@@ -336,7 +333,7 @@ export async function POST(request: NextRequest) {
         sku: sku?.trim() || null,
         basePrice: basePrice.toString(),
         compareAtPrice: compareAtPrice ? compareAtPrice.toString() : null,
-        deliveryType,
+        deliveryType: finalDeliveryType,
         inventoryTemplateId: inventoryTemplateId || null,
         isActive,
         isFeatured,
@@ -352,11 +349,10 @@ export async function POST(request: NextRequest) {
         averageRating: "0.00",
         ratingCount: 0,
         reviewCount: 0,
-        // Multi-sell fields
-        multiSellEnabled,
-        multiSellFactor,
-        cooldownEnabled,
-        cooldownDurationHours,
+        multiSellEnabled: false,
+        multiSellFactor: 5,
+        cooldownEnabled: false,
+        cooldownDurationHours: 12,
         // Bundle fields
         isBundle,
         bundleTemplateId: bundleTemplateId || null,
@@ -385,22 +381,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create inventory units for multi-sell products
-    if (multiSellEnabled && currentStock > 0) {
-      const unitsToCreate = Math.min(currentStock, 100);
-      const inventoryUnitsToInsert = Array.from(
-        { length: unitsToCreate },
-        (_, i) => ({
-          productId: newProduct.id,
-          physicalUnitId: `${newProduct.id.slice(0, 8)}-${i + 1}`,
-          maxSales: multiSellFactor,
-          cooldownDurationHours,
-          status: "available" as const,
-          saleCount: 0,
-        })
-      );
-      await db.insert(inventoryUnits).values(inventoryUnitsToInsert);
-    }
+    // Purchase options & region prices (multi-sell is configured per inventory line)
+    // Auto-create a default variant for the product
+    await db.insert(productVariants).values({
+      productId: newProduct.id,
+      optionCombination: {},
+      price: basePrice.toString(),
+      compareAtPrice: compareAtPrice ? compareAtPrice.toString() : null,
+      isDefault: true,
+      isActive: true,
+    });
 
     // Create bundle items if it's a bundle
     if (isBundle && bundleItems && bundleItems.length > 0) {
@@ -408,6 +398,7 @@ export async function POST(request: NextRequest) {
         bundleProductId: newProduct.id,
         templateFieldId: item.templateFieldId || "default",
         lineIndex: item.lineIndex || 0,
+        productId: item.productId || null,
         productName: item.productName,
         quantity: item.quantity || 1,
         priceOverride: item.priceOverride ? item.priceOverride.toString() : null,

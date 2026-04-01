@@ -6,7 +6,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { products, inventoryItems } from "@/db/schema";
+import { products } from "@/db/schema";
 import { requirePermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
 import { eq, sql } from "drizzle-orm";
@@ -35,29 +35,22 @@ export async function POST(request: NextRequest) {
       difference: number;
     }> = [];
 
-    const productIds = allProducts.map(p => p.id);
-    
-    // Build count map with defensive check for empty productIds
-    let countMap = new Map<string, number>();
-    
-    if (productIds.length > 0) {
-      const countResults = await db.execute(
-        sql`
-          SELECT product_id, COUNT(*) as count
-          FROM inventory_items
-          WHERE status = 'available'
-            AND deleted_at IS NULL
-            AND product_id IN (${sql.join(productIds.map(id => sql`${id}`), sql`, `)})
-          GROUP BY product_id
-        `
-      );
-      countMap = new Map(countResults.rows.map((row: any) => [row.product_id, parseInt(row.count, 10)]));
-    }
+    const countAvailableForProduct = async (productId: string): Promise<number> => {
+      const r = await db.execute(sql`
+        SELECT COUNT(*)::int AS n
+        FROM inventory_items
+        WHERE status = 'available'
+          AND deleted_at IS NULL
+          AND product_id = ${productId}
+      `);
+      const row = r.rows[0] as { n: number } | undefined;
+      return row?.n ?? 0;
+    };
 
     // Recalculate stock count for each product
     await db.transaction(async (tx) => {
       for (const product of allProducts) {
-        const actualCount = countMap.get(product.id) || 0;
+        const actualCount = await countAvailableForProduct(product.id);
         const oldCount = product.stockCount || 0;
 
         if (actualCount !== oldCount) {

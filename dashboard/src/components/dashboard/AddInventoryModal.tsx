@@ -43,6 +43,7 @@ export function AddInventoryModal({ onClose, productId }: AddInventoryModalProps
   const [inventoryItems, setInventoryItems] = useState<Record<string, unknown>[]>([]);
   const [currentItem, setCurrentItem] = useState<Record<string, unknown>>({});
   const [bulkText, setBulkText] = useState("");
+  const [customFields, setCustomFields] = useState<Array<{ name: string; value: string }>>([]);
 
   // Selected template's schema
   const selectedTemplate = templates.find((t) => t.id === selectedTemplateId);
@@ -84,6 +85,20 @@ export function AddInventoryModal({ onClose, productId }: AddInventoryModalProps
 
   const updateCurrentItemField = (fieldName: string, value: string | number | boolean) => {
     setCurrentItem({ ...currentItem, [fieldName]: value });
+  };
+
+  const addCustomField = () => {
+    setCustomFields([...customFields, { name: "", value: "" }]);
+  };
+
+  const removeCustomField = (index: number) => {
+    setCustomFields(customFields.filter((_, i) => i !== index));
+  };
+
+  const updateCustomField = (index: number, key: "name" | "value", val: string) => {
+    const updated = [...customFields];
+    updated[index] = { ...updated[index], [key]: val };
+    setCustomFields(updated);
   };
 
   const addItem = () => {
@@ -154,6 +169,7 @@ export function AddInventoryModal({ onClose, productId }: AddInventoryModalProps
         body: JSON.stringify({
           productId: selectedProductId,
           items: inventoryItems,
+          customFields: customFields.filter((f) => f.name.trim()),
         }),
       });
 
@@ -352,6 +368,53 @@ export function AddInventoryModal({ onClose, productId }: AddInventoryModalProps
                     >
                       Parse & Add Items
                     </button>
+                  </div>
+
+                  {/* Custom Fields */}
+                  <div className="bg-muted p-4 rounded-lg border border-border">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-medium text-foreground">Custom Fields</h3>
+                      <button
+                        type="button"
+                        onClick={addCustomField}
+                        className="text-xs px-2 py-1 bg-secondary text-foreground rounded hover:bg-secondary/80"
+                      >
+                        + Add Field
+                      </button>
+                    </div>
+                    {customFields.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        No custom fields. Click "Add Field" to attach extra metadata to this stock.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {customFields.map((field, index) => (
+                          <div key={index} className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={field.name}
+                              onChange={(e) => updateCustomField(index, "name", e.target.value)}
+                              placeholder="Name"
+                              className="flex-1 px-3 py-1.5 bg-card border border-input text-foreground rounded text-sm focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground"
+                            />
+                            <input
+                              type="text"
+                              value={field.value}
+                              onChange={(e) => updateCustomField(index, "value", e.target.value)}
+                              placeholder="Value"
+                              className="flex-1 px-3 py-1.5 bg-card border border-input text-foreground rounded text-sm focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => removeCustomField(index)}
+                              className="shrink-0 w-7 h-7 flex items-center justify-center text-destructive hover:text-destructive/80 hover:bg-destructive/10 rounded text-lg"
+                            >
+                              &times;
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   {/* Items List */}

@@ -2,11 +2,15 @@
  * Dashboard Overview Page
  *
  * Displays key statistics for Fulmen Empire store
+ * - Inventory-focused stats with mismatch alerts
+ * - Sales stats and recent activity
+ * - Quick actions for manual sell and inventory management
  */
 
 import { getDb } from "@/db";
-import { orders, products, reviews, users } from "@/db/schema";
+import { orders, products, reviews, users, inventoryItems } from "@/db/schema";
 import { eq, and, count, gte, sql } from "drizzle-orm";
+import Link from "next/link";
 import {
   TrendingUp,
   Package,
@@ -14,6 +18,9 @@ import {
   Star,
   DollarSign,
   Users,
+  AlertTriangle,
+  Zap,
+  Inbox,
 } from "lucide-react";
 
 async function getOverviewStats() {
@@ -34,11 +41,11 @@ async function getOverviewStats() {
     .where(gte(orders.createdAt, today));
   const todayOrders = Number(todayOrdersResult?.count || 0);
 
-  // Get pending orders
+  // Get pending orders (for manual delivery)
   const [pendingOrdersResult] = await db
     .select({ count: count() })
     .from(orders)
-    .where(eq(orders.status, "pending"));
+    .where(eq(orders.fulfillmentStatus, "pending"));
   const pendingOrders = Number(pendingOrdersResult?.count || 0);
 
   // Get total revenue (sum of all completed orders)
@@ -48,6 +55,15 @@ async function getOverviewStats() {
     })
     .from(orders);
   const totalRevenue = Number(revenueResult?.total || 0);
+
+  // Get today's revenue
+  const [todayRevenueResult] = await db
+    .select({
+      total: sql<number>`COALESCE(SUM(${orders.total}), 0)`,
+    })
+    .from(orders)
+    .where(gte(orders.createdAt, today));
+  const todayRevenue = Number(todayRevenueResult?.total || 0);
 
   // Get active products
   const [activeProductsResult] = await db
@@ -61,6 +77,31 @@ async function getOverviewStats() {
     .select({ count: count() })
     .from(products);
   const totalProducts = Number(totalProductsResult?.count || 0);
+
+  // Get total available inventory items
+  const [availableInventoryResult] = await db
+    .select({ count: count() })
+    .from(inventoryItems)
+    .where(
+      and(
+        eq(inventoryItems.status, "available"),
+        sql`${inventoryItems.deletedAt} IS NULL`
+      )
+    );
+  const totalAvailableInventory = Number(availableInventoryResult?.count || 0);
+
+  // Get sold inventory items today
+  const [soldTodayResult] = await db
+    .select({ count: count() })
+    .from(inventoryItems)
+    .where(
+      and(
+        eq(inventoryItems.status, "sold"),
+        gte(inventoryItems.purchasedAt, today),
+        sql`${inventoryItems.deletedAt} IS NULL`
+      )
+    );
+  const itemsSoldToday = Number(soldTodayResult?.count || 0);
 
   // Get pending reviews
   const [pendingReviewsResult] = await db
@@ -88,8 +129,11 @@ async function getOverviewStats() {
     todayOrders,
     pendingOrders,
     totalRevenue,
+    todayRevenue,
     activeProducts,
     totalProducts,
+    totalAvailableInventory,
+    itemsSoldToday,
     pendingReviews,
     totalStaff,
     recentOrders,
@@ -110,22 +154,22 @@ export default async function DashboardPage() {
     {
       title: "Revenue",
       value: `$${stats.totalRevenue.toFixed(2)}`,
-      change: "Lifetime",
+      change: `+$${stats.todayRevenue.toFixed(2)} today`,
       icon: DollarSign,
       color: "from-emerald-500 to-green-500",
+    },
+    {
+      title: "Available Stock",
+      value: stats.totalAvailableInventory.toString(),
+      change: `${stats.itemsSoldToday} sold today`,
+      icon: Inbox,
+      color: "from-violet-500 to-purple-500",
     },
     {
       title: "Active Products",
       value: stats.activeProducts.toString(),
       change: `of ${stats.totalProducts} total`,
       icon: Package,
-      color: "from-violet-500 to-purple-500",
-    },
-    {
-      title: "Pending Reviews",
-      value: stats.pendingReviews.toString(),
-      change: "Awaiting approval",
-      icon: Star,
       color: "from-amber-500 to-orange-500",
     },
   ];
@@ -161,6 +205,53 @@ export default async function DashboardPage() {
         ))}
       </div>
 
+      {/* Quick Actions */}
+      <div className="bg-card rounded-xl p-6 border border-border">
+        <h2 className="text-lg font-semibold text-foreground mb-4">Quick Actions</h2>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <Link
+            href="/dashboard/manual-sell"
+            className="flex items-center gap-3 p-4 bg-primary/5 hover:bg-primary/10 border border-primary/20 rounded-xl transition-colors"
+          >
+            <Zap className="w-5 h-5 text-primary" />
+            <div>
+              <p className="text-sm font-medium text-foreground">Manual Sell</p>
+              <p className="text-xs text-muted-foreground">Quick sale</p>
+            </div>
+          </Link>
+          <Link
+            href="/dashboard/inventory"
+            className="flex items-center gap-3 p-4 bg-info/5 hover:bg-info/10 border border-info/20 rounded-xl transition-colors"
+          >
+            <Inbox className="w-5 h-5 text-info" />
+            <div>
+              <p className="text-sm font-medium text-foreground">Add Inventory</p>
+              <p className="text-xs text-muted-foreground">Stock up</p>
+            </div>
+          </Link>
+          <Link
+            href="/dashboard/orders"
+            className="flex items-center gap-3 p-4 bg-warning/5 hover:bg-warning/10 border border-warning/20 rounded-xl transition-colors"
+          >
+            <AlertTriangle className="w-5 h-5 text-warning" />
+            <div>
+              <p className="text-sm font-medium text-foreground">Pending Orders</p>
+              <p className="text-xs text-muted-foreground">{stats.pendingOrders} waiting</p>
+            </div>
+          </Link>
+          <Link
+            href="/dashboard/products/new"
+            className="flex items-center gap-3 p-4 bg-success/5 hover:bg-success/10 border border-success/20 rounded-xl transition-colors"
+          >
+            <Package className="w-5 h-5 text-success" />
+            <div>
+              <p className="text-sm font-medium text-foreground">New Product</p>
+              <p className="text-xs text-muted-foreground">Create listing</p>
+            </div>
+          </Link>
+        </div>
+      </div>
+
       {/* Quick Stats Row */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-card rounded-xl p-4 border border-border">
@@ -181,7 +272,7 @@ export default async function DashboardPage() {
               <ShoppingCart className="w-4 h-4 text-rose-400" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Pending Orders</p>
+              <p className="text-xs text-muted-foreground">Pending Fulfillment</p>
               <p className="text-lg font-semibold text-foreground">{stats.pendingOrders}</p>
             </div>
           </div>
@@ -193,8 +284,8 @@ export default async function DashboardPage() {
               <TrendingUp className="w-4 h-4 text-emerald-400" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Today's Orders</p>
-              <p className="text-lg font-semibold text-foreground">{stats.todayOrders}</p>
+              <p className="text-xs text-muted-foreground">Items Sold Today</p>
+              <p className="text-lg font-semibold text-foreground">{stats.itemsSoldToday}</p>
             </div>
           </div>
         </div>
@@ -204,12 +295,12 @@ export default async function DashboardPage() {
       <div className="bg-card rounded-xl border border-border overflow-hidden">
         <div className="px-6 py-4 border-b border-border flex items-center justify-between">
           <h2 className="text-lg font-semibold text-foreground">Recent Orders</h2>
-          <a
+          <Link
             href="/dashboard/orders"
             className="text-sm text-brand hover:text-amber-300 transition-colors"
           >
             View All
-          </a>
+          </Link>
         </div>
 
         {stats.recentOrders.length === 0 ? (
@@ -271,6 +362,22 @@ export default async function DashboardPage() {
             </tbody>
           </table>
         )}
+      </div>
+
+      {/* Mismatch Alerts Section */}
+      <div className="bg-card rounded-xl border border-border p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-foreground">Stock Alerts</h2>
+          <Link
+            href="/dashboard/inventory"
+            className="text-sm text-brand hover:text-amber-300 transition-colors"
+          >
+            View Inventory
+          </Link>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Monitor inventory health, stock mismatches, and low stock alerts from the Inventory page.
+        </p>
       </div>
     </div>
   );

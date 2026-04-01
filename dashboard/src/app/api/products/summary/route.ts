@@ -6,20 +6,24 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { products, inventoryTemplates, inventoryItems, productCategories, categories } from "@/db/schema";
+import { products, inventoryTemplates, productCategories, categories, bundleItems } from "@/db/schema";
 import { requirePermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
 import { eq, and, sql, like, or, desc, inArray } from "drizzle-orm";
+import { sqlInventoryItemsCorrelatedToProducts } from "@/lib/inventoryProductScope";
 
 export async function GET(request: NextRequest) {
   try {
-    const user = await requirePermission(PERMISSIONS.VIEW_PRODUCTS);
+    await requirePermission(PERMISSIONS.VIEW_PRODUCTS);
 
     const { searchParams } = new URL(request.url);
     const search = searchParams.get("search");
     const isActive = searchParams.get("isActive");
     const categoryId = searchParams.get("categoryId");
-    const limit = parseInt(searchParams.get("limit") || "100");
+    const rawLimit = parseInt(searchParams.get("limit") || "80", 10);
+    const limit = Math.min(Math.max(Number.isFinite(rawLimit) ? rawLimit : 80, 1), 200);
+    const rawOffset = parseInt(searchParams.get("offset") || "0", 10);
+    const offset = Math.max(Number.isFinite(rawOffset) ? rawOffset : 0, 0);
 
     const db = getDb();
 
@@ -30,7 +34,8 @@ export async function GET(request: NextRequest) {
       conditions.push(
         or(
           like(products.name, `%${search}%`),
-          like(products.slug, `%${search}%`)
+          like(products.slug, `%${search}%`),
+          like(products.sku, `%${search}%`)
         )!
       );
     }
@@ -40,15 +45,12 @@ export async function GET(request: NextRequest) {
     }
 
     if (categoryId) {
-      // Filter by category - need to join with product_categories
-      const subQuery = db
-        .select({ productId: productCategories.productId })
-        .from(productCategories)
-        .where(eq(productCategories.categoryId, categoryId));
-
-      // This won't work directly in the conditions array, so we'll handle it differently
-      // For now, let's get all products and filter in memory, or use a different approach
-      // We'll need to join first
+      conditions.push(
+        sql`EXISTS (
+          SELECT 1 FROM product_categories pc
+          WHERE pc.product_id = products.id AND pc.category_id = ${categoryId}::uuid
+        )`
+      );
     }
 
     // Get products with minimal data + inventory counts + categories
@@ -57,33 +59,37 @@ export async function GET(request: NextRequest) {
         id: products.id,
         name: products.name,
         slug: products.slug,
+        sku: products.sku,
         isActive: products.isActive,
         price: products.basePrice,
+        basePrice: products.basePrice,
+        deliveryType: products.deliveryType,
         stockCount: products.stockCount,
         totalSold: products.totalSold,
         inventoryTemplateId: products.inventoryTemplateId,
         templateName: inventoryTemplates.name,
+        isBundle: products.isBundle,
         // Ship template fields to avoid N+1 fetches in admin pickers.
         fieldsSchema: inventoryTemplates.fieldsSchema,
         // Count available items per status
         availableCount: sql<number>`(
           SELECT COUNT(*)::int
           FROM inventory_items
-          WHERE inventory_items.product_id = products.id
+          WHERE ${sqlInventoryItemsCorrelatedToProducts()}
             AND inventory_items.status = 'available'
             AND inventory_items.deleted_at IS NULL
         )`,
         reservedCount: sql<number>`(
           SELECT COUNT(*)::int
           FROM inventory_items
-          WHERE inventory_items.product_id = products.id
+          WHERE ${sqlInventoryItemsCorrelatedToProducts()}
             AND inventory_items.status = 'reserved'
             AND inventory_items.deleted_at IS NULL
         )`,
         soldCount: sql<number>`(
           SELECT COUNT(*)::int
           FROM inventory_items
-          WHERE inventory_items.product_id = products.id
+          WHERE ${sqlInventoryItemsCorrelatedToProducts()}
             AND inventory_items.status = 'sold'
             AND inventory_items.deleted_at IS NULL
         )`,
@@ -92,7 +98,8 @@ export async function GET(request: NextRequest) {
       .leftJoin(inventoryTemplates, eq(products.inventoryTemplateId, inventoryTemplates.id))
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(products.createdAt))
-      .limit(limit);
+      .limit(limit)
+      .offset(offset);
 
     // Get category links for each product
     const productIds = productsList.map((p) => p.id);
@@ -113,6 +120,7 @@ export async function GET(request: NextRequest) {
     // Attach categories to products and filter by category if needed
     let result = productsList.map((product) => ({
       ...product,
+      hasInventoryTemplate: !!product.inventoryTemplateId,
       categories: categoryLinks
         .filter((c) => c.productId === product.id)
         .map((c) => ({
@@ -122,16 +130,70 @@ export async function GET(request: NextRequest) {
         })),
     }));
 
-    // Filter by category after the fact (since we need the join data)
-    if (categoryId) {
-      result = result.filter((p) =>
-        p.categories.some((c: any) => c.id === categoryId)
-      );
+    // Fix bundle availableCount: bundles have no inventory of their own,
+    // so compute from sub-products (min of floor(subAvailable / subNeed))
+    const bundleProductIds = result.filter((p) => p.isBundle).map((p) => p.id);
+    if (bundleProductIds.length > 0) {
+      const bundleSubItems = await db
+        .select({
+          bundleProductId: bundleItems.bundleProductId,
+          productId: bundleItems.productId,
+          quantity: bundleItems.quantity,
+        })
+        .from(bundleItems)
+        .where(
+          and(
+            inArray(bundleItems.bundleProductId, bundleProductIds),
+            sql`${bundleItems.productId} IS NOT NULL`
+          )
+        );
+
+      // Get available counts for all referenced sub-products
+      const subProductIds = [...new Set(bundleSubItems.map((bi) => bi.productId!))];
+      const subCounts = new Map<string, number>();
+      for (const spId of subProductIds) {
+        const r = await db.execute(sql`
+          SELECT COUNT(*)::int AS cnt
+          FROM inventory_items
+          WHERE status = 'available' AND deleted_at IS NULL
+            AND product_id = ${spId}
+        `);
+        subCounts.set(spId, parseInt(String(r.rows[0]?.cnt ?? 0), 10));
+      }
+
+      // Compute bundle available count
+      const bundleSubsByProduct = new Map<string, typeof bundleSubItems>();
+      for (const bi of bundleSubItems) {
+        if (!bundleSubsByProduct.has(bi.bundleProductId)) {
+          bundleSubsByProduct.set(bi.bundleProductId, []);
+        }
+        bundleSubsByProduct.get(bi.bundleProductId)!.push(bi);
+      }
+
+      result = result.map((p) => {
+        if (!p.isBundle) return p;
+        const subs = bundleSubsByProduct.get(p.id) || [];
+        if (subs.length === 0) return { ...p, availableCount: 0 };
+        let maxBundles = Infinity;
+        for (const sub of subs) {
+          const available = subCounts.get(sub.productId!) || 0;
+          const needed = sub.quantity || 1;
+          const possible = Math.floor(available / needed);
+          maxBundles = Math.min(maxBundles, possible);
+        }
+        return { ...p, availableCount: Number.isFinite(maxBundles) ? maxBundles : 0 };
+      });
     }
 
     return NextResponse.json({
       success: true,
       data: result,
+      pagination: {
+        limit,
+        offset,
+        /** True when another page likely exists (client should fetch more until false) */
+        hasMore: result.length === limit,
+      },
     });
   } catch (error) {
     if (error instanceof Error) {

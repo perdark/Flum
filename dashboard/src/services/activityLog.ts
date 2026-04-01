@@ -340,38 +340,6 @@ export async function logCategoryDeleted(
 }
 
 // ============================================================================
-// BATCH LOGGING
-// ============================================================================
-
-export async function logBatchCreated(
-  userId: string | null,
-  batchId: string,
-  name: string
-) {
-  return logActivity({
-    userId,
-    action: "batch_created",
-    entity: "inventory_batch",
-    entityId: batchId,
-    metadata: { name },
-  });
-}
-
-export async function logBatchRolledBack(
-  userId: string | null,
-  batchId: string,
-  itemCount: number
-) {
-  return logActivity({
-    userId,
-    action: "batch_rolled_back",
-    entity: "inventory_batch",
-    entityId: batchId,
-    metadata: { itemCount },
-  });
-}
-
-// ============================================================================
 // ORDER CLAIM LOGGING
 // ============================================================================
 

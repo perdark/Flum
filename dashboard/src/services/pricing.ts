@@ -4,7 +4,7 @@
  * Handles tiered pricing for B2B/B2C customers
  */
 
-import { db } from "@/db";
+import { getDb } from "@/db";
 import { productPricing, products } from "@/db/schema";
 import { eq, and, or, isNull } from "drizzle-orm";
 import type { VisibilityContext } from "@/types";
@@ -27,6 +27,7 @@ export async function getProductPricing(
   productId: string,
   context: VisibilityContext
 ): Promise<PriceDisplay> {
+  const db = getDb();
   const pricing = await db.query.productPricing.findMany({
     where: eq(productPricing.productId, productId),
   });
@@ -38,24 +39,27 @@ export async function getProductPricing(
   switch (context) {
     case "admin":
       return {
-        cost: adminPricing?.cost || retailPricing?.cost,
-        wholesale: merchantPricing?.wholesalePrice,
-        retail: retailPricing?.retailPrice,
+        cost: adminPricing?.cost ?? retailPricing?.cost ?? undefined,
+        wholesale: merchantPricing?.wholesalePrice ?? undefined,
+        retail: retailPricing?.retailPrice ?? undefined,
         current: retailPricing?.retailPrice || "0",
         currency: retailPricing?.currency || "USD",
         creditEligible: merchantPricing?.creditEligible || false,
-        creditTermsDays: merchantPricing?.creditTermsDays,
-        minQuantity: retailPricing?.minQuantity,
+        creditTermsDays: merchantPricing?.creditTermsDays ?? undefined,
+        minQuantity: retailPricing?.minQuantity ?? undefined,
       };
 
     case "merchant":
       return {
-        retail: retailPricing?.retailPrice, // Show for margin reference
+        retail: retailPricing?.retailPrice ?? undefined,
         current: merchantPricing?.wholesalePrice || retailPricing?.retailPrice || "0",
         currency: merchantPricing?.currency || retailPricing?.currency || "USD",
         creditEligible: merchantPricing?.creditEligible || false,
-        creditTermsDays: merchantPricing?.creditTermsDays,
-        minQuantity: merchantPricing?.minQuantity,
+        creditTermsDays: merchantPricing?.creditTermsDays ?? undefined,
+        minQuantity:
+          retailPricing?.minQuantity == null
+            ? undefined
+            : retailPricing.minQuantity,
       };
 
     case "customer":
@@ -97,6 +101,7 @@ export async function upsertProductPricing(data: {
   creditEligible?: boolean;
   creditTermsDays?: number;
 }) {
+  const db = getDb();
   const existing = await db.query.productPricing.findFirst({
     where: and(
       eq(productPricing.productId, data.productId),
@@ -132,6 +137,7 @@ export async function upsertProductPricing(data: {
  * Get all pricing tiers for a product
  */
 export async function getAllProductPricing(productId: string) {
+  const db = getDb();
   return db.query.productPricing.findMany({
     where: eq(productPricing.productId, productId),
   });
@@ -141,6 +147,7 @@ export async function getAllProductPricing(productId: string) {
  * Delete pricing tier
  */
 export async function deleteProductPricing(pricingId: string): Promise<void> {
+  const db = getDb();
   await db.delete(productPricing).where(eq(productPricing.id, pricingId));
 }
 
@@ -151,6 +158,7 @@ export async function isCreditEligible(
   productId: string,
   customerType: "retail" | "merchant"
 ): Promise<boolean> {
+  const db = getDb();
   const pricing = await db.query.productPricing.findFirst({
     where: and(
       eq(productPricing.productId, productId),
@@ -169,6 +177,7 @@ export async function getPriceForQuantity(
   customerType: "retail" | "merchant",
   quantity: number
 ): Promise<string> {
+  const db = getDb();
   const allPricing = await db.query.productPricing.findMany({
     where: and(
       eq(productPricing.productId, productId),

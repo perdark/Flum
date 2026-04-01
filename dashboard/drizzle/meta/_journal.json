@@ -15,6 +15,13 @@
       "when": 1774229855271,
       "tag": "0001_perpetual_maggott",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1775000000000,
+      "tag": "0009_inventory_items_variant_id",
+      "breakpoints": true
     }
   ]
 }

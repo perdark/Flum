@@ -7,11 +7,36 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { inventoryItems, products, inventoryBatches, orders, orderItems } from "@/db/schema";
+import { inventoryItems, products, orders, orderItems, productVariants } from "@/db/schema";
 import { requirePermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
 import { eq, and, sql, desc, asc, like, or, isNull } from "drizzle-orm";
 import { logInventoryAdded, logActivity } from "@/services/activityLog";
+
+function extractMultisell(row: Record<string, unknown>): {
+  values: Record<string, unknown>;
+  multiSellEnabled: boolean;
+  multiSellMax: number;
+  cooldownEnabled: boolean;
+  cooldownDurationHours: number;
+} {
+  const v = { ...row };
+  const multiSellEnabled = Boolean(v.multiSellEnabled);
+  const multiSellMax = Math.max(1, parseInt(String(v.multiSellMax ?? 5), 10) || 5);
+  const cooldownEnabled = Boolean(v.cooldownEnabled);
+  const cooldownDurationHours = Math.max(1, parseInt(String(v.cooldownDurationHours ?? 12), 10) || 12);
+  delete v.multiSellEnabled;
+  delete v.multiSellMax;
+  delete v.cooldownEnabled;
+  delete v.cooldownDurationHours;
+  return {
+    values: v,
+    multiSellEnabled,
+    multiSellMax,
+    cooldownEnabled,
+    cooldownDurationHours,
+  };
+}
 
 // ============================================================================
 // GET /api/inventory - List inventory
@@ -28,6 +53,7 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get("limit") || "50");
     const offset = (page - 1) * limit;
     const unlinkedOnly = searchParams.get("unlinked") === "true";
+    const variantId = searchParams.get("variantId");
     const sortBy = searchParams.get("sortBy") || "createdAt";
     const sortOrder = searchParams.get("sortOrder") || "desc";
 
@@ -44,6 +70,10 @@ export async function GET(request: NextRequest) {
     } else if (productId) {
       // Filter by specific product
       conditions.push(eq(inventoryItems.productId, productId));
+    }
+
+    if (variantId) {
+      conditions.push(eq(inventoryItems.variantId, variantId));
     }
 
     if (status) {
@@ -66,7 +96,15 @@ export async function GET(request: NextRequest) {
         templateId: inventoryItems.templateId,
         productId: inventoryItems.productId,
         values: inventoryItems.values,
+        variantId: inventoryItems.variantId,
+        cost: inventoryItems.cost,
         status: inventoryItems.status,
+        multiSellEnabled: inventoryItems.multiSellEnabled,
+        multiSellMax: inventoryItems.multiSellMax,
+        multiSellSaleCount: inventoryItems.multiSellSaleCount,
+        cooldownEnabled: inventoryItems.cooldownEnabled,
+        cooldownUntil: inventoryItems.cooldownUntil,
+        cooldownDurationHours: inventoryItems.cooldownDurationHours,
         orderItemId: inventoryItems.orderItemId,
         reservedUntil: inventoryItems.reservedUntil,
         purchasedAt: inventoryItems.purchasedAt,
@@ -135,7 +173,7 @@ export async function POST(request: NextRequest) {
     const user = await requirePermission(PERMISSIONS.MANAGE_INVENTORY);
 
     const body = await request.json();
-    const { productId, items, batchId, batchName, sellPendingFirst, eachLineIsProduct } = body;
+    const { productId, items, cost, eachLineIsProduct, sellPendingFirst, variantId } = body;
 
     // Validate input
     if (!productId || !Array.isArray(items) || items.length === 0) {
@@ -163,47 +201,6 @@ export async function POST(request: NextRequest) {
         { success: false, error: "Product not found" },
         { status: 404 }
       );
-    }
-
-    if (!product.inventoryTemplateId) {
-      return NextResponse.json(
-        { success: false, error: "Product has no inventory template configured" },
-        { status: 400 }
-      );
-    }
-
-    // Determine batch ID - use existing or create new
-    let finalBatchId = batchId;
-    if (batchName && !batchId) {
-      // Auto-create batch
-      const [newBatch] = await db
-        .insert(inventoryBatches)
-        .values({
-          name: batchName,
-          source: "manual_import",
-          createdBy: user.id,
-        })
-        .returning();
-      finalBatchId = newBatch.id;
-    } else if (batchId) {
-      // Validate batch exists
-      const [batch] = await db
-        .select()
-        .from(inventoryBatches)
-        .where(
-          and(
-            eq(inventoryBatches.id, batchId),
-            sql`${inventoryBatches.deletedAt} IS NULL`
-          )
-        )
-        .limit(1);
-
-      if (!batch) {
-        return NextResponse.json(
-          { success: false, error: "Batch not found" },
-          { status: 404 }
-        );
-      }
     }
 
     // If sellPendingFirst is true, handle pending orders first in one atomic transaction
@@ -243,25 +240,30 @@ export async function POST(request: NextRequest) {
 
           const soldItemIds: string[] = [];
           for (let j = 0; j < toFulfill; j++) {
-            const values = items[itemsConsumed + j];
-            // Add metadata to values
+            const raw = items[itemsConsumed + j] as Record<string, unknown>;
+            const { values: baseVals, multiSellEnabled, multiSellMax, cooldownEnabled, cooldownDurationHours } =
+              extractMultisell(raw);
             const valuesWithMetadata = {
-              ...values,
+              ...baseVals,
               _metadata: {
                 eachLineIsProduct,
-                batchName: batchName || undefined,
               },
             };
             const [inserted] = await tx
               .insert(inventoryItems)
               .values({
                 productId,
-                templateId: product.inventoryTemplateId!,
-                batchId: finalBatchId || null,
+                templateId: product.inventoryTemplateId || null,
+                cost: cost || null,
                 values: valuesWithMetadata,
                 status: "sold",
                 purchasedAt: new Date(),
                 orderItemId: pendingItem.orderItemId,
+                multiSellEnabled,
+                multiSellMax,
+                cooldownEnabled,
+                cooldownDurationHours,
+                variantId: variantId || null,
               })
               .returning();
             soldItemIds.push(inserted.id);
@@ -328,21 +330,26 @@ export async function POST(request: NextRequest) {
         insertedItems = await tx
           .insert(inventoryItems)
           .values(
-            itemsToCreate.map((values: Record<string, unknown>) => {
-              // Add metadata to values
+            itemsToCreate.map((row: Record<string, unknown>) => {
+              const { values: baseVals, multiSellEnabled, multiSellMax, cooldownEnabled, cooldownDurationHours } =
+                extractMultisell(row);
               const valuesWithMetadata = {
-                ...values,
+                ...baseVals,
                 _metadata: {
                   eachLineIsProduct,
-                  batchName: batchName || undefined,
                 },
               };
               return {
                 productId,
-                templateId: product.inventoryTemplateId!,
-                batchId: finalBatchId || null,
+                templateId: product.inventoryTemplateId || null,
+                cost: cost || null,
                 values: valuesWithMetadata,
                 status: "available" as const,
+                multiSellEnabled,
+                multiSellMax,
+                cooldownEnabled,
+                cooldownDurationHours,
+                variantId: variantId || null,
               };
             })
           )
@@ -355,6 +362,17 @@ export async function POST(request: NextRequest) {
             updatedAt: new Date(),
           })
           .where(eq(products.id, productId));
+
+        // Also update variant stockCount if variant specified
+        if (variantId) {
+          await tx
+            .update(productVariants)
+            .set({
+              stockCount: sql`${productVariants.stockCount} + ${itemsToCreate.length}`,
+              updatedAt: new Date(),
+            })
+            .where(eq(productVariants.id, variantId));
+        }
       }
     });
 
@@ -368,8 +386,7 @@ export async function POST(request: NextRequest) {
         productId,
         productName: product.name,
         quantity: items.length,
-        batchId: finalBatchId,
-        batchName,
+        cost: cost || undefined,
         fulfilledOrders: fulfilledOrders.length > 0 ? fulfilledOrders : undefined,
       },
     });
@@ -381,7 +398,7 @@ export async function POST(request: NextRequest) {
         availableCount: insertedItems.length,
         fulfilledCount: fulfilledOrders.length,
         items: insertedItems,
-        batchId: finalBatchId,
+        batchId: insertedItems[0]?.id || null,
         fulfilledOrders: fulfilledOrders.length > 0 ? fulfilledOrders : undefined,
       },
     }, { status: 201 });

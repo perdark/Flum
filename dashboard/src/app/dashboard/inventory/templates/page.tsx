@@ -23,6 +23,13 @@ interface FieldSchema {
   repeatable: boolean;
   parentId: string | null;
   displayOrder: number;
+  linkedTo: string | null;
+  linkGroup: string | null;
+  multiSell?: boolean;
+  multiSellMax?: number;
+  cooldownEnabled?: boolean;
+  cooldownDurationHours?: number;
+  wholeFieldIsOneItem?: boolean;
 }
 
 interface InventoryTemplate {
@@ -292,12 +299,20 @@ function CreateTemplateModal({ onClose, onCreate, editingTemplate }: CreateTempl
         repeatable: false,
         parentId: null,
         displayOrder: 0,
+        linkedTo: null,
+        linkGroup: null,
+        multiSell: false,
+        multiSellMax: 5,
+        cooldownEnabled: false,
+        cooldownDurationHours: 12,
+        wholeFieldIsOneItem: false,
       },
     ]
   );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedField, setExpandedField] = useState<number | null>(0);
+
 
   const addField = () => {
     const newField: FieldSchema = {
@@ -311,6 +326,13 @@ function CreateTemplateModal({ onClose, onCreate, editingTemplate }: CreateTempl
       repeatable: false,
       parentId: null,
       displayOrder: fields.length,
+      linkedTo: null,
+      linkGroup: null,
+      multiSell: false,
+      multiSellMax: 5,
+      cooldownEnabled: false,
+      cooldownDurationHours: 12,
+      wholeFieldIsOneItem: false,
     };
     setFields([...fields, newField]);
     setExpandedField(fields.length);
@@ -626,7 +648,14 @@ function CreateTemplateModal({ onClose, onCreate, editingTemplate }: CreateTempl
 
                       {/* Bundle Options Section */}
                       <div className="mt-4 p-3 bg-info/10 rounded-lg border border-info/30">
-                        <h4 className="text-xs font-medium text-primary mb-2">Bundle Options</h4>
+                        <h4 className="text-xs font-medium text-primary mb-2">Bundle &amp; link options</h4>
+                        <p className="text-xs text-muted-foreground mb-3">
+                          <strong>Email + password pairs:</strong> add two fields (e.g. <code>email</code> and{" "}
+                          <code>password</code>). On the password field, set <em>Linked to</em> to{" "}
+                          <code>email</code> so each password stays tied to the same row. Use the same{" "}
+                          <em>Link group</em> name on both if you group pairs. Stock validation and manual sell
+                          will require both values when linked.
+                        </p>
                         <div className="space-y-3">
                           <div className="flex items-center justify-between">
                             <div>
@@ -641,6 +670,94 @@ function CreateTemplateModal({ onClose, onCreate, editingTemplate }: CreateTempl
                               </label>
                               <p className="text-xs text-muted-foreground ml-6">Allow multiple values/lines for this field</p>
                             </div>
+                            
+                            <div>
+                              <label className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={field.multiSell || false}
+                                  onChange={(e) => updateField(index, { multiSell: e.target.checked })}
+                                  className="w-4 h-4 text-primary bg-secondary border-input rounded focus:ring-ring"
+                                />
+                                <span className="text-sm text-foreground">Multi-sell</span>
+                              </label>
+                              <p className="text-xs text-muted-foreground ml-6">Allow matching inventory items to be sold multiple times</p>
+                            </div>
+
+                            {field.multiSell && (
+                              <div className="ml-6 flex flex-wrap gap-4 bg-muted/30 p-2 rounded border border-border">
+                                <div>
+                                  <label className="block text-xs text-muted-foreground mb-1">Max Sells</label>
+                                  <input type="number" min="1" value={field.multiSellMax || 5} onChange={(e) => updateField(index, { multiSellMax: parseInt(e.target.value) || 1 })} className="w-20 px-2 py-1 text-sm rounded bg-background border border-input" />
+                                </div>
+                                <div className="flex flex-col justify-center">
+                                  <label className="flex items-center gap-2 mt-2">
+                                    <input type="checkbox" checked={field.cooldownEnabled || false} onChange={(e) => updateField(index, { cooldownEnabled: e.target.checked })} className="w-4 h-4 rounded" />
+                                    <span className="text-sm">Cooldown limits</span>
+                                  </label>
+                                </div>
+                                {field.cooldownEnabled && (
+                                  <div>
+                                    <label className="block text-xs text-muted-foreground mb-1">Cooldown (Hours)</label>
+                                    <input type="number" min="1" value={field.cooldownDurationHours || 12} onChange={(e) => updateField(index, { cooldownDurationHours: parseInt(e.target.value) || 1 })} className="w-20 px-2 py-1 text-sm rounded bg-background border border-input" />
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            <div>
+                              <label className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={field.wholeFieldIsOneItem || false}
+                                  onChange={(e) => updateField(index, { wholeFieldIsOneItem: e.target.checked })}
+                                  className="w-4 h-4 text-primary bg-secondary border-input rounded focus:ring-ring"
+                                />
+                                <span className="text-sm text-foreground">Whole field is one item</span>
+                              </label>
+                              <p className="text-xs text-muted-foreground ml-6">Treat the entire text block as a single value instead of splitting by line</p>
+                            </div>
+                          </div>
+
+                          {/* Linked To */}
+                          <div>
+                            <label className="block text-xs font-medium text-muted-foreground mb-1">
+                              Linked To (paired field)
+                            </label>
+                            <select
+                              value={field.linkedTo || ""}
+                              onChange={(e) => updateField(index, { linkedTo: e.target.value || null })}
+                              className="w-full px-3 py-2 bg-secondary border border-input text-foreground rounded focus:outline-none focus:ring-2 focus:ring-ring text-sm"
+                            >
+                              <option value="">None (standalone)</option>
+                              {fields
+                                .filter((_, i) => i !== index)
+                                .map((f) => (
+                                  <option key={f.name} value={f.name}>
+                                    {f.label} ({f.name})
+                                  </option>
+                                ))}
+                            </select>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Link this field to another (e.g., email linked to password)
+                            </p>
+                          </div>
+
+                          {/* Link Group */}
+                          <div>
+                            <label className="block text-xs font-medium text-muted-foreground mb-1">
+                              Link Group
+                            </label>
+                            <input
+                              type="text"
+                              value={field.linkGroup || ""}
+                              onChange={(e) => updateField(index, { linkGroup: e.target.value || null })}
+                              placeholder="e.g., credentials"
+                              className="w-full px-3 py-2 bg-secondary border border-input text-foreground rounded focus:outline-none focus:ring-2 focus:ring-ring text-sm placeholder:text-muted-foreground"
+                            />
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Group linked fields together for validation
+                            </p>
                           </div>
                         </div>
                       </div>

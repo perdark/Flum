@@ -81,14 +81,17 @@ export async function GET(
         id: orderItems.id,
         productId: orderItems.productId,
         quantity: orderItems.quantity,
+        fulfilledQuantity: orderItems.fulfilledQuantity,
         unitPrice: orderItems.price,
         subtotal: orderItems.subtotal,
         deliveredInventoryIds: orderItems.deliveredInventoryIds,
-        productName: products.name,
-        productSlug: products.slug,
+        productName: orderItems.productName,
+        productSlug: orderItems.productSlug,
+        productNameFromProduct: products.name,
+        productSlugFromProduct: products.slug,
       })
       .from(orderItems)
-      .innerJoin(products, eq(orderItems.productId, products.id))
+      .leftJoin(products, eq(orderItems.productId, products.id))
       .where(eq(orderItems.orderId, id));
 
     // Get delivery data if fulfilled
@@ -104,7 +107,18 @@ export async function GET(
         claimantName,
         isClaimedByMe: order.claimedBy === user.id,
         isClaimExpired: order.claimExpiresAt ? order.claimExpiresAt < new Date() : false,
-        items,
+        items: items.map((row) => {
+          const {
+            productNameFromProduct,
+            productSlugFromProduct,
+            ...rest
+          } = row;
+          return {
+            ...rest,
+            productName: productNameFromProduct ?? row.productName,
+            productSlug: productSlugFromProduct ?? row.productSlug,
+          };
+        }),
         deliveryData,
       },
     });
@@ -206,13 +220,18 @@ export async function PUT(
         const result = await fulfillOrder(id, user.id);
 
         if (result.success) {
+          const isPartial = result.fulfillmentStatus === "processing";
           return NextResponse.json({
             success: true,
             data: {
-              message: "Order fulfilled successfully",
+              message: isPartial
+                ? `Partially fulfilled — ${result.errors.length} item(s) still need stock`
+                : "Order fulfilled successfully",
+              status: isPartial ? "pending" : "completed",
               fulfillmentStatus: result.fulfillmentStatus,
               deliveredItems: result.deliveredItems,
               errors: result.errors,
+              isPartial,
             },
           });
         } else {
@@ -270,10 +289,37 @@ export async function PUT(
         });
       }
 
+      case "mark_processing": {
+        const [updated] = await db
+          .update(orders)
+          .set({
+            status: "processing",
+            fulfillmentStatus: "processing",
+            processedBy: user.id,
+            updatedAt: new Date(),
+          })
+          .where(eq(orders.id, id))
+          .returning();
+        return NextResponse.json({ success: true, data: updated });
+      }
+
+      case "mark_pending": {
+        const [updated] = await db
+          .update(orders)
+          .set({
+            status: "pending",
+            fulfillmentStatus: "pending",
+            updatedAt: new Date(),
+          })
+          .where(eq(orders.id, id))
+          .returning();
+        return NextResponse.json({ success: true, data: updated });
+      }
+
       case "update_status": {
         // Generic status update
         const updateData: any = { updatedAt: new Date() };
-        if (status && ["pending", "completed", "cancelled", "refunded"].includes(status)) {
+        if (status && ["pending", "processing", "completed", "cancelled", "refunded"].includes(status)) {
           updateData.status = status;
         }
         if (fulfillmentStatus && ["pending", "processing", "delivered", "failed"].includes(fulfillmentStatus)) {
@@ -297,7 +343,11 @@ export async function PUT(
 
       default:
         return NextResponse.json(
-          { success: false, error: "Invalid action. Use: fulfill, complete, cancel, or update_status" },
+          {
+            success: false,
+            error:
+              "Invalid action. Use: fulfill, complete, cancel, mark_processing, mark_pending, or update_status",
+          },
           { status: 400 }
         );
     }

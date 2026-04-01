@@ -25,7 +25,6 @@ import {
   productCategories,
   productImages,
   inventoryTemplates,
-  inventoryBatches,
   inventoryItems,
   offers,
   productOffers,
@@ -33,7 +32,6 @@ import {
   orders,
   orderItems,
   storeSettings,
-  inventoryUnits,
   bundleItems,
   productPricing,
 } from "./db/schema";
@@ -460,12 +458,10 @@ async function resetDatabase(db: any) {
 
   // Delete in order of dependencies (only tables that exist)
   await safeDelete("bundle_items");
-  await safeDelete("inventory_units");
   await safeDelete("product_pricing");
   await safeDelete("order_items");
   await safeDelete("orders");
   await safeDelete("inventory_items");
-  await safeDelete("inventory_batches");
   await safeDelete("product_images");
   await safeDelete("product_categories");
   await safeDelete("product_offers");
@@ -841,21 +837,6 @@ async function seedProductsAndInventory(db: any, categoryMap: Map<string, string
         status: "available",
       }));
       await db.insert(inventoryItems).values(inventoryItemsToInsert).onConflictDoNothing();
-
-      // Create inventory units for multi-sell products
-      if (productData.multiSellEnabled) {
-        const unitsToCreate = Math.min(productData.currentStock || 50, 50);
-        const inventoryUnitsToInsert = Array.from({ length: unitsToCreate }, (_, i) => ({
-          productId: product.id,
-          physicalUnitId: `${product.slug.slice(0, 8)}-${i + 1}`,
-          maxSales: productData.multiSellFactor || 5,
-          cooldownDurationHours: productData.cooldownDurationHours || 12,
-          status: "available" as const,
-          saleCount: 0,
-        }));
-        await db.insert(inventoryUnits).values(inventoryUnitsToInsert).onConflictDoNothing();
-        console.log(`    → Created ${unitsToCreate} inventory units (multi-sell: ${productData.multiSellFactor}x each)`);
-      }
     }
 
     // Create pricing tiers for the product

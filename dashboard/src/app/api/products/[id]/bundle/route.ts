@@ -17,14 +17,15 @@ import { eq } from "drizzle-orm";
 // GET /api/products/[id]/bundle - Get bundle composition
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const db = getDb();
 
     // Verify product exists and is a bundle
     const product = await db.query.products.findFirst({
-      where: eq(products.id, params.id),
+      where: eq(products.id, id),
     });
 
     if (!product) {
@@ -35,7 +36,7 @@ export async function GET(
     }
 
     const items = await db.query.bundleItems.findMany({
-      where: eq(bundleItems.bundleProductId, params.id),
+      where: eq(bundleItems.bundleProductId, id),
       with: {
         product: true,
       },
@@ -75,9 +76,10 @@ export async function GET(
 // POST /api/products/[id]/bundle - Add bundle items in batch
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     await requirePermission(PERMISSIONS.MANAGE_PRODUCTS);
 
     const body = await request.json();
@@ -94,7 +96,7 @@ export async function POST(
 
     // Verify product exists
     const product = await db.query.products.findFirst({
-      where: eq(products.id, params.id),
+      where: eq(products.id, id),
     });
 
     if (!product) {
@@ -108,7 +110,7 @@ export async function POST(
     if (clearExisting) {
       await db
         .delete(bundleItems)
-        .where(eq(bundleItems.bundleProductId, params.id));
+        .where(eq(bundleItems.bundleProductId, id));
     }
 
     // Add new items
@@ -116,7 +118,7 @@ export async function POST(
       .insert(bundleItems)
       .values(
         items.map((item: any) => ({
-          bundleProductId: params.id,
+          bundleProductId: id,
           templateFieldId: item.templateFieldId,
           lineIndex: item.lineIndex || 0,
           productId: item.productId || null,
@@ -132,7 +134,7 @@ export async function POST(
     await db
       .update(products)
       .set({ isBundle: true })
-      .where(eq(products.id, params.id));
+      .where(eq(products.id, id));
 
     return NextResponse.json({
       success: true,
@@ -165,22 +167,23 @@ export async function POST(
 // DELETE /api/products/[id]/bundle - Clear all bundle items
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     await requirePermission(PERMISSIONS.MANAGE_PRODUCTS);
 
     const db = getDb();
 
     await db
       .delete(bundleItems)
-      .where(eq(bundleItems.bundleProductId, params.id));
+      .where(eq(bundleItems.bundleProductId, id));
 
     // Update product as not bundle
     await db
       .update(products)
       .set({ isBundle: false, bundleTemplateId: null })
-      .where(eq(products.id, params.id));
+      .where(eq(products.id, id));
 
     return NextResponse.json({
       success: true,

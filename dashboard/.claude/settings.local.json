@@ -1,7 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm run build:*)"
+      "Bash(grep -l \"stockTypes\\\\|productPurchaseOptions\\\\|productRegionPrices\\\\|inventoryItemProductLinks\" /home/mint/Desktop/Flum/Flum/dashboard/src/**/*.ts /home/mint/Desktop/Flum/Flum/dashboard/src/**/*.tsx)"
     ]
   }
 }

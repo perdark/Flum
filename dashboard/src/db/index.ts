@@ -15,7 +15,7 @@ import * as schema from "./schema";
 
 const globalForDb = global as unknown as {
   pool?: Pool;
-  db?: ReturnType<typeof drizzle>;
+  db?: ReturnType<typeof drizzle<typeof schema>>;
 };
 
 export function getDb() {

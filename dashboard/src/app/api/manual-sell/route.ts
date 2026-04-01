@@ -13,11 +13,19 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { products, orders, orderItems, inventoryItems, orderDeliverySnapshots, productPricing } from "@/db/schema";
+import { products, orders, orderItems, inventoryItems, orderDeliverySnapshots, productPricing, bundleItems } from "@/db/schema";
 import { requirePermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
 import { eq, and, sql, inArray } from "drizzle-orm";
 import { logActivity, logOrderCompleted } from "@/services/activityLog";
+import {
+  pickOneInventoryLine,
+  applySaleToInventoryLine,
+  resetExpiredMultisellCooldowns,
+  decrementLinkedProductStock,
+  type InventoryRowPick,
+} from "@/services/autoDelivery";
+import { sqlInventoryRowsForProduct } from "@/lib/inventoryProductScope";
 
 interface ManualSellItem {
   productId: string;
@@ -33,8 +41,9 @@ interface ManualSellRequest {
     productId: string;
     values: Record<string, string | number | boolean>;
   }>;
-  newCost?: number; // New cost for this sale
-  eachLineIsProduct?: boolean; // Treat each line as separate product
+  newCost?: number;
+  eachLineIsProduct?: boolean;
+  customerType?: "retail" | "merchant";
 }
 
 interface ShortageItem {
@@ -61,7 +70,8 @@ interface DeliveryItem {
 async function checkInventoryAvailability(
   db: any,
   items: ManualSellItem[],
-  productsData: any[]
+  productsData: any[],
+  bundleItemsData: any[] = []
 ): Promise<{
   shortages: ShortageItem[];
   hasShortage: boolean;
@@ -74,30 +84,91 @@ async function checkInventoryAvailability(
     const product = productsData.find((p) => p.id === requestItem.productId);
     if (!product) continue;
 
-    // Count available inventory
-    const countResult = await db.execute(
-      sql`
-        SELECT COUNT(*) as count
-        FROM inventory_items
-        WHERE product_id = ${requestItem.productId}
-          AND status = 'available'
-          AND deleted_at IS NULL
-      `
-    );
+    if (product.isBundle) {
+      // For bundles, check availability of all sub-products
+      const bundleSubItems = bundleItemsData.filter(
+        (bi) => bi.bundleProductId === product.id
+      );
 
-    const available = parseInt(countResult.rows[0].count, 10);
-    availableByProduct.set(requestItem.productId, available);
+      if (bundleSubItems.length === 0) {
+        availableByProduct.set(requestItem.productId, 0);
+        shortages.push({
+          productId: product.id,
+          productName: product.name,
+          requested: requestItem.quantity,
+          available: 0,
+          shortage: requestItem.quantity,
+        });
+        continue;
+      }
 
-    const shortage = Math.max(0, requestItem.quantity - available);
+      // Get available count for each sub-product
+      const subProductIds = [...new Set(bundleSubItems.map((bi) => bi.productId).filter(Boolean))];
+      const subProductCounts = new Map<string, number>();
 
-    if (shortage > 0) {
-      shortages.push({
-        productId: product.id,
-        productName: product.name,
-        requested: requestItem.quantity,
-        available,
-        shortage,
-      });
+      for (const subProductId of subProductIds) {
+        const countResult = await db.execute(
+          sql`
+            SELECT COUNT(*) as count
+            FROM inventory_items
+            WHERE ${sqlInventoryRowsForProduct(subProductId)}
+              AND status = 'available'
+              AND deleted_at IS NULL
+          `
+        );
+        subProductCounts.set(subProductId, parseInt(countResult.rows[0].count, 10));
+      }
+
+      // Calculate how many complete bundles can be made
+      let maxBundles = Infinity;
+      for (const subItem of bundleSubItems) {
+        if (!subItem.productId) continue;
+        const subAvailable = subProductCounts.get(subItem.productId || '') || 0;
+        const needed = subItem.quantity || 1;
+        const possibleBundles = Math.floor(subAvailable / needed);
+        maxBundles = Math.min(maxBundles, possibleBundles);
+      }
+      if (maxBundles === Infinity) maxBundles = 0;
+
+      const available = maxBundles;
+      availableByProduct.set(requestItem.productId, available);
+
+      const shortage = Math.max(0, requestItem.quantity - available);
+      if (shortage > 0) {
+        shortages.push({
+          productId: product.id,
+          productName: product.name,
+          requested: requestItem.quantity,
+          available,
+          shortage,
+        });
+      }
+    } else {
+      // Regular product - count available inventory
+      const countResult = await db.execute(
+        sql`
+          SELECT COUNT(*) as count
+          FROM inventory_items
+          WHERE ${sqlInventoryRowsForProduct(requestItem.productId)}
+            AND status = 'available'
+            AND deleted_at IS NULL
+        `
+      );
+
+      const available = parseInt(countResult.rows[0].count, 10);
+      availableByProduct.set(requestItem.productId, available);
+
+      const shortage = Math.max(0, requestItem.quantity - available);
+
+      if (shortage > 0) {
+        shortages.push({
+          productId: product.id,
+          productName: product.name,
+          requested: requestItem.quantity,
+          available,
+          shortage,
+        });
+      }
     }
   }
 
@@ -109,73 +180,58 @@ async function checkInventoryAvailability(
 }
 
 // Helper: Fulfill items with available inventory (up to requested quantity)
+// Uses pickOneInventoryLine + applySaleToInventoryLine for multi-sell awareness
 async function fulfillItems(
   tx: any,
   productId: string,
   requestedQuantity: number,
-  product: any
+  product: any,
+  unitPrice?: number,
+  orderItemId?: string | null,
+  orderId?: string | null,
+  userId?: string | null
 ): Promise<{
   deliveredItems: DeliveryItem;
   shortage: number;
 }> {
-  // Find and lock available inventory
-  const availableInventory = await tx.execute(
-    sql`
-      SELECT id, values
-      FROM inventory_items
-      WHERE product_id = ${productId}
-        AND status = 'available'
-        AND deleted_at IS NULL
-      ORDER BY created_at ASC
-      LIMIT ${requestedQuantity}
-      FOR UPDATE SKIP LOCKED
-    `
-  );
+  await resetExpiredMultisellCooldowns(tx, productId);
 
-  const inventoryRows = availableInventory.rows as Array<{
-    id: string;
-    values: Record<string, string | number | boolean>;
-  }>;
-
-  const shortage = requestedQuantity - inventoryRows.length;
   const soldItems: Array<{
     inventoryId: string;
     values: Record<string, string | number | boolean>;
   }> = [];
+  const soldIds: string[] = [];
 
-  // Mark found items as sold
-  for (const row of inventoryRows) {
-    await tx
-      .update(inventoryItems)
-      .set({
-        status: "sold",
-        purchasedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(inventoryItems.id, row.id));
+  for (let q = 0; q < requestedQuantity; q++) {
+    const row = await pickOneInventoryLine(tx, productId);
+    if (!row) break;
+
+    const { decrementStock } = await applySaleToInventoryLine(
+      tx,
+      row,
+      orderItemId ?? null,
+      orderId ?? null,
+      userId ?? null
+    );
 
     soldItems.push({
       inventoryId: row.id,
       values: row.values,
     });
+    soldIds.push(row.id);
   }
 
-  // Update product stock count (only for items taken from available inventory)
-  await tx
-    .update(products)
-    .set({
-      stockCount: sql`${products.stockCount} - ${soldItems.length}`,
-      totalSold: sql`${products.totalSold} + ${soldItems.length}`,
-      updatedAt: new Date(),
-    })
-    .where(eq(products.id, productId));
+  // Update stock for all linked products (primary FK + junction table)
+  await decrementLinkedProductStock(tx, soldIds);
+
+  const shortage = requestedQuantity - soldItems.length;
 
   return {
     deliveredItems: {
       productId: product.id,
       productName: product.name,
       quantity: soldItems.length,
-      unitPrice: parseFloat(product.price),
+      unitPrice: unitPrice ?? parseFloat(product.price),
       items: soldItems,
     },
     shortage,
@@ -230,6 +286,103 @@ async function createInventory(
   }));
 }
 
+// Helper: Fulfill bundle items by pulling from sub-product inventories (multi-sell aware)
+async function fulfillBundleItems(
+  tx: any,
+  _bundleProductId: string,
+  requestedQuantity: number,
+  bundleProduct: any,
+  bundleSubItems: any[],
+  unitPrice?: number,
+  orderItemId?: string | null,
+  orderId?: string | null,
+  userId?: string | null
+): Promise<{
+  deliveredItems: DeliveryItem;
+  shortage: number;
+}> {
+  const soldItems: Array<{
+    inventoryId: string;
+    values: Record<string, string | number | boolean>;
+  }> = [];
+
+  const withPid = bundleSubItems.filter((bi) => bi.productId);
+  if (withPid.length === 0) {
+    return {
+      deliveredItems: {
+        productId: bundleProduct.id,
+        productName: bundleProduct.name,
+        quantity: 0,
+        unitPrice: unitPrice ?? parseFloat(bundleProduct.basePrice || bundleProduct.price || "0"),
+        items: [],
+      },
+      shortage: requestedQuantity,
+    };
+  }
+
+  let fulfilledCount = 0;
+  const oid = orderItemId ?? null;
+  const ordId = orderId ?? null;
+
+  for (let bundleIdx = 0; bundleIdx < requestedQuantity; bundleIdx++) {
+    await tx.execute(sql`SAVEPOINT sp_manual_bundle`);
+    try {
+      const batch: Array<{ row: InventoryRowPick; subPid: string }> = [];
+      for (const subItem of withPid) {
+        await resetExpiredMultisellCooldowns(tx, subItem.productId);
+        const need = subItem.quantity || 1;
+        for (let n = 0; n < need; n++) {
+          const row = (await pickOneInventoryLine(tx, subItem.productId)) as InventoryRowPick | null;
+          if (!row) throw new Error("shortage");
+          batch.push({ row, subPid: subItem.productId });
+        }
+      }
+      for (const { row, subPid } of batch) {
+        const { decrementStock } = await applySaleToInventoryLine(
+          tx,
+          row,
+          oid,
+          ordId,
+          userId ?? null
+        );
+        soldItems.push({
+          inventoryId: row.id,
+          values: row.values,
+        });
+        if (decrementStock) {
+          await decrementLinkedProductStock(tx, [row.id]);
+        } else {
+          // Multi-sell partial: still count the sale
+          await tx.execute(sql`
+            UPDATE ${products}
+            SET total_sold = total_sold + 1,
+                updated_at = NOW()
+            WHERE id = ${subPid}
+          `);
+        }
+      }
+      fulfilledCount++;
+      await tx.execute(sql`RELEASE SAVEPOINT sp_manual_bundle`);
+    } catch {
+      await tx.execute(sql`ROLLBACK TO SAVEPOINT sp_manual_bundle`);
+      break;
+    }
+  }
+
+  const shortage = requestedQuantity - fulfilledCount;
+
+  return {
+    deliveredItems: {
+      productId: bundleProduct.id,
+      productName: bundleProduct.name,
+      quantity: fulfilledCount,
+      unitPrice: unitPrice ?? parseFloat(bundleProduct.basePrice || bundleProduct.price || "0"),
+      items: soldItems,
+    },
+    shortage,
+  };
+}
+
 export async function POST(request: NextRequest) {
   try {
     const user = await requirePermission(PERMISSIONS.PROCESS_ORDERS);
@@ -244,6 +397,7 @@ export async function POST(request: NextRequest) {
       eachLineIsProduct,
     } = body;
     let shortageAction: "fail" | "partial" | "add-inventory" | "pending" | undefined = body.shortageAction;
+    const customerType = body.customerType || "retail";
 
     // Validate input
     if (!items || items.length === 0) {
@@ -272,26 +426,67 @@ export async function POST(request: NextRequest) {
         price: products.basePrice,
         deliveryType: products.deliveryType,
         inventoryTemplateId: products.inventoryTemplateId,
+        isBundle: products.isBundle,
       })
       .from(products)
       .where(inArray(products.id, productIds));
 
-    // Get default costs from ProductPricing for admin view
+    // Fetch bundle items for bundle products
+    const bundleProductIds = productsData.filter((p) => p.isBundle).map((p) => p.id);
+    const bundleItemsData = bundleProductIds.length > 0
+      ? await db
+          .select({
+            bundleProductId: bundleItems.bundleProductId,
+            productId: bundleItems.productId,
+            productName: bundleItems.productName,
+            quantity: bundleItems.quantity,
+            templateFieldId: bundleItems.templateFieldId,
+            lineIndex: bundleItems.lineIndex,
+          })
+          .from(bundleItems)
+          .where(inArray(bundleItems.bundleProductId, bundleProductIds))
+      : [];
+
+    // Get pricing tiers for B2B support
     const productCosts = await db
       .select({
         productId: productPricing.productId,
         cost: productPricing.cost,
+        customerType: productPricing.customerType,
+        wholesalePrice: productPricing.wholesalePrice,
+        retailPrice: productPricing.retailPrice,
       })
       .from(productPricing)
       .where(inArray(productPricing.productId, productIds));
 
-    // Create a map of productId -> cost
+    // Create price maps: productId -> price based on customer type
+    const priceMap = new Map<string, number>();
     const costMap = new Map<string, number | null>();
-    productCosts.forEach((pc) => {
-      if (pc.cost !== null) {
-        costMap.set(pc.productId, parseFloat(pc.cost));
+    
+    for (const product of productsData) {
+      // Default to base price
+      let finalPrice = parseFloat(product.price);
+      let finalCost: number | null = null;
+
+      // Find pricing for the customer type
+      const pricing = productCosts.find(
+        (pc) => pc.productId === product.id && pc.customerType === customerType
+      );
+      
+      if (pricing) {
+        if (customerType === "merchant" && pricing.wholesalePrice) {
+          finalPrice = parseFloat(pricing.wholesalePrice);
+        } else if (pricing.retailPrice) {
+          finalPrice = parseFloat(pricing.retailPrice);
+        }
+        if (pricing.cost) {
+          finalCost = parseFloat(pricing.cost);
+        }
       }
-    });
+
+      priceMap.set(product.id, finalPrice);
+      costMap.set(product.id, finalCost);
+    }
 
     if (productsData.length !== productIds.length) {
       return NextResponse.json(
@@ -301,7 +496,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check inventory availability
-    const availability = await checkInventoryAvailability(db, items, productsData);
+    const availability = await checkInventoryAvailability(db, items, productsData, bundleItemsData);
 
     // When no shortageAction specified:
     // - If NO shortage: auto-complete the sale directly
@@ -319,7 +514,7 @@ export async function POST(request: NextRequest) {
           const product = productsData.find(p => p.id === item.productId)!;
           const available = availability.availableByProduct.get(item.productId) || 0;
           const toDeliver = Math.min(item.quantity, available);
-          const unitPrice = parseFloat(product.price);
+          const unitPrice = priceMap.get(product.id) || parseFloat(product.price);
           return {
             productId: item.productId,
             productName: product.name,
@@ -333,7 +528,8 @@ export async function POST(request: NextRequest) {
 
         const totalRequested = items.reduce((sum, item) => {
           const product = productsData.find(p => p.id === item.productId)!;
-          return sum + (parseFloat(product.price) * item.quantity);
+          const unitPrice = priceMap.get(product.id) || parseFloat(product.price);
+          return sum + (unitPrice * item.quantity);
         }, 0);
 
         const totalCanDeliver = potentialDelivery.reduce((sum, item) => {
@@ -402,11 +598,66 @@ export async function POST(request: NextRequest) {
         const product = productsData.find((p) => p.id === requestItem.productId);
         if (!product) continue;
 
+        // Check if product has inventory template for stock tracking
+        if (!product.inventoryTemplateId && !product.isBundle) {
+          // No template = no stock tracking, manual delivery
+          // Create delivery item with no inventory items
+          const itemPrice = priceMap.get(product.id) || parseFloat(product.price);
+          const noStockItem: DeliveryItem = {
+            productId: product.id,
+            productName: product.name,
+            quantity: requestItem.quantity,
+            requestedQuantity: requestItem.quantity,
+            unitPrice: itemPrice,
+            items: [],
+          };
+          deliveryItems.push(noStockItem);
+          actualTotal += requestItem.quantity * itemPrice;
+          actualQuantity += requestItem.quantity;
+          continue;
+        }
+
+        // Handle bundle products
+        if (product.isBundle) {
+          const bundleSubItems = bundleItemsData.filter(
+            (bi) => bi.bundleProductId === product.id
+          );
+
+          const { deliveredItems, shortage } = await fulfillBundleItems(
+            tx,
+            requestItem.productId,
+            requestItem.quantity,
+            product,
+            bundleSubItems,
+            priceMap.get(product.id),
+            null,
+            null,
+            user.id
+          );
+
+          (deliveredItems as any).requestedQuantity = requestItem.quantity;
+          deliveryItems.push(deliveredItems);
+          actualTotal += deliveredItems.quantity * deliveredItems.unitPrice;
+          actualQuantity += deliveredItems.quantity;
+
+          if (shortage > 0 && shortageAction !== "partial") {
+            remainingShortages.push({
+              productId: product.id,
+              productName: product.name,
+              requested: requestItem.quantity,
+              available: deliveredItems.quantity,
+              shortage,
+            });
+          }
+          continue;
+        }
+
         const { deliveredItems, shortage } = await fulfillItems(
           tx,
           requestItem.productId,
           requestItem.quantity,
-          product
+          product,
+          priceMap.get(product.id)
         );
         // Add requestedQuantity to track original request vs delivered
         (deliveredItems as any).requestedQuantity = requestItem.quantity;
@@ -436,8 +687,9 @@ export async function POST(request: NextRequest) {
               // Add created items to delivery
               deliveredItems.items.push(...createdSold);
               deliveredItems.quantity += toFulfill;
-              deliveredItems.unitPrice = parseFloat(product.price);
-              actualTotal += toFulfill * parseFloat(product.price);
+              const itemPrice = priceMap.get(product.id) || parseFloat(product.price);
+              deliveredItems.unitPrice = itemPrice;
+              actualTotal += toFulfill * itemPrice;
               actualQuantity += toFulfill;
             }
 
@@ -481,11 +733,22 @@ export async function POST(request: NextRequest) {
       }
 
       // Determine order status
+      // Check if any product has manual delivery type
+      const hasManualDelivery = deliveryItems.some((di) => {
+        const product = productsData.find(p => p.id === di.productId);
+        return product?.deliveryType === "manual";
+      });
+      
       const hasUnfulfilledItems = remainingShortages.length > 0;
       let orderStatus: "pending" | "completed" = "completed";
       let fulfillmentStatus: "pending" | "processing" | "delivered" = "delivered";
 
-      if (shortageAction === "partial") {
+      if (hasManualDelivery) {
+        // Manual delivery: order stays pending for manual fulfillment from Orders page
+        // Stock is still deducted, but service delivery is manual
+        orderStatus = "pending";
+        fulfillmentStatus = "pending";
+      } else if (shortageAction === "partial") {
         // Partial: order is completed with whatever was delivered
         orderStatus = "completed";
         fulfillmentStatus = "delivered";
@@ -494,7 +757,7 @@ export async function POST(request: NextRequest) {
         orderStatus = "pending";
         fulfillmentStatus = "pending";
       } else if (!hasUnfulfilledItems) {
-        // All items fulfilled
+        // All items fulfilled with auto delivery
         orderStatus = "completed";
         fulfillmentStatus = "delivered";
       }
@@ -520,6 +783,9 @@ export async function POST(request: NextRequest) {
           claimedBy: hasUnfulfilledItems ? user.id : null,
           claimedAt: hasUnfulfilledItems ? new Date() : null,
           claimExpiresAt: hasUnfulfilledItems ? new Date(Date.now() + 30 * 60 * 1000) : null,
+          customerType,
+          pricingTierUsed: customerType === "merchant" ? "wholesale" : "retail",
+          metadata: { saleSource: "manual_product" },
         })
         .returning();
 

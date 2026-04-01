@@ -34,10 +34,30 @@ export async function GET(request: NextRequest, context: RouteContext) {
       .orderBy(sql`${orderDeliverySnapshots.createdAt} DESC`)
       .limit(1);
 
+    // Get order metadata
+    const [orderData] = await db
+      .select({
+        id: orders.id,
+        orderNumber: orders.orderNumber,
+        customerEmail: orders.customerEmail,
+        customerName: orders.customerName,
+        status: orders.status,
+        fulfillmentStatus: orders.fulfillmentStatus,
+        total: orders.total,
+        subtotal: orders.subtotal,
+        customerType: orders.customerType,
+        createdAt: orders.createdAt,
+        deliveredAt: orders.deliveredAt,
+      })
+      .from(orders)
+      .where(eq(orders.id, orderId))
+      .limit(1);
+
     if (snapshot && snapshot.payload && snapshot.payload.items && snapshot.payload.items.length > 0) {
       return NextResponse.json({
         success: true,
         data: {
+          order: orderData || null,
           deliveryItems: snapshot.payload.items,
           fromSnapshot: true,
         },
@@ -87,6 +107,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     return NextResponse.json({
       success: true,
       data: {
+        order: orderData || null,
         deliveryItems,
         fromSnapshot: false,
       },

@@ -2,12 +2,12 @@
  * Standalone Stock API Route
  *
  * POST /api/inventory/standalone - Add stock without requiring a product
- * Allows adding inventory with nullable productId
+ * Allows adding inventory with nullable productId and nullable templateId
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { inventoryItems, inventoryBatches, products } from "@/db/schema";
+import { inventoryItems, products, productVariants } from "@/db/schema";
 import { requirePermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
 import { eq, sql } from "drizzle-orm";
@@ -17,16 +17,23 @@ export async function POST(request: NextRequest) {
     const user = await requirePermission(PERMISSIONS.MANAGE_INVENTORY);
 
     const body = await request.json();
-    const { templateId, productId, items, batchName, eachLineIsProduct } = body;
+    const {
+      templateId,
+      productId,
+      items,
+      cost,
+      eachLineIsProduct,
+      variantId,
+    } = body as {
+      templateId?: string | null;
+      productId?: string | null;
+      items: unknown[];
+      cost?: string | number | null;
+      eachLineIsProduct?: boolean;
+      variantId?: string | null;
+    };
 
-    // Validate input
-    if (!templateId) {
-      return NextResponse.json(
-        { success: false, error: "Template ID is required" },
-        { status: 400 }
-      );
-    }
-
+    // Validate input - templateId is now optional (for custom-field inventory)
     if (!items || !Array.isArray(items) || items.length === 0) {
       return NextResponse.json(
         { success: false, error: "Items array is required and must not be empty" },
@@ -53,49 +60,59 @@ export async function POST(request: NextRequest) {
 
     const db = getDb();
 
-    // Create batch if batchName is provided
-    let batchId = null;
-    if (batchName) {
-      const [batch] = await db
-        .insert(inventoryBatches)
-        .values({
-          name: batchName,
-          source: "standalone_stock",
-          createdBy: user.id,
-        })
-        .returning();
-      batchId = batch.id;
-    }
-
-    // Insert inventory items
-    const itemsToInsert = items.map((item: Record<string, string>) => ({
-      templateId,
-      productId: productId || null,
-      batchId,
-      values: {
-        ...item,
-        _metadata: {
-          eachLineIsProduct,
-          batchName: batchName || undefined,
+    // Insert inventory items - templateId is now optional
+    const itemsToInsert = (items as Array<Record<string, unknown>>).map((item) => {
+      const {
+        multiSellEnabled,
+        multiSellMax,
+        cooldownEnabled,
+        cooldownDurationHours,
+        ...rest
+      } = item as Record<string, unknown>;
+      return {
+        templateId: templateId || null,
+        productId: productId || null,
+        variantId: variantId || null,
+        cost: cost || null,
+        values: {
+          ...rest,
+          _metadata: {
+            eachLineIsProduct,
+            hasTemplate: !!templateId,
+          },
         },
-      },
-      status: "available",
-    }));
+        status: "available" as const,
+        multiSellEnabled: Boolean(multiSellEnabled) || false,
+        multiSellMax: Math.max(1, parseInt(String(multiSellMax ?? 5), 10) || 5),
+        cooldownEnabled: Boolean(cooldownEnabled) || false,
+        cooldownDurationHours: Math.max(1, parseInt(String(cooldownDurationHours ?? 12), 10) || 12),
+      };
+    });
 
     const insertedItems = await db
       .insert(inventoryItems)
       .values(itemsToInsert)
       .returning();
 
-    // Update product stock count if productId is provided
     if (productId) {
       await db
         .update(products)
         .set({
-          stockCount: sql`stock_count + ${items.length}`,
+          stockCount: sql`${products.stockCount} + ${insertedItems.length}`,
           updatedAt: new Date(),
         })
         .where(eq(products.id, productId));
+
+      // Also update variant stockCount if variant specified
+      if (variantId) {
+        await db
+          .update(productVariants)
+          .set({
+            stockCount: sql`${productVariants.stockCount} + ${insertedItems.length}`,
+            updatedAt: new Date(),
+          })
+          .where(eq(productVariants.id, variantId));
+      }
     }
 
     return NextResponse.json({

@@ -1,12 +1,12 @@
 /**
  * Link Unlinked Inventory API Route
  *
- * POST /api/inventory/link - Link unlinked inventory items to a product
+ * POST /api/inventory/link - Link unlinked inventory items to a product (and optionally a variant)
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { inventoryItems, products } from "@/db/schema";
+import { inventoryItems, products, productVariants } from "@/db/schema";
 import { requirePermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
 import { eq, sql, and, isNull, inArray } from "drizzle-orm";
@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
     const user = await requirePermission(PERMISSIONS.MANAGE_INVENTORY);
 
     const body = await request.json();
-    const { inventoryIds, productId } = body;
+    const { inventoryIds, productId, variantId } = body;
 
     // Validate input
     if (!inventoryIds || !Array.isArray(inventoryIds) || inventoryIds.length === 0) {
@@ -72,6 +72,7 @@ export async function POST(request: NextRequest) {
       .update(inventoryItems)
       .set({
         productId,
+        variantId: variantId || null,
         updatedAt: new Date(),
       })
       .where(inArray(inventoryItems.id, inventoryIds));
@@ -84,6 +85,17 @@ export async function POST(request: NextRequest) {
         updatedAt: new Date(),
       })
       .where(eq(products.id, productId));
+
+    // Also update variant stockCount if variant specified
+    if (variantId) {
+      await db
+        .update(productVariants)
+        .set({
+          stockCount: sql`${productVariants.stockCount} + ${items.length}`,
+          updatedAt: new Date(),
+        })
+        .where(eq(productVariants.id, variantId));
+    }
 
     return NextResponse.json({
       success: true,

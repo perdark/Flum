@@ -61,7 +61,7 @@ export const PERMISSIONS = {
 export type Permission = typeof PERMISSIONS[keyof typeof PERMISSIONS];
 
 // Role to permissions mapping
-export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
+export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
   admin: [
     PERMISSIONS.MANAGE_STAFF,
     PERMISSIONS.MANAGE_COUPONS,
@@ -81,6 +81,10 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     PERMISSIONS.VIEW_ORDERS,
     PERMISSIONS.PROCESS_ORDERS,
   ],
+  merchant: [
+    PERMISSIONS.VIEW_PRODUCTS,
+    PERMISSIONS.VIEW_ORDERS,
+  ],
 };
 
 // ============================================================================
@@ -97,6 +101,8 @@ export type InventoryFieldDefinition = {
   isVisibleToCustomer: boolean;
   repeatable: boolean;
   eachLineIsProduct: boolean;
+  linkedTo: string | null;
+  linkGroup: string | null;
   parentId: string | null;
   displayOrder: number;
 };
@@ -111,6 +117,8 @@ export interface TemplateField {
   isVisibleToCustomer: boolean;
   repeatable?: boolean;
   eachLineIsProduct?: boolean;
+  linkedTo?: string | null;
+  linkGroup?: string | null;
   parentId?: string | null;
   displayOrder?: number;
 }
@@ -140,6 +148,47 @@ export type ProductWithRelations = {
 };
 
 // ============================================================================
+// STOCK TYPE ENUMS
+// ============================================================================
+
+export type SaleType = "inventory_stock" | "product_auto" | "product_manual";
+
+// ============================================================================
+// STOCK MISMATCH ALERT TYPES
+// ============================================================================
+
+export interface StockMismatchField {
+  fieldName: string;
+  fieldLabel: string;
+  totalCount: number;
+  linkedFieldName: string | null;
+  linkedFieldTotalCount: number | null;
+  unmatchedCount: number;
+}
+
+export interface StockMismatchAlert {
+  templateId: string;
+  templateName: string;
+  stockTypeName: string | null;
+  productId: string | null;
+  productName: string | null;
+  fields: StockMismatchField[];
+  sellableQuantity: number;
+  totalAvailable: number;
+  severity: "info" | "warning" | "error";
+}
+
+export interface StockAvailability {
+  templateId: string;
+  productId: string | null;
+  fieldCounts: Record<string, number>;
+  linkedGroups: Record<string, { fields: string[]; minCount: number }>;
+  sellableQuantity: number;
+  hasMismatch: boolean;
+  mismatches: StockMismatchField[];
+}
+
+// ============================================================================
 // INVENTORY TYPES
 // ============================================================================
 
@@ -147,9 +196,10 @@ export type InventoryStatus = "available" | "reserved" | "sold" | "expired";
 
 export type InventoryItem = {
   id: string;
-  templateId: string;
+  templateId: string | null;
   productId: string;
   values: Record<string, string | number | boolean>;
+  cost?: string | null;
   status: InventoryStatus;
   orderItemId: string | null;
   reservedUntil: Date | null;
@@ -208,7 +258,12 @@ export interface BundleItem {
 // ORDER TYPES
 // ============================================================================
 
-export type OrderStatus = "pending" | "completed" | "cancelled" | "refunded";
+export type OrderStatus =
+  | "pending"
+  | "processing"
+  | "completed"
+  | "cancelled"
+  | "refunded";
 export type FulfillmentStatus = "pending" | "processing" | "delivered" | "failed";
 
 export interface CreateOrderInput {
@@ -304,8 +359,6 @@ export type ActivityAction =
   | "currency_updated"
   | "currency_deleted"
   | "settings_updated"
-  | "batch_created"
-  | "batch_rolled_back"
   | "manual_sell"
   | "login"
   | "logout";
@@ -353,23 +406,34 @@ export interface AnalyticsDashboard {
     today: string;
     thisMonth: string;
     thisWeek: string;
+    trend: string;
   };
   orders: {
     total: number;
     today: number;
     pending: number;
+    processing: number;
     completed: number;
+    manualInventory: number;
+    manualProduct: number;
+    pendingValue: string;
   };
   products: {
     total: number;
     active: number;
     lowStock: number;
+    lowStockItems: Array<{ id: string; name: string; stockCount: number }>;
     topSellers: Array<{
       id: string;
       name: string;
       sold: number;
       revenue: string;
     }>;
+  };
+  stock: {
+    totalItems: number;
+    availableItems: number;
+    soldInPeriod: number;
   };
   salesChart: Array<{
     date: string;

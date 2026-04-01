@@ -134,8 +134,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     // Get product costs for items that need fulfillment
     const productIdsNeedingFulfillment = orderItemsData
-      .filter(item => (item.deliveredInventoryIds?.length || 0) < item.quantity)
-      .map(item => item.productId);
+      .filter((item) => (item.deliveredInventoryIds?.length || 0) < item.quantity)
+      .map((item) => item.productId)
+      .filter((id): id is string => Boolean(id));
 
     // Fetch costs from ProductPricing using inArray from drizzle
     let productCosts: Array<{ productId: string; cost: string | null }> = [];
@@ -187,9 +188,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
       let allFulfilled = true;
 
       for (const orderItem of orderItemsData) {
+        const lineProductId = orderItem.productId;
+        if (!lineProductId) continue;
+
         const currentlyDelivered = (orderItem.deliveredInventoryIds || []).length;
         const stillNeeded = orderItem.quantity - currentlyDelivered;
-        const itemsToAdd = inventoryByProduct.get(orderItem.productId) || [];
+        const itemsToAdd = inventoryByProduct.get(lineProductId) || [];
 
         const toFulfillCount = Math.min(stillNeeded, itemsToAdd.length);
         const extraCount = Math.max(0, itemsToAdd.length - toFulfillCount);
@@ -202,7 +206,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
           const [inserted] = await tx
             .insert(inventoryItems)
             .values({
-              productId: orderItem.productId,
+              productId: lineProductId,
               templateId: orderItem.inventoryTemplateId!,
               values: itemRequest.values || {},
               status: "sold",
@@ -222,7 +226,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
               totalSold: sql`${products.totalSold} + ${toFulfillCount}`,
               updatedAt: new Date(),
             })
-            .where(eq(products.id, orderItem.productId));
+            .where(eq(products.id, lineProductId));
         }
 
         // Create extra items as available for future sales
@@ -232,7 +236,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
           const [inserted] = await tx
             .insert(inventoryItems)
             .values({
-              productId: orderItem.productId,
+              productId: lineProductId,
               templateId: orderItem.inventoryTemplateId!,
               values: itemRequest.values || {},
               status: "available",
@@ -248,7 +252,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
               stockCount: sql`${products.stockCount} + ${extraCount}`,
               updatedAt: new Date(),
             })
-            .where(eq(products.id, orderItem.productId));
+            .where(eq(products.id, lineProductId));
         }
 
         // Update order item with new inventory IDs and cost
@@ -259,8 +263,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
         // Use provided newCost, or fetch from product pricing, or keep existing
         if (newCost !== undefined) {
           updateValues.cost = newCost.toString();
-        } else if (costMap.has(orderItem.productId)) {
-          const productCost = costMap.get(orderItem.productId);
+        } else if (costMap.has(lineProductId)) {
+          const productCost = costMap.get(lineProductId);
           if (productCost !== null && productCost !== undefined) {
             updateValues.cost = productCost.toString();
           }

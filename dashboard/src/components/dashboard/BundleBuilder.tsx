@@ -177,6 +177,13 @@ export function BundleBuilder({
 
   return (
     <div className="space-y-6">
+      <div className="p-3 rounded-lg border border-info/30 bg-info/10 text-xs text-muted-foreground">
+        <p className="font-medium text-foreground mb-1">Automatic codes from linked products</p>
+        <p>
+          Use the search control (🔍) to bind each bundle slot to a catalog product that has its own stock.
+          When the bundle is sold (manual sell or order), the system reserves one inventory line per linked product — for example one GTA 4 key and one GTA 5 key — without pasting codes on the bundle itself.
+        </p>
+      </div>
       {repeatableFields.map((field) => {
         const fieldItems = getFieldItems(field.name);
         const fieldConfig = template.fieldsSchema.find((f) => f.name === field.name);

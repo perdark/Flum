@@ -149,6 +149,7 @@ export function hasPermission(
 ): boolean {
   if (!user) return false;
   if (!user.isActive) return false;
+  if (!user.role) return false;
 
   const permissions = ROLE_PERMISSIONS[user.role];
   return permissions.includes(permission);

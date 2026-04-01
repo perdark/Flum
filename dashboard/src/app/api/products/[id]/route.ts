@@ -14,9 +14,10 @@ import {
   productImages,
   categories,
   inventoryTemplates,
-  inventoryUnits,
   bundleItems,
-  productPricing,
+  productVariants,
+  productOptionGroups,
+  productOptionValues,
 } from "@/db/schema";
 import { requirePermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
@@ -92,8 +93,8 @@ export async function GET(
       );
     }
 
-    // Get categories and images
-    const [categoryLinks, images] = await Promise.all([
+    // Get categories, images, variants, option groups
+    const [categoryLinks, images, variants, optionGroups] = await Promise.all([
       db.select({
         id: categories.id,
         name: categories.name,
@@ -107,7 +108,28 @@ export async function GET(
         .from(productImages)
         .where(eq(productImages.productId, id))
         .orderBy(productImages.sortOrder),
+      db.select().from(productVariants).where(eq(productVariants.productId, id)),
+      db.select({
+        id: productOptionGroups.id,
+        name: productOptionGroups.name,
+        sortOrder: productOptionGroups.sortOrder,
+      }).from(productOptionGroups).where(eq(productOptionGroups.productId, id)),
     ]);
+
+    // Fetch option values for each group
+    const groupIds = optionGroups.map(g => g.id);
+    let optionValues: any[] = [];
+    if (groupIds.length > 0) {
+      optionValues = await db
+        .select()
+        .from(productOptionValues)
+        .where(inArray(productOptionValues.optionGroupId, groupIds));
+    }
+
+    const optionGroupsWithValues = optionGroups.map(g => ({
+      ...g,
+      values: optionValues.filter(v => v.optionGroupId === g.id),
+    }));
 
     return NextResponse.json({
       success: true,
@@ -115,6 +137,8 @@ export async function GET(
         ...product,
         categories: categoryLinks,
         images,
+        variants,
+        optionGroups: optionGroupsWithValues,
       },
     });
   } catch (error) {
@@ -159,11 +183,6 @@ export async function PUT(
       videoThumbnail,
       categoryIds,
       images,
-      // Multi-sell fields
-      multiSellEnabled,
-      multiSellFactor,
-      cooldownEnabled,
-      cooldownDurationHours,
       // Bundle fields
       isBundle,
       bundleTemplateId,
@@ -261,24 +280,6 @@ export async function PUT(
     if (videoThumbnail !== undefined) {
       changes.videoThumbnail = { from: existing.videoThumbnail, to: videoThumbnail };
       updateData.videoThumbnail = videoThumbnail?.trim() || null;
-    }
-
-    // Multi-sell fields
-    if (multiSellEnabled !== undefined) {
-      changes.multiSellEnabled = { from: existing.multiSellEnabled, to: multiSellEnabled };
-      updateData.multiSellEnabled = multiSellEnabled;
-    }
-    if (multiSellFactor !== undefined) {
-      changes.multiSellFactor = { from: existing.multiSellFactor, to: multiSellFactor };
-      updateData.multiSellFactor = multiSellFactor;
-    }
-    if (cooldownEnabled !== undefined) {
-      changes.cooldownEnabled = { from: existing.cooldownEnabled, to: cooldownEnabled };
-      updateData.cooldownEnabled = cooldownEnabled;
-    }
-    if (cooldownDurationHours !== undefined) {
-      changes.cooldownDurationHours = { from: existing.cooldownDurationHours, to: cooldownDurationHours };
-      updateData.cooldownDurationHours = cooldownDurationHours;
     }
 
     // Bundle fields

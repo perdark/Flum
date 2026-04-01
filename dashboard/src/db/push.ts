@@ -243,6 +243,9 @@ async function main() {
   await sql.query(`ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS batch_id UUID REFERENCES inventory_batches(id) ON DELETE SET NULL`);
   await sql.query(`CREATE INDEX IF NOT EXISTS inventory_items_batch_idx ON inventory_items(batch_id)`);
 
+  // Add cost column to inventory_items
+  await sql.query(`ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS cost DECIMAL(10,2)`);
+
   // Orders table
   await sql.query(`
     CREATE TABLE orders (
@@ -375,7 +378,7 @@ async function main() {
 
   // Activity Logs table
   await sql.query(`
-    CREATE TABLE activity_logs (
+    CREATE TABLE IF NOT EXISTS activity_logs (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       user_id UUID REFERENCES users(id) ON DELETE SET NULL,
       action VARCHAR(100) NOT NULL,

@@ -1,63 +1,73 @@
 /**
- * Manual Sell Page
+ * Manual Sell Page — POS-style Interface
  *
- * Manual sales workflow with shortage handling
+ * Three sections: Stocks | Products (Auto) | Products (Manual)
+ * Stocks groups products by inventory template for stock-centric selling.
+ * Virtualized lists handle 100+ items efficiently.
  */
 
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { toast } from "sonner";
+import { formatCurrency, cn } from "@/lib/utils";
+
+// ============================================================================
+// Types
+// ============================================================================
+
+interface Variant {
+  id: string;
+  optionCombination: Record<string, string>;
+  price: string;
+  compareAtPrice: string | null;
+  stockCount: number;
+  isDefault: boolean;
+  isActive: boolean;
+}
 
 interface Product {
   id: string;
   name: string;
-  price: string;
+  slug: string;
+  sku?: string | null;
+  basePrice: string;
+  price?: string;
+  isActive?: boolean;
   stockCount: number;
   availableCount: number;
-  templateName: string | null;
+  deliveryType: string;
   inventoryTemplateId: string | null;
-  templateFields?: TemplateField[];
+  templateName?: string | null;
+  fieldsSchema?: any;
+  isBundle: boolean;
+  variants?: Variant[];
 }
 
-interface SellItem {
+interface CategoryOption {
+  id: string;
+  name: string;
+}
+
+interface CartItem {
   productId: string;
-  quantity: number;
   productName: string;
+  variantId: string | null;
+  variantLabel: string | null;
+  price: number;
+  quantity: number;
   available: number;
+  deliveryType: string;
 }
 
-interface ShortageItem {
+interface ShortageInfo {
   productId: string;
   productName: string;
   requested: number;
   available: number;
   shortage: number;
-}
-
-interface AvailabilityCheck {
-  hasShortage: boolean;
-  shortageItems: ShortageItem[];
-  potentialDelivery: Array<{
-    productId: string;
-    productName: string;
-    requested: number;
-    available: number;
-    canDeliver: number;
-    shortage: number;
-    subtotalIfPartial: string;
-  }>;
-  totals: {
-    requested: string;
-    canDeliver: string;
-  };
-  options: {
-    partial?: string;
-    addInventory?: string;
-    pending?: string;
-    complete?: string;
-  };
 }
 
 interface OrderResult {
@@ -72,1006 +82,1192 @@ interface OrderResult {
       values: Record<string, string | number | boolean>;
     }>;
   }>;
-  shortageItems: ShortageItem[];
+  shortageItems?: ShortageInfo[];
   hasShortage: boolean;
 }
 
-interface TemplateField {
-  name: string;
-  type: "string" | "number" | "boolean";
-  label: string;
-  required: boolean;
+type TabKey = "stocks" | "auto" | "manual";
+
+interface InventoryItem {
+  id: string;
+  values: Record<string, string | number | boolean>;
+  status: string;
+  productId: string | null;
+  productName: string | null;
+  templateId: string | null;
+  createdAt: string;
 }
 
+interface InventoryGroup {
+  groupId: string;        // productId or "__unlinked__"
+  groupName: string;      // product name or "Unlinked"
+  productId: string | null;
+  items: InventoryItem[];
+}
+
+const PAGE_SIZE = 80;
+
+function flattenCategoryTree(nodes: unknown[], prefix = "", depth = 0): CategoryOption[] {
+  const out: CategoryOption[] = [];
+  for (const node of nodes as Array<{ id: string; name: string; children?: unknown[] }>) {
+    out.push({ id: node.id, name: prefix + node.name });
+    if (node.children && node.children.length > 0) {
+      out.push(...flattenCategoryTree(node.children, prefix + node.name + " / ", depth + 1));
+    }
+  }
+  return out;
+}
+
+function productPrice(p: Product): string {
+  return p.basePrice ?? p.price ?? "0";
+}
+
+// ============================================================================
+// Main Page
+// ============================================================================
+
 export default function ManualSellPage() {
-  const router = useRouter();
-  const [products, setProducts] = useState<Product[]>([]);
-  const [templates, setTemplates] = useState<any[]>([]);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
-  const [sellItems, setSellItems] = useState<SellItem[]>([]);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+
+  const [searchInput, setSearchInput] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [categoryId, setCategoryId] = useState("");
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
+
+  const [activeTab, setActiveTab] = useState<TabKey>("stocks");
+  const [pickingVariantFor, setPickingVariantFor] = useState<Product | null>(null);
+
+  const [cart, setCart] = useState<CartItem[]>([]);
   const [customerEmail, setCustomerEmail] = useState("");
   const [customerName, setCustomerName] = useState("");
+  const [customerType, setCustomerType] = useState<"retail" | "merchant">("retail");
   const [processing, setProcessing] = useState(false);
-  const [newCost, setNewCost] = useState("");
-  const [showCostField, setShowCostField] = useState(false);
-  const [sortBy, setSortBy] = useState("name");
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
-  const [orderResult, setOrderResult] = useState<OrderResult | null>(null);
-  const [shortageModal, setShortageModal] = useState<{
-    show: boolean;
-    data: AvailabilityCheck | null;
-  }>({ show: false, data: null });
 
+  const [shortageData, setShortageData] = useState<{
+    items: ShortageInfo[];
+    potentialDelivery: any[];
+  } | null>(null);
+
+  const [orderResult, setOrderResult] = useState<OrderResult | null>(null);
+
+  // Debounce search
   useEffect(() => {
-    fetchProducts();
-    fetchTemplates();
+    const t = setTimeout(() => setDebouncedSearch(searchInput.trim()), 320);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  // Load categories
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/categories?asTree=true");
+        const data = await res.json();
+        if (data.success && Array.isArray(data.data)) {
+          setCategories(flattenCategoryTree(data.data));
+        }
+      } catch {
+        /* optional */
+      }
+    })();
   }, []);
 
-  const fetchProducts = async () => {
+  // "/" hotkey focuses search
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey) return;
+      const el = document.activeElement;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT")) return;
+      e.preventDefault();
+      searchRef.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const normalizeRows = (rows: unknown[]): Product[] =>
+    (rows as Product[])
+      .filter((p) => p.isActive !== false)
+      .map((p) => ({
+        ...p,
+        basePrice: String(p.basePrice ?? p.price ?? "0"),
+        deliveryType: p.deliveryType ?? "auto",
+      }));
+
+  const loadInitial = useCallback(async () => {
+    setLoading(true);
     try {
-      // Fetch enough products so the picker works for ~150 products.
-      const res = await fetch("/api/products/summary?limit=500");
+      const params = new URLSearchParams({
+        limit: String(PAGE_SIZE),
+        offset: "0",
+        isActive: "true",
+      });
+      if (debouncedSearch) params.set("search", debouncedSearch);
+      if (categoryId) params.set("categoryId", categoryId);
+      const res = await fetch(`/api/products/summary?${params}`);
       const data = await res.json();
-      if (data.success) {
-        // Template fields are shipped in /api/products/summary as `fieldsSchema`.
-        const productsWithTemplates = data.data.map((p: any) => ({
-          ...p,
-          templateFields: p.fieldsSchema || [],
-        }));
-        setProducts(productsWithTemplates.filter((p: Product) => (p as any).isActive !== false));
-      }
-    } catch (err) {
-      console.error("Failed to load products");
+      if (!data.success) throw new Error("bad response");
+      setAllProducts(normalizeRows(data.data));
+      setHasMore(Boolean(data.pagination?.hasMore));
+    } catch {
+      toast.error("Failed to load catalog");
+      setAllProducts([]);
+      setHasMore(false);
     } finally {
       setLoading(false);
     }
-  };
+  }, [debouncedSearch, categoryId]);
 
-  const fetchTemplates = async () => {
+  useEffect(() => {
+    loadInitial();
+  }, [loadInitial]);
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore || loading) return;
+    setLoadingMore(true);
     try {
-      const res = await fetch("/api/inventory/templates");
+      const params = new URLSearchParams({
+        limit: String(PAGE_SIZE),
+        offset: String(allProducts.length),
+        isActive: "true",
+      });
+      if (debouncedSearch) params.set("search", debouncedSearch);
+      if (categoryId) params.set("categoryId", categoryId);
+      const res = await fetch(`/api/products/summary?${params}`);
       const data = await res.json();
-      if (data.success) {
-        setTemplates(data.data);
-      }
-    } catch (err) {
-      console.error("Failed to load templates");
+      if (!data.success) throw new Error("bad response");
+      const next = normalizeRows(data.data);
+      setAllProducts((prev) => [...prev, ...next]);
+      setHasMore(Boolean(data.pagination?.hasMore));
+    } catch {
+      toast.error("Failed to load more");
+    } finally {
+      setLoadingMore(false);
     }
+  }, [loadingMore, hasMore, loading, allProducts.length, debouncedSearch, categoryId]);
+
+  // ── Split products into sections ──────────────────────────────────────────
+
+  const { productsById, autoProducts, manualProducts } = useMemo(() => {
+    const byId = new Map<string, Product>();
+    const auto: Product[] = [];
+    const manual: Product[] = [];
+
+    for (const p of allProducts) {
+      byId.set(p.id, p);
+      if (p.inventoryTemplateId) {
+        auto.push(p);
+      } else {
+        manual.push(p);
+      }
+    }
+
+    return { productsById: byId, autoProducts: auto, manualProducts: manual };
+  }, [allProducts]);
+
+  // stocks tab count is driven by StocksTab's own fetch; use a ref to track it
+  const [stocksCount, setStocksCount] = useState(0);
+
+  const tabCounts: Record<TabKey, number> = {
+    stocks: stocksCount,
+    auto: autoProducts.length,
+    manual: manualProducts.length,
   };
 
-  const addSellItem = (productId: string, quantity: number) => {
-    const product = products.find((p) => p.id === productId);
-    if (!product) return;
+  // ── Add to cart ───────────────────────────────────────────────────────────
 
-    const existingIndex = sellItems.findIndex((i) => i.productId === productId);
+  const addToCart = useCallback((product: Product, variant: Variant | null, qty = 1) => {
+    const variantId = variant?.id || null;
+    const variantLabel = variant && Object.keys(variant.optionCombination).length > 0
+      ? Object.values(variant.optionCombination).join(" / ")
+      : null;
+    const price = variant ? parseFloat(variant.price) : parseFloat(productPrice(product));
+    const available = variant ? variant.stockCount : product.availableCount;
+    const safeQty = Math.max(1, qty);
 
-    if (existingIndex >= 0) {
-      const newItems = [...sellItems];
-      newItems[existingIndex].quantity += quantity;
-      setSellItems(newItems);
-    } else {
-      setSellItems([
-        ...sellItems,
+    setCart((prev) => {
+      const existingIdx = prev.findIndex(
+        (ci) => ci.productId === product.id && ci.variantId === variantId
+      );
+      if (existingIdx >= 0) {
+        const updated = [...prev];
+        updated[existingIdx] = {
+          ...updated[existingIdx],
+          quantity: updated[existingIdx].quantity + safeQty,
+        };
+        return updated;
+      }
+      return [
+        ...prev,
         {
           productId: product.id,
-          quantity,
           productName: product.name,
-          available: (product as any).availableCount || 0,
+          variantId,
+          variantLabel,
+          price,
+          quantity: safeQty,
+          available: product.deliveryType === "manual" ? 999 : available,
+          deliveryType: product.deliveryType,
         },
-      ]);
-    }
-  };
+      ];
+    });
+    setPickingVariantFor(null);
+  }, []);
 
-  const updateSellItemQuantity = (productId: string, quantity: number) => {
-    setSellItems(
-      sellItems
-        .map((item) =>
-          item.productId === productId ? { ...item, quantity } : item
-        )
-        .filter((item) => item.quantity > 0)
-    );
-  };
-
-  const removeSellItem = (productId: string) => {
-    setSellItems(sellItems.filter((item) => item.productId !== productId));
-  };
-
-  const checkAvailability = async () => {
-    if (sellItems.length === 0) {
-      toast.error("Please add items to sell");
-      return null;
-    }
-
-    if (!customerEmail) {
-      toast.error("Please enter customer email");
-      return null;
-    }
-
-    setProcessing(true);
+  const handleProductClick = useCallback(async (product: Product, qty = 1) => {
     try {
-      const res = await fetch("/api/manual-sell", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          items: sellItems.map((i) => ({ productId: i.productId, quantity: i.quantity })),
-          customerEmail,
-          customerName: customerName || undefined,
-        }),
-      });
-
+      const res = await fetch(`/api/products/${product.id}/variants`);
       const data = await res.json();
-
-      if (data.success && data.action === "check") {
-        return data.data;
-      } else if (data.success && data.data.orderId) {
-        // Sale completed directly (no shortage)
-        setOrderResult(data.data);
-        return null;
-      } else {
-        toast.error(data.error || "Failed to check availability");
-        return null;
+      if (data.success && data.data.length > 1) {
+        setPickingVariantFor({ ...product, variants: data.data.filter((v: Variant) => v.isActive) });
+        return;
       }
-    } catch (err) {
-      toast.error("Failed to check availability");
-      return null;
-    } finally {
-      setProcessing(false);
+      const defaultVariant = data.data?.[0] || null;
+      addToCart(product, defaultVariant, qty);
+    } catch {
+      addToCart(product, null, qty);
     }
+  }, [addToCart]);
+
+  const updateQuantity = (index: number, qty: number) => {
+    if (qty <= 0) {
+      setCart((prev) => prev.filter((_, i) => i !== index));
+      return;
+    }
+    setCart((prev) => prev.map((ci, i) => (i === index ? { ...ci, quantity: qty } : ci)));
   };
 
-  const processSale = async (action?: "partial" | "add-inventory" | "pending", inventoryItemsToAdd?: Array<{ productId: string; values: Record<string, string | number | boolean> }>) => {
+  const removeFromCart = (index: number) => {
+    setCart((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const totalItems = cart.reduce((s, ci) => s + ci.quantity, 0);
+  const totalPrice = cart.reduce((s, ci) => s + ci.price * ci.quantity, 0);
+
+  // ── Checkout ──────────────────────────────────────────────────────────────
+
+  const handleCheckout = async (shortageAction?: "partial" | "pending") => {
+    if (cart.length === 0) return toast.error("Cart is empty");
+    if (!customerEmail) return toast.error("Customer email is required");
+
     setProcessing(true);
+    setShortageData(null);
+
     try {
       const res = await fetch("/api/manual-sell", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          items: sellItems.map((i) => ({ productId: i.productId, quantity: i.quantity })),
+          items: cart.map((ci) => ({
+            productId: ci.productId,
+            quantity: ci.quantity,
+            variantId: ci.variantId,
+          })),
           customerEmail,
           customerName: customerName || undefined,
-          shortageAction: action,
-          inventoryItemsToAdd,
-          newCost: showCostField && newCost ? parseFloat(newCost) : undefined,
+          customerType,
+          shortageAction,
         }),
       });
 
       const data = await res.json();
 
-      if (data.success) {
-        setOrderResult(data.data);
-        setShortageModal({ show: false, data: null });
-      } else {
+      if (!data.success) {
         toast.error(data.error || "Sale failed");
+        return;
       }
-    } catch (err) {
+
+      if (data.action === "check" && data.data?.hasShortage) {
+        setShortageData({
+          items: data.data.shortageItems,
+          potentialDelivery: data.data.potentialDelivery,
+        });
+        return;
+      }
+
+      if (data.data?.orderId) {
+        setOrderResult(data.data);
+        toast.success("Sale completed!");
+      }
+    } catch {
       toast.error("Sale failed");
     } finally {
       setProcessing(false);
     }
   };
 
-  const handleCompleteSale = async () => {
-    const availability = await checkAvailability();
-    if (availability) {
-      setShortageModal({ show: true, data: availability });
-    }
-  };
-
   const resetSale = () => {
     setOrderResult(null);
-    setSellItems([]);
+    setShortageData(null);
+    setCart([]);
     setCustomerEmail("");
     setCustomerName("");
-    setShortageModal({ show: false, data: null });
+    setSearchInput("");
+    setDebouncedSearch("");
+    void loadInitial();
+    searchRef.current?.focus();
   };
 
-  const viewDelivery = () => {
-    if (orderResult) {
-      router.push(`/dashboard/manual-sell/${orderResult.orderId}`);
-    }
-  };
+  // ── Render: Order result ──────────────────────────────────────────────────
 
-  // Calculate totals
-  const totalItems = sellItems.reduce((sum, item) => sum + item.quantity, 0);
-  const totalValue = sellItems.reduce((sum, item) => {
-    const product = products.find((p) => p.id === item.productId);
-    return sum + (parseFloat(product?.price || "0") * item.quantity);
-  }, 0);
+  if (orderResult) {
+    return (
+      <div className="max-w-2xl mx-auto">
+        <OrderConfirmation result={orderResult} onReset={resetSale} />
+      </div>
+    );
+  }
 
-  const handleSort = (column: string) => {
-    if (sortBy === column) {
-      setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
-    } else {
-      setSortBy(column);
-      setSortOrder("asc");
-    }
-  };
+  // ── Render: Main layout ───────────────────────────────────────────────────
 
-  const sortIndicator = (column: string) => {
-    if (sortBy !== column) return <span className="ml-1 text-muted-foreground/40">&uarr;&darr;</span>;
-    return <span className="ml-1 text-primary">{sortOrder === "asc" ? "&uarr;" : "&darr;"}</span>;
-  };
-
-  const sortedProducts = [...products].sort((a, b) => {
-    let cmp = 0;
-    switch (sortBy) {
-      case "name":
-        cmp = a.name.localeCompare(b.name);
-        break;
-      case "price":
-        cmp = parseFloat(a.price || "0") - parseFloat(b.price || "0");
-        break;
-      case "stock":
-        cmp = (a.availableCount || 0) - (b.availableCount || 0);
-        break;
-      default:
-        cmp = 0;
-    }
-    return sortOrder === "asc" ? cmp : -cmp;
-  });
+  const tabs: { key: TabKey; label: string }[] = [
+    { key: "stocks", label: "Stocks" },
+    { key: "auto", label: "Products (Auto)" },
+    { key: "manual", label: "Products (Manual)" },
+  ];
 
   return (
-    <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-foreground">Manual Sell</h1>
-        <p className="text-muted-foreground mt-1">
-          Process manual sales with shortage handling
-        </p>
+    <div className="mx-auto max-w-[1920px] space-y-4">
+      {/* Header */}
+      <div className="relative overflow-hidden rounded-2xl border border-border bg-gradient-to-br from-slate-900 via-slate-900 to-primary/30 p-5 text-white shadow-xl sm:p-6">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(59,130,246,0.25),transparent_50%)] pointer-events-none" aria-hidden />
+        <div className="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-white/60">Point of sale</p>
+            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Manual Sell</h1>
+            <p className="mt-1 max-w-xl text-sm text-white/80">
+              Stocks &amp; products &mdash; built for large catalogs.{" "}
+              <kbd className="rounded border border-white/20 bg-white/10 px-1.5 py-0.5 font-mono text-[10px]">/</kbd>{" "}
+              focuses search.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <span className="rounded-lg border border-white/15 bg-white/10 px-3 py-2 text-xs font-medium tabular-nums">
+              {allProducts.length} loaded
+            </span>
+            <span className="rounded-lg border border-white/15 bg-white/10 px-3 py-2 text-xs font-medium tabular-nums">
+              {totalItems} in cart
+            </span>
+          </div>
+        </div>
       </div>
 
-      {orderResult ? (
-        <OrderConfirmation
-          result={orderResult}
-          onReset={resetSale}
-          onViewDelivery={viewDelivery}
-        />
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Product Selection */}
-          <div className="lg:col-span-2">
-            <div className="bg-card rounded-xl border border-border p-6 shadow-sm">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-foreground">Select Products</h2>
-                <div className="flex items-center gap-1">
-                  {(["name", "price", "stock"] as const).map((col) => (
-                    <button
-                      key={col}
-                      onClick={() => handleSort(col)}
-                      className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                        sortBy === col
-                          ? "bg-primary/10 text-primary border border-primary/20"
-                          : "text-muted-foreground hover:bg-accent border border-transparent"
-                      }`}
-                    >
-                      {col === "name" ? "Name" : col === "price" ? "Price" : "Stock"}
-                      {sortIndicator(col)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {loading ? (
-                <div className="text-center py-8 text-muted-foreground">Loading products...</div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[600px] overflow-y-auto">
-                  {sortedProducts.map((product: any) => (
-                    <ProductCard
-                      key={product.id}
-                      product={product}
-                      onAdd={addSellItem}
-                      currentQuantity={
-                        sellItems.find((i) => i.productId === product.id)?.quantity || 0
-                      }
-                    />
-                  ))}
-                </div>
-              )}
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_min(380px,100%)] xl:items-start">
+        {/* Catalog Panel */}
+        <div className="min-w-0">
+          {/* Toolbar */}
+          <div className="flex flex-col gap-3 rounded-2xl border border-border bg-card staff-card-elevated sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-2 p-3">
+            <div className="relative min-w-[200px] flex-1">
+              <span className="text-muted-foreground pointer-events-none absolute left-3 top-1/2 -translate-y-1/2" aria-hidden>
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </span>
+              <input
+                id="product-search"
+                ref={searchRef}
+                type="search"
+                autoComplete="off"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder="Name, SKU, or slug…"
+                className="w-full rounded-xl border border-input bg-background py-2.5 pl-10 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              />
             </div>
+            <select
+              value={categoryId}
+              onChange={(e) => setCategoryId(e.target.value)}
+              className="rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:min-w-[200px]"
+            >
+              <option value="">All categories</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => void loadInitial()}
+              className="rounded-xl border border-border bg-background px-3 py-2.5 text-xs font-semibold text-foreground hover:bg-muted"
+            >
+              Refresh
+            </button>
           </div>
 
-          {/* Sale Summary */}
-          <div>
-            <div className="bg-card rounded-xl border border-border p-6 sticky top-6 shadow-sm">
-              <h2 className="text-lg font-semibold text-foreground mb-4">Sale Summary</h2>
-
-              {/* Customer Info */}
-              <div className="space-y-3 mb-6">
-                <div>
-                  <label className="block text-sm text-muted-foreground mb-1">
-                    Customer Email *
-                  </label>
-                  <input
-                    type="email"
-                    value={customerEmail}
-                    onChange={(e) => setCustomerEmail(e.target.value)}
-                    className="w-full px-3 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                    placeholder="customer@example.com"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-muted-foreground mb-1">
-                    Customer Name
-                  </label>
-                  <input
-                    type="text"
-                    value={customerName}
-                    onChange={(e) => setCustomerName(e.target.value)}
-                    className="w-full px-3 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                    placeholder="Optional"
-                  />
-                </div>
-              </div>
-
-              {/* New Cost Override */}
-              <div className="mb-6">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={showCostField}
-                    onChange={(e) => setShowCostField(e.target.checked)}
-                    className="w-4 h-4 rounded border-input bg-background text-primary focus:ring-ring"
-                  />
-                  <span className="text-sm text-muted-foreground">Set new cost for this sale</span>
-                </label>
-                {showCostField && (
-                  <div className="mt-2">
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={newCost}
-                      onChange={(e) => setNewCost(e.target.value)}
-                      className="w-full px-3 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                      placeholder="Enter cost per item"
-                    />
-                  </div>
+          {/* Tabs */}
+          <div className="mt-3 flex border-b border-border">
+            {tabs.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveTab(tab.key)}
+                className={cn(
+                  "relative px-4 py-2.5 text-sm font-semibold transition-colors",
+                  activeTab === tab.key
+                    ? "text-primary"
+                    : "text-muted-foreground hover:text-foreground"
                 )}
-              </div>
+              >
+                {tab.label}
+                <span className="ml-1.5 text-[10px] font-bold tabular-nums rounded-full bg-muted px-1.5 py-0.5">
+                  {tabCounts[tab.key]}
+                </span>
+                {activeTab === tab.key && (
+                  <span className="absolute inset-x-0 -bottom-px h-0.5 bg-primary rounded-full" />
+                )}
+              </button>
+            ))}
+          </div>
 
-              {/* Items List */}
-              {sellItems.length > 0 ? (
-                <>
-                  <div className="space-y-2 mb-6">
-                    {sellItems.map((item) => {
-                      const hasShortage = item.quantity > item.available;
-                      return (
-                        <div
-                          key={item.productId}
-                          className="flex items-center justify-between p-3 bg-muted rounded-lg"
-                        >
+          {/* Content */}
+          <div className="overflow-hidden rounded-b-2xl border border-t-0 border-border bg-card">
+            {loading ? (
+              <div className="flex flex-col items-center justify-center gap-3 py-20 text-muted-foreground">
+                <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                <span className="text-sm">Loading catalog…</span>
+              </div>
+            ) : activeTab === "stocks" ? (
+              <StocksTab
+                productsById={productsById}
+                onAdd={(product, qty) => handleProductClick(product, qty)}
+                onCountChange={setStocksCount}
+              />
+            ) : activeTab === "auto" ? (
+              <ProductListTab
+                products={autoProducts}
+                onProductClick={handleProductClick}
+                emptyMessage="No products with inventory templates"
+              />
+            ) : (
+              <ProductListTab
+                products={manualProducts}
+                onProductClick={handleProductClick}
+                emptyMessage="No manual delivery products"
+              />
+            )}
+
+            {hasMore && !loading && (
+              <div className="border-t border-border bg-muted/20 px-4 py-3 text-center">
+                <button
+                  type="button"
+                  onClick={() => void loadMore()}
+                  disabled={loadingMore}
+                  className="text-sm font-semibold text-primary hover:underline disabled:opacity-50"
+                >
+                  {loadingMore ? "Loading…" : `Load more (${PAGE_SIZE} per page)`}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Cart */}
+        <div className="min-w-0">
+          <div className="rounded-2xl border border-border bg-card/95 backdrop-blur-sm p-5 shadow-lg shadow-black/5 dark:shadow-black/30 lg:sticky lg:top-28 flex flex-col max-h-[calc(100vh-8rem)]">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-foreground">Cart</h2>
+              {cart.length > 0 && (
+                <span className="text-xs font-semibold tabular-nums rounded-full bg-primary/10 text-primary px-2.5 py-2 text-center">
+                  {totalItems}
+                </span>
+              )}
+            </div>
+
+            {/* Customer */}
+            <div className="space-y-3 mb-5">
+              <input
+                type="email"
+                value={customerEmail}
+                onChange={(e) => setCustomerEmail(e.target.value)}
+                placeholder="Customer email *"
+                className="w-full px-3 py-2.5 bg-muted border border-input rounded-xl text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring text-sm"
+              />
+              <input
+                type="text"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                placeholder="Customer name (optional)"
+                className="w-full px-3 py-2.5 bg-muted border border-input rounded-xl text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring text-sm"
+              />
+              <select
+                value={customerType}
+                onChange={(e) => setCustomerType(e.target.value as "retail" | "merchant")}
+                className="w-full px-3 py-2.5 bg-muted border border-input rounded-xl text-foreground focus:outline-none focus:ring-2 focus:ring-ring text-sm"
+              >
+                <option value="retail">Retail</option>
+                <option value="merchant">Merchant (Wholesale)</option>
+              </select>
+            </div>
+
+            {/* Cart Items */}
+            {cart.length > 0 ? (
+              <>
+                <div className="space-y-3 mb-5 flex-1 overflow-y-auto min-h-0">
+                  {cart.map((ci, idx) => {
+                    const hasShortage = ci.deliveryType !== "manual" && ci.quantity > ci.available;
+                    return (
+                      <div key={`${ci.productId}-${ci.variantId}`} className="p-3 rounded-xl bg-muted/60 border border-border/80">
+                        <div className="flex items-start justify-between mb-2 gap-2">
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-foreground truncate">
-                              {item.productName}
+                            <p className="text-sm font-semibold text-foreground truncate">
+                              {ci.productName}
                             </p>
-                            <p className="text-xs text-muted-foreground">
-                              Qty: {item.quantity}{" "}
-                              {hasShortage && (
-                                <span className="text-warning">
-                                  (only {item.available} available)
-                                </span>
-                              )}
-                            </p>
+                            {ci.variantLabel && (
+                              <p className="text-xs text-muted-foreground mt-0.5">{ci.variantLabel}</p>
+                            )}
+                            {hasShortage && (
+                              <p className="text-xs text-warning mt-1 font-medium">
+                                Only {ci.available} available
+                              </p>
+                            )}
                           </div>
-                          <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => removeFromCart(idx)}
+                            className="p-1.5 rounded-lg text-destructive hover:bg-destructive/10 shrink-0"
+                            aria-label="Remove line"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-bold text-foreground tabular-nums">
+                            {formatCurrency(ci.price * ci.quantity)}
+                          </span>
+                          <div className="flex items-center rounded-lg overflow-hidden border border-input bg-card">
                             <button
-                              onClick={() => updateSellItemQuantity(item.productId, item.quantity - 1)}
-                              className="w-8 h-8 flex items-center justify-center bg-secondary hover:bg-secondary rounded text-foreground"
+                              type="button"
+                              onClick={() => updateQuantity(idx, ci.quantity - 1)}
+                              className="w-9 h-9 flex items-center justify-center text-foreground hover:bg-muted text-lg leading-none"
                             >
-                              -
+                              −
                             </button>
-                            <span className="w-8 text-center text-foreground">{item.quantity}</span>
+                            <span className="w-10 h-9 flex items-center justify-center text-foreground text-sm font-semibold tabular-nums border-x border-input">
+                              {ci.quantity}
+                            </span>
                             <button
-                              onClick={() => updateSellItemQuantity(item.productId, item.quantity + 1)}
-                              className="w-8 h-8 flex items-center justify-center bg-secondary hover:bg-secondary rounded text-foreground"
+                              type="button"
+                              onClick={() => updateQuantity(idx, ci.quantity + 1)}
+                              className="w-9 h-9 flex items-center justify-center text-foreground hover:bg-muted text-lg leading-none"
                             >
                               +
                             </button>
-                            <button
-                              onClick={() => removeSellItem(item.productId)}
-                              className="ml-2 p-1 text-destructive hover:text-destructive/80"
-                            >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                              </svg>
-                            </button>
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Totals */}
-                  <div className="border-t border-border pt-4 mb-4">
-                    <div className="flex justify-between text-sm text-muted-foreground mb-2">
-                      <span>Total Items:</span>
-                      <span className="text-foreground">{totalItems}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Total Value:</span>
-                      <span className="text-xl font-bold text-foreground">
-                        ${totalValue.toFixed(2)}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Submit */}
-                  <button
-                    onClick={handleCompleteSale}
-                    disabled={processing || sellItems.length === 0}
-                    className="w-full py-3 bg-primary text-primary-foreground hover:bg-primary/90 font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {processing ? "Processing..." : "Complete Sale"}
-                  </button>
-                </>
-              ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  No items added yet
+                      </div>
+                    );
+                  })}
                 </div>
-              )}
-            </div>
+
+                {/* Totals */}
+                <div className="border-t border-border pt-4 mb-4">
+                  <div className="flex justify-between text-sm text-muted-foreground mb-1">
+                    <span>Line items</span>
+                    <span className="text-foreground font-medium tabular-nums">{totalItems}</span>
+                  </div>
+                  <div className="flex justify-between items-baseline gap-2">
+                    <span className="text-muted-foreground font-medium">Total</span>
+                    <span className="text-2xl font-bold text-foreground tabular-nums">
+                      {formatCurrency(totalPrice)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Checkout */}
+                <button
+                  type="button"
+                  onClick={() => handleCheckout()}
+                  disabled={processing}
+                  className="w-full min-h-[52px] py-3.5 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 font-semibold text-base shadow-lg shadow-primary/25 transition-all disabled:opacity-50 disabled:pointer-events-none"
+                >
+                  {processing ? "Processing…" : "Complete sale"}
+                </button>
+              </>
+            ) : (
+              <div className="text-center py-12 text-muted-foreground text-sm border border-dashed border-border rounded-xl bg-muted/20">
+                <p className="font-medium text-foreground/80 mb-1">Cart is empty</p>
+                <p>Search and tap products to add lines</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Variant Picker Modal */}
+      {pickingVariantFor && (
+        <VariantPickerModal
+          product={pickingVariantFor}
+          onSelect={(variant) => addToCart(pickingVariantFor, variant)}
+          onClose={() => setPickingVariantFor(null)}
+        />
+      )}
+
+      {/* Shortage Modal */}
+      {shortageData && (
+        <ShortageModal
+          data={shortageData}
+          processing={processing}
+          onSellAvailable={() => handleCheckout("partial")}
+          onCreatePending={() => handleCheckout("pending")}
+          onCancel={() => setShortageData(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// Stocks Tab — actual inventory items grouped by product, with qty picker
+// ============================================================================
+
+function StocksTab({
+  productsById,
+  onAdd,
+  onCountChange,
+}: {
+  productsById: Map<string, Product>;
+  onAdd: (product: Product, qty: number) => void;
+  onCountChange: (n: number) => void;
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [groups, setGroups] = useState<InventoryGroup[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  // Per-group quantity state: groupId → qty
+  const [qtys, setQtys] = useState<Record<string, number>>({});
+
+  const getQty = (groupId: string) => qtys[groupId] ?? 1;
+  const setQty = (groupId: string, val: number) =>
+    setQtys((prev) => ({ ...prev, [groupId]: Math.max(1, val) }));
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/inventory?status=available&limit=500&page=1");
+      const data = await res.json();
+      if (!data.success) throw new Error("bad response");
+
+      const items: InventoryItem[] = data.data;
+
+      const map = new Map<string, InventoryGroup>();
+      for (const item of items) {
+        const key = item.productId ?? "__unlinked__";
+        const name = item.productName ?? "Unlinked";
+        if (!map.has(key)) {
+          map.set(key, { groupId: key, groupName: name, productId: item.productId, items: [] });
+        }
+        map.get(key)!.items.push(item);
+      }
+
+      const sorted = Array.from(map.values()).sort((a, b) => {
+        if (a.groupId === "__unlinked__") return 1;
+        if (b.groupId === "__unlinked__") return -1;
+        return a.groupName.localeCompare(b.groupName);
+      });
+
+      setGroups(sorted);
+      onCountChange(items.length);
+    } catch {
+      toast.error("Failed to load stocks");
+    } finally {
+      setLoading(false);
+    }
+  }, [onCountChange]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return groups;
+    const q = search.toLowerCase();
+    return groups
+      .map((g) => ({
+        ...g,
+        items: g.items.filter((item) => {
+          const vals = Object.values(item.values).map((v) => String(v).toLowerCase());
+          return g.groupName.toLowerCase().includes(q) || vals.some((v) => v.includes(q));
+        }),
+      }))
+      .filter((g) => g.items.length > 0 || g.groupName.toLowerCase().includes(q));
+  }, [groups, search]);
+
+  const rowVirtualizer = useVirtualizer({
+    count: filtered.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 64,
+    overscan: 8,
+  });
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 py-20 text-muted-foreground">
+        <div className="h-7 w-7 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        <span className="text-sm">Loading stocks…</span>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {/* Toolbar */}
+      <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+        <svg className="h-4 w-4 shrink-0 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+        </svg>
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by code, value, or name…"
+          className="flex-1 bg-transparent py-1 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+        />
+        <button type="button" onClick={load} className="text-[11px] font-semibold text-muted-foreground hover:text-foreground">
+          Refresh
+        </button>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="py-16 text-center text-muted-foreground text-sm">
+          {search ? "No stocks match your search" : "No available stock items"}
+        </div>
+      ) : (
+        <div ref={scrollRef} className="max-h-[min(65vh,700px)] min-h-[240px] overflow-auto">
+          <div className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
+            {rowVirtualizer.getVirtualItems().map((vRow) => {
+              const group = filtered[vRow.index];
+              if (!group) return null;
+              const isExpanded = expandedId === group.groupId;
+              const linkedProduct = group.productId ? productsById.get(group.productId) : undefined;
+              const qty = getQty(group.groupId);
+              const maxQty = group.items.length;
+
+              return (
+                <div
+                  key={group.groupId}
+                  data-index={vRow.index}
+                  ref={rowVirtualizer.measureElement}
+                  className="absolute left-0 top-0 w-full border-b border-border/60"
+                  style={{ transform: `translateY(${vRow.start}px)` }}
+                >
+                  {/* Group header */}
+                  <div className="flex items-center gap-2 px-4 py-3">
+                    {/* Expand toggle + name */}
+                    <button
+                      type="button"
+                      onClick={() => setExpandedId(isExpanded ? null : group.groupId)}
+                      className="flex flex-1 min-w-0 items-center gap-2 text-left"
+                    >
+                      <svg
+                        className={cn("w-3.5 h-3.5 text-muted-foreground shrink-0 transition-transform", isExpanded && "rotate-90")}
+                        fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                      <div className="flex-1 min-w-0">
+                        <p className={cn(
+                          "text-sm font-semibold truncate",
+                          group.groupId === "__unlinked__" ? "text-warning" : "text-foreground"
+                        )}>
+                          {group.groupName}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {maxQty} available{linkedProduct ? ` · ${formatCurrency(productPrice(linkedProduct))}` : ""}
+                        </p>
+                      </div>
+                    </button>
+
+                    {/* Qty picker + Add — only for linked products */}
+                    {linkedProduct ? (
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <div className="flex items-center rounded-lg border border-input bg-background overflow-hidden">
+                          <button
+                            type="button"
+                            onClick={() => setQty(group.groupId, qty - 1)}
+                            disabled={qty <= 1}
+                            className="w-8 h-8 flex items-center justify-center text-foreground hover:bg-muted disabled:opacity-30 text-base leading-none"
+                          >
+                            −
+                          </button>
+                          <input
+                            type="number"
+                            min={1}
+                            max={maxQty}
+                            value={qty}
+                            onChange={(e) => setQty(group.groupId, parseInt(e.target.value) || 1)}
+                            className="w-10 h-8 text-center text-sm font-semibold tabular-nums bg-transparent text-foreground border-x border-input focus:outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setQty(group.groupId, qty + 1)}
+                            disabled={qty >= maxQty}
+                            className="w-8 h-8 flex items-center justify-center text-foreground hover:bg-muted disabled:opacity-30 text-base leading-none"
+                          >
+                            +
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => onAdd(linkedProduct, qty)}
+                          className="rounded-md bg-primary px-3 py-1.5 text-[11px] font-bold text-primary-foreground shadow hover:bg-primary/90 whitespace-nowrap"
+                        >
+                          Add {qty > 1 ? `×${qty}` : ""}
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="shrink-0 rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground">
+                        Not linked
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Expanded: individual stock items with field values */}
+                  {isExpanded && (
+                    <div className="bg-muted/20 border-t border-border/40">
+                      {group.items.map((item, i) => {
+                        const fieldEntries = Object.entries(item.values).filter(([k]) => k !== "_metadata");
+                        return (
+                          <div
+                            key={item.id}
+                            className="flex items-center gap-3 border-b border-border/25 px-4 py-2 pl-9 last:border-b-0"
+                          >
+                            <span className="w-5 shrink-0 text-[10px] text-muted-foreground tabular-nums text-right">
+                              {i + 1}.
+                            </span>
+                            <div className="flex flex-wrap gap-x-4 gap-y-0.5 flex-1 min-w-0">
+                              {fieldEntries.map(([k, v]) => (
+                                <span key={k} className="text-[11px] font-mono">
+                                  <span className="text-muted-foreground">{k}: </span>
+                                  <span className="font-bold text-foreground">{String(v)}</span>
+                                </span>
+                              ))}
+                              {fieldEntries.length === 0 && (
+                                <span className="text-[11px] text-muted-foreground italic">No fields</span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
-
-      {/* Shortage Options Modal */}
-      {shortageModal.show && shortageModal.data && (
-        <ShortageOptionsModal
-          data={shortageModal.data}
-          onClose={() => setShortageModal({ show: false, data: null })}
-          onPartialSale={() => processSale("partial")}
-          onPendingSale={() => processSale("pending")}
-          onAddInventory={(inventory, eachLineIsProduct) => processSale("add-inventory", inventory)}
-          products={products}
-          templates={templates}
-          newCost={showCostField && newCost ? parseFloat(newCost) : undefined}
-          setNewCost={setNewCost}
-          showCostField={showCostField}
-          setShowCostField={setShowCostField}
-        />
-      )}
     </div>
   );
 }
 
-// Product Card Component
-function ProductCard({
-  product,
-  onAdd,
-  currentQuantity,
-}: {
-  product: Product;
-  onAdd: (productId: string, quantity: number) => void;
-  currentQuantity: number;
-}) {
-  const [quantity, setQuantity] = useState(1);
+// ============================================================================
+// Product List Tab — virtualized table for auto/manual products
+// ============================================================================
 
-  const handleAdd = () => {
-    onAdd(product.id, quantity);
-    setQuantity(1);
+function ProductListTab({
+  products,
+  onProductClick,
+  emptyMessage,
+}: {
+  products: Product[];
+  onProductClick: (p: Product) => void;
+  emptyMessage: string;
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const rowVirtualizer = useVirtualizer({
+    count: products.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 46,
+    overscan: 16,
+  });
+
+  if (products.length === 0) {
+    return (
+      <div className="py-20 text-center text-muted-foreground">
+        {emptyMessage}
+      </div>
+    );
+  }
+
+  const stockLabel = (p: Product) => {
+    if (p.isBundle) return "Bundle";
+    if (p.deliveryType === "manual") return "Manual";
+    return String(p.availableCount);
   };
 
   return (
-    <div className="bg-muted/60 rounded-xl p-4 border border-border hover:border-primary/20 hover:shadow-sm transition-all duration-200">
-      <div className="flex justify-between items-start mb-2">
-        <h3 className="font-medium text-foreground truncate flex-1 text-sm">{product.name}</h3>
-        <span className="text-xs font-medium text-success ml-2 bg-success/10 px-2 py-0.5 rounded-full">{(product as any).availableCount || 0} avail</span>
+    <div ref={scrollRef} className="max-h-[min(68vh,720px)] min-h-[280px] overflow-auto">
+      {/* Header */}
+      <div className="sticky top-0 z-20 grid grid-cols-[minmax(0,1fr)_72px_80px_72px_76px] items-center gap-1 border-b border-border bg-muted/95 px-2 py-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground backdrop-blur-sm sm:grid-cols-[minmax(0,1fr)_88px_80px_72px_76px]">
+        <span className="pl-1">Product</span>
+        <span className="hidden text-center sm:block">SKU</span>
+        <span className="text-right">Price</span>
+        <span className="text-right">Stock</span>
+        <span className="text-right pr-1"> </span>
       </div>
-      <p className="text-lg font-bold text-foreground mb-3">${product.price}</p>
-      <div className="flex items-center gap-2">
-        <input
-          type="number"
-          min={1}
-          value={quantity}
-          onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
-          className="w-20 px-2 py-1.5 bg-card border border-input rounded-lg text-foreground text-center text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-        />
-        <button
-          onClick={handleAdd}
-          className="flex-1 py-1.5 bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-medium rounded-lg transition-colors shadow-sm"
-        >
-          Add
-        </button>
+
+      <div className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
+        {rowVirtualizer.getVirtualItems().map((vRow) => {
+          const product = products[vRow.index];
+          if (!product) return null;
+          return (
+            <div
+              key={product.id}
+              className="absolute left-0 top-0 grid w-full grid-cols-[minmax(0,1fr)_72px_80px_72px_76px] items-center gap-1 border-b border-border/70 bg-card text-sm hover:bg-muted/50 sm:grid-cols-[minmax(0,1fr)_88px_80px_72px_76px]"
+              style={{ height: vRow.size, transform: `translateY(${vRow.start}px)` }}
+            >
+              <div className="min-w-0 truncate pl-1 font-medium text-foreground">{product.name}</div>
+              <div className="hidden truncate text-center font-mono text-[11px] text-muted-foreground sm:block">
+                {product.sku || "—"}
+              </div>
+              <div className="text-right tabular-nums font-semibold">{formatCurrency(productPrice(product))}</div>
+              <div className="text-right text-xs text-muted-foreground tabular-nums">{stockLabel(product)}</div>
+              <div className="flex justify-end pr-1">
+                <button
+                  type="button"
+                  onClick={() => onProductClick(product)}
+                  className="rounded-md bg-primary px-2 py-1 text-[11px] font-bold text-primary-foreground shadow hover:bg-primary/90"
+                >
+                  Add
+                </button>
+              </div>
+            </div>
+          );
+        })}
       </div>
-      {currentQuantity > 0 && (
-        <div className="mt-2 text-xs text-primary font-medium bg-primary/5 rounded px-2 py-1 text-center">
-          In cart: {currentQuantity}
-        </div>
-      )}
     </div>
   );
 }
 
-// Order Confirmation Component
+// ============================================================================
+// Variant Picker Modal
+// ============================================================================
+
+function VariantPickerModal({
+  product,
+  onSelect,
+  onClose,
+}: {
+  product: Product & { variants?: Variant[] };
+  onSelect: (variant: Variant) => void;
+  onClose: () => void;
+}) {
+  const variants = product.variants || [];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+      <div className="bg-card rounded-2xl border border-border shadow-xl p-6 w-full max-w-md mx-4 max-h-[80vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-foreground">{product.name}</h3>
+          <button onClick={onClose} className="p-1 text-muted-foreground hover:text-foreground">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <p className="text-sm text-muted-foreground mb-4">Choose a variant:</p>
+
+        <div className="space-y-2">
+          {variants.map((variant) => {
+            const label = Object.keys(variant.optionCombination).length > 0
+              ? Object.entries(variant.optionCombination)
+                  .map(([k, v]) => `${k}: ${v}`)
+                  .join(" / ")
+              : "Default";
+
+            return (
+              <button
+                key={variant.id}
+                onClick={() => onSelect(variant)}
+                className="w-full text-left p-3 bg-muted rounded-lg border border-border hover:border-primary/30 hover:bg-muted/80 transition-all"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-foreground">{label}</span>
+                  <span className="text-sm font-bold text-foreground">${variant.price}</span>
+                </div>
+                <div className="flex items-center gap-2 mt-1">
+                  <span
+                    className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                      variant.stockCount > 0
+                        ? "bg-success/15 text-success"
+                        : "bg-error/15 text-error"
+                    }`}
+                  >
+                    {variant.stockCount} in stock
+                  </span>
+                  {variant.compareAtPrice && (
+                    <span className="text-[10px] text-muted-foreground line-through">
+                      ${variant.compareAtPrice}
+                    </span>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Shortage Modal
+// ============================================================================
+
+function ShortageModal({
+  data,
+  processing,
+  onSellAvailable,
+  onCreatePending,
+  onCancel,
+}: {
+  data: { items: ShortageInfo[]; potentialDelivery: any[] };
+  processing: boolean;
+  onSellAvailable: () => void;
+  onCreatePending: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+      <div className="bg-card rounded-2xl border border-border shadow-xl p-6 w-full max-w-md mx-4">
+        <h3 className="text-lg font-semibold text-foreground mb-2">Stock Shortage</h3>
+        <p className="text-sm text-muted-foreground mb-4">
+          Some items don&apos;t have enough stock:
+        </p>
+
+        <div className="space-y-2 mb-6">
+          {data.items.map((item) => (
+            <div key={item.productId} className="p-3 bg-warning/10 rounded-lg border border-warning/20">
+              <p className="text-sm font-medium text-foreground">{item.productName}</p>
+              <p className="text-xs text-muted-foreground">
+                Requested: {item.requested} &middot; Available: {item.available} &middot;{" "}
+                <span className="text-warning">Short: {item.shortage}</span>
+              </p>
+            </div>
+          ))}
+        </div>
+
+        <div className="space-y-2">
+          <button
+            onClick={onSellAvailable}
+            disabled={processing}
+            className="w-full py-3 bg-primary text-primary-foreground hover:bg-primary/90 font-medium rounded-lg transition-colors disabled:opacity-50"
+          >
+            {processing ? "Processing..." : `Sell Available (${data.items.reduce((s, i) => s + i.available, 0)} items)`}
+          </button>
+          <button
+            onClick={onCreatePending}
+            disabled={processing}
+            className="w-full py-3 bg-warning/20 text-warning hover:bg-warning/30 font-medium rounded-lg transition-colors disabled:opacity-50"
+          >
+            {processing ? "Processing..." : "Create Pending Order"}
+          </button>
+          <button
+            onClick={onCancel}
+            disabled={processing}
+            className="w-full py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Order Confirmation
+// ============================================================================
+
 function OrderConfirmation({
   result,
   onReset,
-  onViewDelivery,
 }: {
   result: OrderResult;
   onReset: () => void;
-  onViewDelivery: () => void;
 }) {
+  const router = useRouter();
+
   return (
-    <div className="bg-card rounded-lg border border-border p-6">
+    <div className="bg-card rounded-xl border border-border p-6">
       <div className="text-center mb-6">
         <div className="w-16 h-16 mx-auto mb-4 bg-success/20 rounded-full flex items-center justify-center">
           <svg className="w-8 h-8 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
         </div>
-        <h2 className="text-xl font-bold text-foreground mb-2">
-          {result.hasShortage ? "Sale Processed with Shortage" : "Sale Completed!"}
+        <h2 className="text-xl font-bold text-foreground mb-1">
+          {result.hasShortage ? "Order Created (Partial)" : "Sale Completed!"}
         </h2>
-        <p className="text-muted-foreground">Order ID: {result.orderId}</p>
+        <p className="text-sm text-muted-foreground">Order: {result.orderId.slice(0, 8)}...</p>
       </div>
 
-      {/* Shortage Warning */}
-      {result.hasShortage && result.shortageItems.length > 0 && (
-        <div className="mb-6 p-4 bg-warning/10 border border-warning/30 rounded-lg">
-          <h3 className="font-medium text-warning mb-2">Shortage Detected</h3>
-          <ul className="text-sm text-yellow-200/80">
-            {result.shortageItems.map((item) => (
+      {result.hasShortage && result.shortageItems && result.shortageItems.length > 0 && (
+        <div className="mb-5 p-4 bg-warning/10 border border-warning/20 rounded-lg">
+          <h3 className="font-medium text-warning text-sm mb-2">Items short on stock</h3>
+          <ul className="text-sm text-muted-foreground space-y-1">
+            {result.shortageItems.map((item: any) => (
               <li key={item.productId}>
-                {item.productName}: {item.shortage} items short
+                {item.productName}: {item.shortage} short
               </li>
             ))}
           </ul>
         </div>
       )}
 
-      {/* Delivered Items */}
-      <div className="mb-6">
-        <h3 className="font-medium text-foreground mb-3">Delivered Items</h3>
-        <div className="space-y-2">
-          {result.deliveryItems.map((item) => (
-            <div key={item.productId} className="flex justify-between text-sm p-2 bg-muted rounded">
-              <span className="text-foreground">{item.productName}</span>
-              <span className="text-success">x{item.quantity}</span>
-            </div>
-          ))}
+      {result.deliveryItems && result.deliveryItems.length > 0 && (
+        <div className="mb-5">
+          <h3 className="font-medium text-foreground text-sm mb-3">Delivered</h3>
+          <div className="space-y-2">
+            {result.deliveryItems.map((item, idx) => (
+              <div key={idx} className="p-3 bg-muted rounded-lg">
+                <div className="flex justify-between text-sm mb-1">
+                  <span className="text-foreground font-medium">{item.productName}</span>
+                  <span className="text-success font-medium">x{item.quantity}</span>
+                </div>
+                {item.items.length > 0 && (
+                  <div className="text-xs font-mono text-muted-foreground space-y-0.5">
+                    {item.items.slice(0, 5).map((ii, i) => (
+                      <div key={i} className="truncate">
+                        {Object.entries(ii.values)
+                          .filter(([k]) => k !== "_metadata")
+                          .map(([k, v]) => `${k}: ${v}`)
+                          .join(" | ")}
+                      </div>
+                    ))}
+                    {item.items.length > 5 && (
+                      <div className="italic">...and {item.items.length - 5} more</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Actions */}
       <div className="flex gap-3">
         <button
           onClick={onReset}
-          className="flex-1 py-3 bg-secondary hover:bg-secondary text-foreground font-medium rounded-lg transition-colors"
+          className="flex-1 py-3 bg-secondary hover:bg-secondary/80 text-foreground font-medium rounded-lg transition-colors"
         >
           New Sale
         </button>
         <button
-          onClick={onViewDelivery}
+          onClick={() => router.push(`/dashboard/manual-sell/${result.orderId}`)}
           className="flex-1 py-3 bg-primary text-primary-foreground hover:bg-primary/90 font-medium rounded-lg transition-colors"
         >
-          View Delivery
+          View Order
         </button>
-      </div>
-    </div>
-  );
-}
-
-// Shortage Options Modal Component
-function ShortageOptionsModal({
-  data,
-  onClose,
-  onPartialSale,
-  onPendingSale,
-  onAddInventory,
-  products,
-  templates,
-  newCost,
-  setNewCost,
-  showCostField,
-  setShowCostField,
-}: {
-  data: AvailabilityCheck;
-  onClose: () => void;
-  onPartialSale: () => void;
-  onPendingSale: () => void;
-  onAddInventory: (inventory: Array<{ productId: string; values: Record<string, string | number | boolean> }>, eachLineIsProduct?: boolean) => void;
-  products: Product[];
-  templates: any[];
-  newCost?: number;
-  setNewCost: (cost: string) => void;
-  showCostField: boolean;
-  setShowCostField: (show: boolean) => void;
-}) {
-  const [activeTab, setActiveTab] = useState<"partial" | "pending" | "add">("partial");
-  // State for field values: Record<productId, Record<fieldName, string>>
-  const [fieldValues, setFieldValues] = useState<Record<string, Record<string, string>>>({});
-  const [submitting, setSubmitting] = useState(false);
-  const [eachLineIsProduct, setEachLineIsProduct] = useState(false);
-
-  // Get product template fields
-  const getProductTemplateFields = (productId: string): TemplateField[] => {
-    const product = products.find((p: any) => p.id === productId);
-    if (product?.templateFields && product.templateFields.length > 0) {
-      return product.templateFields;
-    }
-    // Fallback to template lookup
-    if (product?.inventoryTemplateId) {
-      const template = templates.find((t: any) => t.id === product.inventoryTemplateId);
-      return template?.fieldsSchema || [];
-    }
-    return [{ name: "key", type: "string", label: "Key", required: true }];
-  };
-
-  // Get parsed lines for a specific field of a product
-  const getParsedLines = (productId: string, fieldName: string): string[] => {
-    const values = fieldValues[productId]?.[fieldName] || "";
-    return values
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line);
-  };
-
-  // Get count for each field of a product
-  const getFieldCounts = (productId: string): Record<string, number> => {
-    const templateFields = getProductTemplateFields(productId);
-    const counts: Record<string, number> = {};
-    templateFields.forEach((field) => {
-      counts[field.name] = getParsedLines(productId, field.name).length;
-    });
-    return counts;
-  };
-
-  // Calculate total items for a product (min of all field counts)
-  const getTotalItems = (productId: string): number => {
-    const counts = Object.values(getFieldCounts(productId));
-    return counts.length > 0 ? Math.min(...counts) : 0;
-  };
-
-  const handleAddInventory = async () => {
-    const parsedInventory: Array<{ productId: string; values: Record<string, string | number | boolean> }> = [];
-
-    for (const shortageItem of data.shortageItems) {
-      const templateFields = getProductTemplateFields(shortageItem.productId);
-      const totalItems = getTotalItems(shortageItem.productId);
-
-      if (totalItems === 0) {
-        toast.error(`Please add inventory for ${shortageItem.productName}`);
-        return;
-      }
-
-      // Build items by combining values row by row
-      for (let i = 0; i < totalItems; i++) {
-        const itemObj: Record<string, string | number | boolean> = {};
-        templateFields.forEach((field) => {
-          const lines = getParsedLines(shortageItem.productId, field.name);
-          const value = lines[i] || "";
-
-          if (field.type === "number") {
-            itemObj[field.name] = parseFloat(value) || 0;
-          } else if (field.type === "boolean") {
-            itemObj[field.name] = value.toLowerCase() === "true" || value === "1";
-          } else {
-            itemObj[field.name] = value;
-          }
-        });
-        parsedInventory.push({
-          productId: shortageItem.productId,
-          values: itemObj
-        });
-      }
-    }
-
-    if (parsedInventory.length === 0) {
-      toast.error("Please add at least one inventory item");
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      onAddInventory(parsedInventory, eachLineIsProduct);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  // Initialize field values for a product if not already set
-  const ensureProductFields = (productId: string) => {
-    if (!fieldValues[productId]) {
-      setFieldValues(prev => ({
-        ...prev,
-        [productId]: {}
-      }));
-    }
-  };
-
-  // Update field value for a product
-  const updateFieldValue = (productId: string, fieldName: string, value: string) => {
-    ensureProductFields(productId);
-    setFieldValues(prev => ({
-      ...prev,
-      [productId]: {
-        ...prev[productId],
-        [fieldName]: value
-      }
-    }));
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-card rounded-lg border border-border w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
-        {/* Header */}
-        <div className="p-6 border-b border-border">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold text-foreground">Inventory Shortage</h2>
-            <button
-              onClick={onClose}
-              className="p-1 text-muted-foreground hover:text-foreground"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-
-          {/* Shortage Summary */}
-          <div className="p-4 bg-warning/10 border border-warning/30 rounded-lg">
-            <p className="text-yellow-200 text-sm">
-              Some items are out of stock. You have:
-            </p>
-            <ul className="mt-2 space-y-1">
-              {data.shortageItems.map((item) => (
-                <li key={item.productId} className="text-yellow-200 text-sm">
-                  <strong>{item.productName}</strong>: {item.available} of {item.requested} requested ({item.shortage} short)
-                </li>
-              ))}
-            </ul>
-            <div className="mt-3 pt-3 border-t border-warning/30 text-sm">
-              <p>Total requested: <span className="text-foreground font-medium">${data.totals.requested}</span></p>
-              <p>Can deliver now: <span className="text-success font-medium">${data.totals.canDeliver}</span></p>
-            </div>
-          </div>
-        </div>
-
-        {/* Tabs */}
-        <div className="flex border-b border-border">
-          <button
-            onClick={() => setActiveTab("partial")}
-            className={`flex-1 py-3 px-4 text-sm font-medium transition-colors ${
-              activeTab === "partial"
-                ? "text-primary border-b-2 border-primary"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            Sell What You Have
-          </button>
-          <button
-            onClick={() => setActiveTab("add")}
-            className={`flex-1 py-3 px-4 text-sm font-medium transition-colors ${
-              activeTab === "add"
-                ? "text-primary border-b-2 border-primary"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            Add Inventory
-          </button>
-          <button
-            onClick={() => setActiveTab("pending")}
-            className={`flex-1 py-3 px-4 text-sm font-medium transition-colors ${
-              activeTab === "pending"
-                ? "text-primary border-b-2 border-primary"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            Pending Order
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="p-6 overflow-y-auto flex-1">
-          {activeTab === "partial" && (
-            <div>
-              <h3 className="text-foreground font-medium mb-3">Sell Available Items Only</h3>
-              <p className="text-muted-foreground text-sm mb-4">
-                Complete the sale with only the items currently available. The order will be marked as completed.
-              </p>
-              <div className="space-y-2 mb-4">
-                {data.potentialDelivery.map((item) => (
-                  <div key={item.productId} className="flex justify-between p-3 bg-muted rounded">
-                    <span className="text-foreground">{item.productName}</span>
-                    <span className="text-success">{item.canDeliver} / {item.requested}</span>
-                  </div>
-                ))}
-              </div>
-              <div className="p-3 bg-muted rounded text-sm">
-                <span className="text-muted-foreground">Total will be: </span>
-                <span className="text-foreground font-medium">${data.totals.canDeliver}</span>
-              </div>
-            </div>
-          )}
-
-          {activeTab === "add" && (
-            <div>
-              <h3 className="text-foreground font-medium mb-3">Add Missing Inventory</h3>
-              <p className="text-muted-foreground text-sm mb-4">
-                Add inventory items now. Enter values for each field (one value per line). Items will be created by combining values in order.
-              </p>
-              <div className="space-y-6">
-                {data.shortageItems.map((item) => {
-                  const templateFields = getProductTemplateFields(item.productId);
-                  const fieldCounts = getFieldCounts(item.productId);
-                  const totalItems = getTotalItems(item.productId);
-                  const counts = Object.values(fieldCounts);
-                  const minCount = counts.length > 0 ? Math.min(...counts) : 0;
-                  const maxCount = counts.length > 0 ? Math.max(...counts) : 0;
-                  const hasMismatch = minCount > 0 && maxCount > minCount;
-
-                  return (
-                    <div key={item.productId} className="p-4 bg-muted rounded-lg">
-                      <div className="flex justify-between items-center mb-4">
-                        <span className="text-foreground font-medium">{item.productName}</span>
-                        <div className="flex items-center gap-3">
-                          <span className="text-muted-foreground text-sm">Need: {item.shortage}</span>
-                          {totalItems > 0 && (
-                            <span className="text-success text-sm">Will add: {totalItems}</span>
-                          )}
-                        </div>
-                      </div>
-
-                      {templateFields.length === 0 ? (
-                        <div className="p-3 bg-muted rounded border border-border text-muted-foreground text-sm">
-                          No template fields configured for this product.
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {templateFields.map((field) => (
-                            <div key={field.name}>
-                              <label className="block text-sm font-medium text-foreground mb-1">
-                                {field.label || field.name}
-                                {field.required && <span className="text-destructive"> *</span>}
-                                <span className="text-muted-foreground font-normal ml-2">
-                                  ({fieldCounts[field.name]} {fieldCounts[field.name] === 1 ? 'line' : 'lines'})
-                                </span>
-                              </label>
-                              <textarea
-                                value={fieldValues[item.productId]?.[field.name] || ""}
-                                onChange={(e) => updateFieldValue(item.productId, field.name, e.target.value)}
-                                className="w-full px-3 py-2 bg-secondary border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring font-mono text-sm"
-                                rows={5}
-                                placeholder={`Enter one value per line\nExample:\nABC\nFVB`}
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Warning for mismatched counts */}
-                      {hasMismatch && (
-                        <div className="mt-4 p-3 bg-warning/10 border border-warning/30 rounded-lg">
-                          <p className="text-yellow-200 text-sm">
-                            Only the first <strong>{minCount}</strong> items will be created (some fields have fewer values).
-                          </p>
-                        </div>
-                      )}
-
-                      {/* Preview */}
-                      {totalItems > 0 && templateFields.length > 0 && (
-                        <div className="mt-4 p-3 bg-muted rounded border border-border">
-                          <p className="text-xs text-muted-foreground mb-2">Preview (first 3 items):</p>
-                          <div className="space-y-1">
-                            {Array.from({ length: Math.min(3, totalItems) }).map((_, i) => (
-                              <div key={i} className="text-xs font-mono text-foreground">
-                                {templateFields.map((f) => {
-                                  const lines = getParsedLines(item.productId, f.name);
-                                  return lines[i] || "-";
-                                }).join(" → ")}
-                              </div>
-                            ))}
-                            {totalItems > 3 && (
-                              <div className="text-xs text-muted-foreground italic">
-                                ... and {totalItems - 3} more
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {activeTab === "pending" && (
-            <div>
-              <h3 className="text-foreground font-medium mb-3">Create Pending Order</h3>
-              <p className="text-muted-foreground text-sm mb-4">
-                Create an order with the available items now. The missing items will be marked as pending and can be fulfilled later from the Orders page.
-              </p>
-              <div className="space-y-2 mb-4">
-                {data.potentialDelivery.map((item) => (
-                  <div key={item.productId} className="flex justify-between p-3 bg-muted rounded">
-                    <div>
-                      <span className="text-foreground">{item.productName}</span>
-                      {item.shortage > 0 && (
-                        <span className="ml-2 text-warning text-sm">({item.shortage} pending)</span>
-                      )}
-                    </div>
-                    <span className="text-success">{item.canDeliver} delivered</span>
-                  </div>
-                ))}
-              </div>
-              <div className="p-3 bg-info/10 border border-info/30 rounded text-sm text-primary">
-                You can fulfill pending items later from the Orders page. Click the "Processing" button on the order to add items and complete it.
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="p-6 border-t border-border">
-          {/* Options */}
-          <div className="flex gap-6 mb-4">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={showCostField}
-                onChange={(e) => setShowCostField(e.target.checked)}
-                className="w-4 h-4 rounded border-input bg-background text-primary focus:ring-ring"
-              />
-              <span className="text-sm text-muted-foreground">Set new cost for this sale</span>
-            </label>
-            {showCostField && (
-              <input
-                type="number"
-                step="0.01"
-                value={newCost ?? ""}
-                onChange={(e) => setNewCost(e.target.value)}
-                className="px-3 py-1 bg-muted border border-input rounded text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                placeholder="Cost per item"
-              />
-            )}
-            {activeTab === "add" && (
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={eachLineIsProduct}
-                  onChange={(e) => setEachLineIsProduct(e.target.checked)}
-                  className="w-4 h-4 rounded border-input bg-background text-primary focus:ring-ring"
-                />
-                <span className="text-sm text-muted-foreground">Each line is a separate product</span>
-              </label>
-            )}
-          </div>
-          <div className="flex gap-3">
-            <button
-              onClick={onClose}
-              disabled={submitting}
-              className="px-4 py-2 bg-secondary hover:bg-secondary text-foreground rounded-lg transition-colors disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            <div className="flex-1" />
-            {activeTab === "partial" && (
-            <button
-              onClick={onPartialSale}
-              className="px-6 py-2 bg-success text-foreground hover:bg-success/90 rounded-lg transition-colors font-medium"
-            >
-              Sell ${data.totals.canDeliver} Worth
-            </button>
-            )}
-            {activeTab === "add" && (
-            <button
-              onClick={handleAddInventory}
-              disabled={submitting}
-              className="px-6 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg transition-colors font-medium disabled:opacity-50"
-            >
-              {submitting ? "Adding..." : `Add ${data.shortageItems.reduce((sum, item) => sum + getTotalItems(item.productId), 0)} Items & Complete Sale`}
-            </button>
-            )}
-            {activeTab === "pending" && (
-            <button
-              onClick={onPendingSale}
-              className="px-6 py-2 bg-brand text-brand-foreground hover:bg-brand/90 rounded-lg transition-colors font-medium"
-            >
-              Create Pending Order
-            </button>
-            )}
-          </div>
-        </div>
       </div>
     </div>
   );

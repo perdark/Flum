@@ -21,6 +21,7 @@ import {
   jsonb,
   index,
   primaryKey,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
 // ============================================================================
@@ -143,12 +144,18 @@ export const storeSettings = pgTable('store_settings', {
   requireEmailVerification: boolean('require_email_verification').default(false).notNull(),
   enableReviews: boolean('enable_reviews').default(true).notNull(),
   autoApproveReviews: boolean('auto_approve_reviews').default(false).notNull(),
+  // Global low stock alert threshold (applies to all stock)
+  lowStockThreshold: integer('low_stock_threshold').default(10).notNull(),
+  // Semi-auto delivery: minutes before auto-approving orders (0 = disabled)
+  autoApproveTimeoutMinutes: integer('auto_approve_timeout_minutes').default(30).notNull(),
   timezone: varchar('timezone', { length: 50 }).default('UTC').notNull(),
   dateFormat: varchar('date_format', { length: 20 }).default('MM/DD/YYYY').notNull(),
   metaTitle: varchar('meta_title', { length: 255 }),
   metaDescription: text('meta_description'),
   googleAnalyticsId: varchar('google_analytics_id', { length: 50 }),
   facebookPixelId: varchar('facebook_pixel_id', { length: 50 }),
+  pointsPerDollar: integer('points_per_dollar').default(10).notNull(),
+  maxPointsRedemption: integer('max_points_redemption').default(1000).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 }, (table) => ({
@@ -159,6 +166,7 @@ export const storeSettings = pgTable('store_settings', {
 // ============================================================================
 // INVENTORY TEMPLATES (for dynamic inventory fields)
 // ============================================================================
+// Stock types removed — templates are the single source of field definitions.
 
 export const inventoryTemplates = pgTable('inventory_templates', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -176,6 +184,9 @@ export const inventoryTemplates = pgTable('inventory_templates', {
     // Bundle field options
     repeatable: boolean;
     eachLineIsProduct: boolean;
+    // Linked pair options
+    linkedTo: string | null;
+    linkGroup: string | null;
     parentId: string | null;
     displayOrder: number;
   }>>(),
@@ -187,27 +198,23 @@ export const inventoryTemplates = pgTable('inventory_templates', {
   nameIdx: index('inventory_templates_name_idx').on(table.name),
 }));
 
-// Inventory Batches - track inventory imports
-export const inventoryBatches = pgTable('inventory_batches', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  name: varchar('name', { length: 255 }).notNull(),
-  source: varchar('source', { length: 100 }),
-  notes: text('notes'),
-  createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  deletedAt: timestamp('deleted_at'),
-}, (table) => ({
-  createdByIdx: index('inventory_batches_created_by_idx').on(table.createdBy),
-}));
-
 // Inventory Items - actual inventory with dynamic values
 export const inventoryItems = pgTable('inventory_items', {
   id: uuid('id').defaultRandom().primaryKey(),
-  templateId: uuid('template_id').notNull().references(() => inventoryTemplates.id, { onDelete: 'restrict' }),
+  templateId: uuid('template_id').references(() => inventoryTemplates.id, { onDelete: 'set null' }),
   productId: uuid('product_id').references(() => products.id, { onDelete: 'cascade' }),
-  batchId: uuid('batch_id').references(() => inventoryBatches.id, { onDelete: 'set null' }),
+  variantId: uuid('variant_id'),
   values: jsonb('values').notNull(),
-  status: varchar('status', { length: 20 }).default('available').notNull(), // available, reserved, sold, expired
+  // Cost per stock item (what you paid for this stock)
+  cost: decimal('cost', { precision: 10, scale: 2 }),
+  status: varchar('status', { length: 20 }).default('available').notNull(), // available, reserved, sold, expired, in_cooldown
+  // Multi-sell per stock line (replaces product-level multi-sell)
+  multiSellEnabled: boolean('multi_sell_enabled').default(false).notNull(),
+  multiSellMax: integer('multi_sell_max').default(5).notNull(),
+  multiSellSaleCount: integer('multi_sell_sale_count').default(0).notNull(),
+  cooldownEnabled: boolean('cooldown_enabled').default(false).notNull(),
+  cooldownUntil: timestamp('cooldown_until'),
+  cooldownDurationHours: integer('cooldown_duration_hours').default(12).notNull(),
   orderItemId: uuid('order_item_id'),
   reservedUntil: timestamp('reserved_until'),
   purchasedAt: timestamp('purchased_at'),
@@ -217,32 +224,9 @@ export const inventoryItems = pgTable('inventory_items', {
 }, (table) => ({
   templateIdx: index('inventory_items_template_idx').on(table.templateId),
   productIdx: index('inventory_items_product_idx').on(table.productId),
-  batchIdx: index('inventory_items_batch_idx').on(table.batchId),
   statusIdx: index('inventory_items_status_idx').on(table.status),
   orderItemIdx: index('inventory_items_order_item_idx').on(table.orderItemId),
   availableIdx: index('inventory_items_available_idx').on(table.productId, table.status),
-}));
-
-// Inventory Units - tracks individual sellable units for multi-sell logic
-export const inventoryUnits = pgTable('inventory_units', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  productId: uuid('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
-  physicalUnitId: varchar('physical_unit_id', { length: 100 }).notNull(),
-  saleCount: integer('sale_count').default(0).notNull(),
-  maxSales: integer('max_sales').default(5).notNull(),
-  cooldownUntil: timestamp('cooldown_until'),
-  cooldownDurationHours: integer('cooldown_duration_hours').default(12).notNull(),
-  status: varchar('status', { length: 20 }).default('available').notNull(),
-  lastSaleAt: timestamp('last_sale_at'),
-  metadata: jsonb('metadata').$type<Record<string, unknown>>(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-}, (table) => ({
-  productIdx: index('inventory_units_product_idx').on(table.productId),
-  physicalUnitIdx: index('inventory_units_physical_unit_idx').on(table.physicalUnitId),
-  statusIdx: index('inventory_units_status_idx').on(table.status),
-  cooldownIdx: index('inventory_units_cooldown_idx').on(table.cooldownUntil),
-  availableIdx: index('inventory_units_available_idx').on(table.productId, table.status),
 }));
 
 // ============================================================================
@@ -346,6 +330,51 @@ export const productPricing = pgTable('product_pricing', {
   uniqueProductCustomer: index('product_pricing_unique_idx').on(table.productId, table.customerType),
 }));
 
+// ============================================================================
+// PRODUCT VARIANTS (e-commerce style option system)
+// ============================================================================
+
+// Option groups define axes like "Platform", "Region"
+export const productOptionGroups = pgTable('product_option_groups', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  productId: uuid('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 100 }).notNull(),
+  sortOrder: integer('sort_order').default(0).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  productIdx: index('product_option_groups_product_idx').on(table.productId),
+}));
+
+// Option values are the choices within each group (e.g. "Steam", "Epic" under "Platform")
+export const productOptionValues = pgTable('product_option_values', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  optionGroupId: uuid('option_group_id').notNull().references(() => productOptionGroups.id, { onDelete: 'cascade' }),
+  value: varchar('value', { length: 255 }).notNull(),
+  sortOrder: integer('sort_order').default(0).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  groupIdx: index('product_option_values_group_idx').on(table.optionGroupId),
+}));
+
+// Each variant is one sellable combination (e.g. "Steam + US") with its own price & stock
+export const productVariants = pgTable('product_variants', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  productId: uuid('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+  // JSONB map of groupName → value, e.g. {"platform":"Steam","region":"US"}
+  optionCombination: jsonb('option_combination').$type<Record<string, string>>().default({}).notNull(),
+  sku: varchar('sku', { length: 100 }),
+  price: decimal('price', { precision: 10, scale: 2 }).notNull(),
+  compareAtPrice: decimal('compare_at_price', { precision: 10, scale: 2 }),
+  stockCount: integer('stock_count').default(0).notNull(),
+  isDefault: boolean('is_default').default(false).notNull(),
+  isActive: boolean('is_active').default(true).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  productIdx: index('product_variants_product_idx').on(table.productId),
+  defaultIdx: index('product_variants_default_idx').on(table.productId, table.isDefault),
+}));
+
 // Bundle Items - Items within a bundle product
 export const bundleItems = pgTable('bundle_items', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -444,7 +473,7 @@ export const orders = pgTable('orders', {
 export const orderItems = pgTable('order_items', {
   id: uuid('id').defaultRandom().primaryKey(),
   orderId: uuid('order_id').notNull().references(() => orders.id, { onDelete: 'cascade' }),
-  productId: uuid('product_id').notNull().references(() => products.id),
+  productId: uuid('product_id').references(() => products.id),
   productName: varchar('product_name', { length: 255 }).notNull(),
   productSlug: varchar('product_slug', { length: 255 }).notNull(),
   deliveryType: varchar('delivery_type', { length: 50 }).notNull(),
@@ -457,6 +486,7 @@ export const orderItems = pgTable('order_items', {
   // Bundle fields
   bundlePath: varchar('bundle_path', { length: 500 }),
   fulfilledQuantity: integer('fulfilled_quantity').default(0),
+  variantId: uuid('variant_id'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (table) => ({
   orderIdx: index('order_items_order_idx').on(table.orderId),
@@ -469,7 +499,7 @@ export const orderDeliverySnapshots = pgTable('order_delivery_snapshots', {
   orderId: uuid('order_id').notNull().references(() => orders.id, { onDelete: 'cascade' }),
   payload: jsonb('payload').notNull().$type<{
     items: Array<{
-      productId: string;
+      productId: string | null;
       productName: string;
       quantity: number;
       items: Array<{
@@ -748,8 +778,6 @@ export type NewStoreSettings = typeof storeSettings.$inferInsert;
 export type InventoryTemplate = typeof inventoryTemplates.$inferSelect;
 export type NewInventoryTemplate = typeof inventoryTemplates.$inferInsert;
 
-export type InventoryBatch = typeof inventoryBatches.$inferSelect;
-export type NewInventoryBatch = typeof inventoryBatches.$inferInsert;
 
 export type InventoryItem = typeof inventoryItems.$inferSelect;
 export type NewInventoryItem = typeof inventoryItems.$inferInsert;
@@ -817,11 +845,19 @@ export type NewDailyAnalytics = typeof dailyAnalytics.$inferInsert;
 export type Customer = typeof customers.$inferSelect;
 export type NewCustomer = typeof customers.$inferInsert;
 
-export type InventoryUnit = typeof inventoryUnits.$inferSelect;
-export type NewInventoryUnit = typeof inventoryUnits.$inferInsert;
+
 
 export type ProductPricing = typeof productPricing.$inferSelect;
 export type NewProductPricing = typeof productPricing.$inferInsert;
 
 export type BundleItem = typeof bundleItems.$inferSelect;
 export type NewBundleItem = typeof bundleItems.$inferInsert;
+
+export type ProductOptionGroup = typeof productOptionGroups.$inferSelect;
+export type NewProductOptionGroup = typeof productOptionGroups.$inferInsert;
+
+export type ProductOptionValue = typeof productOptionValues.$inferSelect;
+export type NewProductOptionValue = typeof productOptionValues.$inferInsert;
+
+export type ProductVariant = typeof productVariants.$inferSelect;
+export type NewProductVariant = typeof productVariants.$inferInsert;

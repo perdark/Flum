@@ -6,7 +6,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { inventoryItems, products, inventoryTemplates, inventoryBatches, users } from "@/db/schema";
+import { inventoryItems, products, inventoryTemplates, users } from "@/db/schema";
 import { requirePermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
 import { eq, and, sql, or, like, desc } from "drizzle-orm";
@@ -64,12 +64,10 @@ export async function GET(request: NextRequest) {
         productName: products.name,
         productSlug: products.slug,
         templateName: inventoryTemplates.name,
-        batchName: inventoryBatches.name,
       })
       .from(inventoryItems)
       .innerJoin(products, eq(inventoryItems.productId, products.id))
       .leftJoin(inventoryTemplates, eq(inventoryItems.templateId, inventoryTemplates.id))
-      .leftJoin(inventoryBatches, eq(inventoryItems.batchId, inventoryBatches.id))
       .where(and(...conditions))
       .orderBy(desc(inventoryItems.createdAt))
       .limit(limit)

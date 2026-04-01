@@ -16,12 +16,13 @@ import { eq } from "drizzle-orm";
 // GET /api/customers/[id] - Get customer
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const db = getDb();
     const customer = await db.query.customers.findFirst({
-      where: eq(customers.id, params.id),
+      where: eq(customers.id, id),
     });
 
     if (!customer) {
@@ -47,9 +48,10 @@ export async function GET(
 // PUT /api/customers/[id] - Update customer
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     await requirePermission(PERMISSIONS.MANAGE_STAFF);
 
     const body = await request.json();
@@ -59,7 +61,7 @@ export async function PUT(
 
     // Check if customer exists
     const existing = await db.query.customers.findFirst({
-      where: eq(customers.id, params.id),
+      where: eq(customers.id, id),
     });
 
     if (!existing) {
@@ -81,7 +83,7 @@ export async function PUT(
         status: status || existing.status,
         updatedAt: new Date(),
       })
-      .where(eq(customers.id, params.id))
+      .where(eq(customers.id, id))
       .returning();
 
     return NextResponse.json({
@@ -115,9 +117,10 @@ export async function PUT(
 // DELETE /api/customers/[id] - Delete customer
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     await requirePermission(PERMISSIONS.MANAGE_STAFF);
 
     const db = getDb();
@@ -130,7 +133,7 @@ export async function DELETE(
         status: "suspended",
         updatedAt: new Date(),
       })
-      .where(eq(customers.id, params.id));
+      .where(eq(customers.id, id));
 
     return NextResponse.json({
       success: true,

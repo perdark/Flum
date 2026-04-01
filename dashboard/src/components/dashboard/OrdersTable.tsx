@@ -376,6 +376,7 @@ export function OrdersTable() {
     switch (status) {
       case "pending": return "bg-warning/20 text-warning border border-warning/30";
       case "processing": return "bg-info/20 text-info border border-info/30";
+      case "partial": return "bg-orange-500/20 text-orange-400 border border-orange-500/30";
       case "delivered": return "bg-success/20 text-success border border-success/30";
       case "completed": return "bg-success/20 text-success border border-success/30";
       case "cancelled": return "bg-error/20 text-error border border-error/30";
@@ -386,7 +387,14 @@ export function OrdersTable() {
 
   const getDisplayStatus = (order: Order): string => {
     if (["completed", "cancelled", "refunded"].includes(order.status)) return order.status;
-    if (order.fulfillmentStatus === "processing" || order.fulfillmentStatus === "delivered") return order.fulfillmentStatus;
+    if (order.fulfillmentStatus === "delivered") return "delivered";
+    if (order.fulfillmentStatus === "processing") {
+      // Check if partially fulfilled (some items delivered, some pending)
+      const hasDelivered = order.items.some((item) => (item.deliveredInventoryIds || []).length > 0);
+      const hasPending = order.items.some((item) => (item.deliveredInventoryIds || []).length < item.quantity);
+      if (hasDelivered && hasPending) return "partial";
+      return "processing";
+    }
     return "pending";
   };
 
@@ -397,6 +405,7 @@ export function OrdersTable() {
       case "refunded": return "Refunded";
       case "processing": return "Processing";
       case "delivered": return "Delivered";
+      case "partial": return "Partially Fulfilled";
       default: return "Pending";
     }
   };

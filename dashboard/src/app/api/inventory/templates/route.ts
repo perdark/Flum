@@ -20,9 +20,17 @@ export async function GET() {
     const db = getDb();
 
     const templates = await db
-      .select()
+      .select({
+        id: inventoryTemplates.id,
+        name: inventoryTemplates.name,
+        description: inventoryTemplates.description,
+        fieldsSchema: inventoryTemplates.fieldsSchema,
+        isActive: inventoryTemplates.isActive,
+        createdAt: inventoryTemplates.createdAt,
+        updatedAt: inventoryTemplates.updatedAt,
+      })
       .from(inventoryTemplates)
-      .where(sql`deleted_at IS NULL`)
+      .where(sql`${inventoryTemplates.deletedAt} IS NULL`)
       .orderBy(inventoryTemplates.createdAt);
 
     return NextResponse.json({
@@ -70,6 +78,17 @@ export async function POST(request: NextRequest) {
       if (!field.name || !field.type || field.required === undefined) {
         return NextResponse.json(
           { success: false, error: "Each field must have name, type, and required" },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Validate linked pair references
+    const fieldNames = new Set(fieldsSchema.map((f: any) => f.name));
+    for (const field of fieldsSchema) {
+      if (field.linkedTo && !fieldNames.has(field.linkedTo)) {
+        return NextResponse.json(
+          { success: false, error: `Linked field "${field.linkedTo}" not found in fieldsSchema` },
           { status: 400 }
         );
       }

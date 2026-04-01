@@ -4,7 +4,7 @@
  * New Product Page
  *
  * Form to create a new product with category tree selection, images,
- * multi-sell configuration, and bundle builder
+ * purchase options / region pricing, and bundle builder
  */
 
 import { useState, useEffect } from "react";
@@ -53,11 +53,8 @@ export default function NewProductPage() {
     isNew: false,
     videoUrl: "",
     videoThumbnail: "",
-    // Multi-sell fields
-    multiSellEnabled: false,
-    multiSellFactor: 5,
-    cooldownEnabled: false,
-    cooldownDurationHours: 12,
+    purchaseOptions: [] as Array<{ slug: string; label: string; fieldKeys: string }>,
+    regionPrices: [] as Array<{ regionCode: string; price: string; purchaseOptionSlug: string }>,
     // Bundle fields
     isBundle: false,
     bundleTemplateId: "",
@@ -121,6 +118,25 @@ export default function NewProductPage() {
       // Auto-generate slug from name
       const slug = generateSlug(formData.name);
 
+      const purchaseOptions = formData.purchaseOptions
+        .filter((o) => o.slug.trim() && o.label.trim())
+        .map((o, i) => ({
+          slug: o.slug.trim(),
+          label: o.label.trim(),
+          fieldKeys: o.fieldKeys
+            .split(",")
+            .map((k) => k.trim())
+            .filter(Boolean),
+          sortOrder: i,
+        }));
+      const regionPrices = formData.regionPrices
+        .filter((r) => r.regionCode.trim() && r.price.trim())
+        .map((r) => ({
+          regionCode: r.regionCode.trim(),
+          price: parseFloat(r.price) || 0,
+          purchaseOptionSlug: r.purchaseOptionSlug.trim() || null,
+        }));
+
       const response = await fetch("/api/products", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -132,6 +148,8 @@ export default function NewProductPage() {
           compareAtPrice: formData.enableDiscount && formData.compareAtPrice ? parseFloat(formData.compareAtPrice) : undefined,
           categoryIds,
           images: validImages,
+          purchaseOptions,
+          regionPrices,
         }),
       });
 
@@ -319,113 +337,190 @@ export default function NewProductPage() {
 
             <div>
               <label className="block text-sm font-medium text-muted-foreground mb-2">
-                Inventory Template *
+                Inventory Template
               </label>
               <select
                 value={formData.inventoryTemplateId}
                 onChange={(e) => setFormData({ ...formData, inventoryTemplateId: e.target.value })}
-                required
                 className="w-full px-4 py-2 bg-muted border border-input text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
               >
-                <option value="">Select a template...</option>
+                <option value="">None - Manual Delivery</option>
                 {templates.map((template) => (
                   <option key={template.id} value={template.id}>
                     {template.name} {template.description && `- ${template.description}`}
                   </option>
                 ))}
               </select>
+              <p className="text-xs text-muted-foreground mt-1">
+                {formData.inventoryTemplateId
+                  ? "Products with templates auto-fulfill from inventory"
+                  : "No template = manual delivery from orders page (no stock tracking)"}
+              </p>
             </div>
           </div>
-        </div>
 
-        {/* Multi-Sell Configuration */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-foreground">Multi-Sell Configuration</h2>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={formData.multiSellEnabled}
-                onChange={(e) => setFormData({ ...formData, multiSellEnabled: e.target.checked })}
-                className="w-4 h-4 text-primary bg-muted border-input rounded focus:ring-ring"
-              />
-              <span className="text-sm text-muted-foreground">Enable Multi-Sell</span>
-            </label>
-          </div>
-
-          <p className="text-sm text-muted-foreground mb-4">
-            Allow this product to be sold multiple times before each unit enters cooldown
-          </p>
-
-          {formData.multiSellEnabled && (
-            <div className="bg-muted/50 p-4 rounded-lg border border-input">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-2">
-                    Sales Factor *
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={formData.multiSellFactor}
-                    onChange={(e) => setFormData({ ...formData, multiSellFactor: parseInt(e.target.value) || 5 })}
-                    className="w-full px-4 py-2 bg-muted border border-input text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
-                    placeholder="5"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    How many times each unit can be sold
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-2">
-                    Enable Cooldown
-                  </label>
-                  <div className="flex items-center h-10">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={formData.cooldownEnabled}
-                        onChange={(e) => setFormData({ ...formData, cooldownEnabled: e.target.checked })}
-                        className="w-4 h-4 text-primary bg-muted border-input rounded focus:ring-ring"
-                      />
-                      <span className="text-sm text-muted-foreground">
-                        {formData.cooldownEnabled ? "Enabled" : "Disabled"}
-                      </span>
-                    </label>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Require cooldown between sales cycles
-                  </p>
-                </div>
-
-                {formData.cooldownEnabled && (
-                  <div>
-                    <label className="block text-sm font-medium text-muted-foreground mb-2">
-                      Cooldown Duration (hours) *
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={formData.cooldownDurationHours}
-                      onChange={(e) => setFormData({ ...formData, cooldownDurationHours: parseInt(e.target.value) || 12 })}
-                      className="w-full px-4 py-2 bg-muted border border-input text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
-                      placeholder="12"
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Hours before unit can sell again
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {formData.cooldownEnabled && (
-                <div className="mt-3 text-xs text-muted-foreground">
-                  <span className="text-yellow-400">⚠</span> After a unit reaches {formData.multiSellFactor} sales, it will enter cooldown for {formData.cooldownDurationHours} hour{formData.cooldownDurationHours > 1 ? "s" : ""} before becoming available again.
-                </div>
-              )}
+          {!formData.inventoryTemplateId && (
+            <div className="mt-4 p-3 bg-warning/10 border border-warning/30 rounded-lg">
+              <p className="text-warning text-sm">
+                <strong>Manual Delivery Mode:</strong> This product won't track inventory. 
+                Orders will be created as pending for manual fulfillment from the Orders page.
+              </p>
             </div>
           )}
+        </div>
+
+        {/* Purchase options & regions (template field keys = what to deliver) */}
+        <div className="mb-8">
+          <h2 className="text-lg font-semibold text-foreground mb-2">Purchase options &amp; regions</h2>
+          <p className="text-sm text-muted-foreground mb-4">
+            Optional: e.g. &quot;My account&quot; vs &quot;User account&quot; with different template fields. Multi-sell is set per stock line in Inventory → Add stock batch.
+          </p>
+          <div className="space-y-3 mb-4">
+            {formData.purchaseOptions.map((opt, idx) => (
+              <div key={idx} className="grid grid-cols-1 md:grid-cols-4 gap-2 items-end bg-muted/40 p-3 rounded-lg border border-input">
+                <div>
+                  <label className="text-xs text-muted-foreground">Slug</label>
+                  <input
+                    className="w-full px-2 py-1.5 bg-muted border border-input rounded text-sm"
+                    value={opt.slug}
+                    onChange={(e) => {
+                      const next = [...formData.purchaseOptions];
+                      next[idx] = { ...next[idx], slug: e.target.value };
+                      setFormData({ ...formData, purchaseOptions: next });
+                    }}
+                    placeholder="my_account"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground">Label</label>
+                  <input
+                    className="w-full px-2 py-1.5 bg-muted border border-input rounded text-sm"
+                    value={opt.label}
+                    onChange={(e) => {
+                      const next = [...formData.purchaseOptions];
+                      next[idx] = { ...next[idx], label: e.target.value };
+                      setFormData({ ...formData, purchaseOptions: next });
+                    }}
+                    placeholder="My account"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="text-xs text-muted-foreground">Template field keys (comma-separated)</label>
+                  <input
+                    className="w-full px-2 py-1.5 bg-muted border border-input rounded text-sm"
+                    value={opt.fieldKeys}
+                    onChange={(e) => {
+                      const next = [...formData.purchaseOptions];
+                      next[idx] = { ...next[idx], fieldKeys: e.target.value };
+                      setFormData({ ...formData, purchaseOptions: next });
+                    }}
+                    placeholder="code, email, password"
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="text-destructive text-sm md:col-span-4"
+                  onClick={() =>
+                    setFormData({
+                      ...formData,
+                      purchaseOptions: formData.purchaseOptions.filter((_, i) => i !== idx),
+                    })
+                  }
+                >
+                  Remove option
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="text-sm text-primary"
+              onClick={() =>
+                setFormData({
+                  ...formData,
+                  purchaseOptions: [
+                    ...formData.purchaseOptions,
+                    { slug: "", label: "", fieldKeys: "" },
+                  ],
+                })
+              }
+            >
+              + Add purchase option
+            </button>
+          </div>
+          <div className="space-y-2">
+            <h3 className="text-sm font-medium text-foreground">Region prices</h3>
+            {formData.regionPrices.map((rp, idx) => (
+              <div key={idx} className="grid grid-cols-1 md:grid-cols-3 gap-2 items-end bg-muted/40 p-3 rounded-lg border border-input">
+                <div>
+                  <label className="text-xs text-muted-foreground">Region code</label>
+                  <input
+                    className="w-full px-2 py-1.5 bg-muted border border-input rounded text-sm"
+                    value={rp.regionCode}
+                    onChange={(e) => {
+                      const next = [...formData.regionPrices];
+                      next[idx] = { ...next[idx], regionCode: e.target.value };
+                      setFormData({ ...formData, regionPrices: next });
+                    }}
+                    placeholder="usa"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground">Price</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    className="w-full px-2 py-1.5 bg-muted border border-input rounded text-sm"
+                    value={rp.price}
+                    onChange={(e) => {
+                      const next = [...formData.regionPrices];
+                      next[idx] = { ...next[idx], price: e.target.value };
+                      setFormData({ ...formData, regionPrices: next });
+                    }}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground">Option slug (optional)</label>
+                  <input
+                    className="w-full px-2 py-1.5 bg-muted border border-input rounded text-sm"
+                    value={rp.purchaseOptionSlug}
+                    onChange={(e) => {
+                      const next = [...formData.regionPrices];
+                      next[idx] = { ...next[idx], purchaseOptionSlug: e.target.value };
+                      setFormData({ ...formData, regionPrices: next });
+                    }}
+                    placeholder="my_account"
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="text-destructive text-sm md:col-span-3"
+                  onClick={() =>
+                    setFormData({
+                      ...formData,
+                      regionPrices: formData.regionPrices.filter((_, i) => i !== idx),
+                    })
+                  }
+                >
+                  Remove row
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="text-sm text-primary"
+              onClick={() =>
+                setFormData({
+                  ...formData,
+                  regionPrices: [
+                    ...formData.regionPrices,
+                    { regionCode: "", price: "", purchaseOptionSlug: "" },
+                  ],
+                })
+              }
+            >
+              + Add region price
+            </button>
+          </div>
         </div>
 
         {/* Bundle Configuration */}

@@ -16,9 +16,10 @@ import { eq, and } from "drizzle-orm";
 // GET /api/products/[id]/pricing - Get product pricing
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const { searchParams } = new URL(request.url);
     const context = (searchParams.get("context") || "customer") as
       | "admin"
@@ -29,7 +30,7 @@ export async function GET(
 
     // Verify product exists
     const product = await db.query.products.findFirst({
-      where: eq(products.id, params.id),
+      where: eq(products.id, id),
     });
 
     if (!product) {
@@ -41,7 +42,7 @@ export async function GET(
 
     // Get all pricing tiers
     const pricing = await db.query.productPricing.findMany({
-      where: eq(productPricing.productId, params.id),
+      where: eq(productPricing.productId, id),
     });
 
     const retailPricing = pricing.find((p) => p.customerType === "retail");
@@ -49,7 +50,7 @@ export async function GET(
     const adminPricing = pricing.find((p) => p.customerType === "admin");
 
     let result: Record<string, any> = {
-      productId: params.id,
+      productId: id,
       basePrice: product.basePrice,
     };
 
@@ -71,7 +72,7 @@ export async function GET(
       case "merchant":
         result = {
           ...result,
-          retail: retailPricing?.retailPrice, // Show for margin reference
+          retail: retailPricing?.retailPrice,
           current:
             merchantPricing?.wholesalePrice ||
             retailPricing?.retailPrice ||
@@ -110,9 +111,10 @@ export async function GET(
 // PUT /api/products/[id]/pricing - Update pricing tier
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     await requirePermission(PERMISSIONS.MANAGE_PRODUCTS);
 
     const body = await request.json();
@@ -138,7 +140,7 @@ export async function PUT(
 
     // Verify product exists
     const product = await db.query.products.findFirst({
-      where: eq(products.id, params.id),
+      where: eq(products.id, id),
     });
 
     if (!product) {
@@ -151,7 +153,7 @@ export async function PUT(
     // Check if pricing tier exists
     const existing = await db.query.productPricing.findFirst({
       where: and(
-        eq(productPricing.productId, params.id),
+        eq(productPricing.productId, id),
         eq(productPricing.customerType, customerType)
       ),
     });
@@ -184,7 +186,7 @@ export async function PUT(
       const [created] = await db
         .insert(productPricing)
         .values({
-          productId: params.id,
+          productId: id,
           customerType,
           ...pricingData,
           validFrom: new Date(),
@@ -224,9 +226,10 @@ export async function PUT(
 // DELETE /api/products/[id]/pricing - Delete pricing tier
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     await requirePermission(PERMISSIONS.MANAGE_PRODUCTS);
 
     const { searchParams } = new URL(request.url);
@@ -243,7 +246,7 @@ export async function DELETE(
 
     const existing = await db.query.productPricing.findFirst({
       where: and(
-        eq(productPricing.productId, params.id),
+        eq(productPricing.productId, id),
         eq(productPricing.customerType, customerType)
       ),
     });

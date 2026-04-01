@@ -13,16 +13,186 @@
  */
 
 import { getDb } from "@/db";
-import { inventoryItems, products, orders, orderItems } from "@/db/schema";
+import { inventoryItems, products, orders, orderItems, bundleItems, productVariants } from "@/db/schema";
 import { eq, and, sql, inArray } from "drizzle-orm";
+import { sqlInventoryRowsForProduct } from "@/lib/inventoryProductScope";
 import { logInventorySold, logOrderCompleted } from "./activityLog";
+
+/** Reset multi-sell lines whose cooldown has ended */
+export async function resetExpiredMultisellCooldowns(tx: any, productId: string, variantId?: string | null) {
+  const variantFilter = variantId ? sql` AND variant_id = ${variantId}` : sql``;
+  await tx.execute(sql`
+    UPDATE inventory_items SET
+      status = 'available',
+      multi_sell_sale_count = 0,
+      cooldown_until = NULL,
+      updated_at = NOW()
+    WHERE ${sqlInventoryRowsForProduct(productId)}
+      AND status = 'in_cooldown'
+      AND cooldown_until IS NOT NULL
+      AND cooldown_until <= NOW()
+      AND deleted_at IS NULL
+      ${variantFilter}
+  `);
+}
+
+export type InventoryRowPick = {
+  id: string;
+  product_id?: string;
+  values: Record<string, string | number | boolean>;
+  multi_sell_enabled: boolean;
+  multi_sell_max: number;
+  multi_sell_sale_count: number;
+  cooldown_enabled: boolean;
+  cooldown_duration_hours: number;
+};
+
+/** Lock and return one allocatable inventory row for a product (supports multi-sell per line) */
+export async function pickOneInventoryLine(tx: any, productId: string, variantId?: string | null): Promise<InventoryRowPick | null> {
+  const variantFilter = variantId ? sql` AND variant_id = ${variantId}` : sql``;
+  const res = await tx.execute(sql`
+    SELECT id, product_id, values,
+      COALESCE(multi_sell_enabled, false) AS multi_sell_enabled,
+      COALESCE(multi_sell_max, 5) AS multi_sell_max,
+      COALESCE(multi_sell_sale_count, 0) AS multi_sell_sale_count,
+      COALESCE(cooldown_enabled, false) AS cooldown_enabled,
+      COALESCE(cooldown_duration_hours, 12) AS cooldown_duration_hours
+    FROM inventory_items
+    WHERE ${sqlInventoryRowsForProduct(productId)}
+      AND deleted_at IS NULL
+      ${variantFilter}
+      AND (
+        (status = 'available' AND COALESCE(multi_sell_enabled, false) = false)
+        OR (
+          status = 'available'
+          AND COALESCE(multi_sell_enabled, false) = true
+          AND COALESCE(multi_sell_sale_count, 0) < COALESCE(multi_sell_max, 5)
+          AND (cooldown_until IS NULL OR cooldown_until <= NOW())
+        )
+      )
+    ORDER BY created_at ASC
+    LIMIT 1
+    FOR UPDATE SKIP LOCKED
+  `);
+  const row = res.rows[0] as InventoryRowPick | undefined;
+  return row ?? null;
+}
+
+export async function applySaleToInventoryLine(
+  tx: any,
+  row: InventoryRowPick,
+  orderItemId: string | null,
+  orderId: string | null,
+  userId: string | null | undefined
+): Promise<{ decrementStock: boolean }> {
+  const ms = row.multi_sell_enabled;
+  const logOrder = orderId || "pending";
+
+  if (!ms) {
+    await tx
+      .update(inventoryItems)
+      .set({
+        status: "sold",
+        orderItemId: orderItemId ?? null,
+        purchasedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(inventoryItems.id, row.id));
+    await logInventorySold(userId || null, row.id, logOrder);
+    return { decrementStock: true };
+  }
+
+  const next = row.multi_sell_sale_count + 1;
+  const max = row.multi_sell_max;
+  const cooldownEnabled = row.cooldown_enabled;
+  const hours = row.cooldown_duration_hours;
+
+  if (next >= max) {
+    if (cooldownEnabled) {
+      const until = new Date(Date.now() + hours * 60 * 60 * 1000);
+      await tx
+        .update(inventoryItems)
+        .set({
+          multiSellSaleCount: next,
+          status: "in_cooldown",
+          cooldownUntil: until,
+          updatedAt: new Date(),
+        })
+        .where(eq(inventoryItems.id, row.id));
+    } else {
+      await tx
+        .update(inventoryItems)
+        .set({
+          multiSellSaleCount: next,
+          status: "sold",
+          orderItemId: orderItemId ?? null,
+          purchasedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(inventoryItems.id, row.id));
+    }
+  } else {
+    await tx
+      .update(inventoryItems)
+      .set({
+        multiSellSaleCount: next,
+        updatedAt: new Date(),
+      })
+      .where(eq(inventoryItems.id, row.id));
+  }
+  await logInventorySold(userId || null, row.id, logOrder);
+  return { decrementStock: next >= max && !cooldownEnabled };
+}
+
+/**
+ * Decrement stockCount for products linked to the given inventory items.
+ * Call this after items are marked as sold with `decrementStock = true`.
+ */
+export async function decrementLinkedProductStock(
+  tx: any,
+  soldItemIds: string[]
+): Promise<void> {
+  if (soldItemIds.length === 0) return;
+
+  const productIds = new Set<string>();
+  const variantIds = new Set<string>();
+
+  const primaryRows = await tx
+    .select({ productId: inventoryItems.productId, variantId: inventoryItems.variantId })
+    .from(inventoryItems)
+    .where(inArray(inventoryItems.id, soldItemIds));
+  for (const r of primaryRows) {
+    if (r.productId) productIds.add(r.productId);
+    if (r.variantId) variantIds.add(r.variantId);
+  }
+
+  if (productIds.size > 0) {
+    await tx.execute(sql`
+      UPDATE ${products}
+      SET stock_count = stock_count - 1,
+          total_sold = total_sold + 1,
+          updated_at = NOW()
+      WHERE id IN (${sql.join([...productIds].map(id => sql`${id}`), sql`, `)})
+    `);
+  }
+
+  // Also decrement variant stockCount
+  if (variantIds.size > 0) {
+    await tx.execute(sql`
+      UPDATE ${productVariants}
+      SET stock_count = GREATEST(0, stock_count - 1),
+          updated_at = NOW()
+      WHERE id IN (${sql.join([...variantIds].map(id => sql`${id}`), sql`, `)})
+    `);
+  }
+}
 
 // ============================================================================
 // AUTO-DELIVERY SERVICE
 // ============================================================================
 
 export interface DeliveryItem {
-  productId: string;
+  productId: string | null;
   productName: string;
   quantity: number;
   // The actual delivered data (keys, accounts, etc.)
@@ -37,7 +207,7 @@ export interface DeliveryResult {
   success: boolean;
   deliveredItems: DeliveryItem[];
   errors: string[];
-  fulfillmentStatus: "delivered" | "partial" | "failed";
+  fulfillmentStatus: "delivered" | "processing" | "failed";
 }
 
 /**
@@ -76,8 +246,10 @@ export async function fulfillOrder(
         .select({
           id: orderItems.id,
           productId: orderItems.productId,
+          variantId: orderItems.variantId,
           quantity: orderItems.quantity,
           productName: products.name,
+          isBundle: products.isBundle,
         })
         .from(orderItems)
         .innerJoin(products, eq(orderItems.productId, products.id))
@@ -93,81 +265,185 @@ export async function fulfillOrder(
 
       // Process each order item
       for (const item of items) {
+        const productId = item.productId;
+        if (!productId) {
+          result.errors.push("Order line is missing productId; cannot auto-fulfill.");
+          totalErrors++;
+          continue;
+        }
+
         const deliveryItem: DeliveryItem = {
-          productId: item.productId,
+          productId,
           productName: item.productName,
           quantity: item.quantity,
           items: [],
         };
 
-        // Find and lock available inventory items
-        // Using raw SQL with FOR UPDATE to lock rows
-        const availableInventory = await tx.execute(
-          sql`
-            SELECT id, values
-            FROM inventory_items
-            WHERE product_id = ${item.productId}
-              AND status = 'available'
-              AND deleted_at IS NULL
-            ORDER BY created_at ASC
-            LIMIT ${item.quantity}
-            FOR UPDATE SKIP LOCKED
-          `
-        );
+        const deliveredIds: string[] = [];
 
-        const inventoryRows = availableInventory.rows as Array<{
-          id: string;
-          values: Record<string, string | number | boolean>;
-        }>;
+        // -----------------------------------------------------------------
+        // Bundle: pull inventory from each linked sub-product (e.g. GTA4 + GTA5)
+        // -----------------------------------------------------------------
+        if (item.isBundle) {
+          const subs = await tx
+            .select()
+            .from(bundleItems)
+            .where(eq(bundleItems.bundleProductId, productId));
+          const withPid = subs.filter((s) => s.productId);
 
-        if (inventoryRows.length < item.quantity) {
-          result.errors.push(
-            `Insufficient inventory for ${item.productName}: ` +
-              `needed ${item.quantity}, available ${inventoryRows.length}`
-          );
-          totalErrors++;
-        }
+          if (withPid.length === 0) {
+            result.errors.push(
+              `Bundle "${item.productName}" has no sub-products linked. Edit the bundle and pick real products (🔍) for each line.`
+            );
+            totalErrors++;
+            await tx
+              .update(orderItems)
+              .set({
+                deliveredInventoryIds: sql`'[]'::jsonb`,
+                fulfilledQuantity: 0,
+              })
+              .where(eq(orderItems.id, item.id));
+            result.deliveredItems.push(deliveryItem);
+            continue;
+          }
 
-        // Update inventory items as sold
-        for (const row of inventoryRows) {
+          let bundleUnitsDone = 0;
+          for (let q = 0; q < item.quantity; q++) {
+            await tx.execute(sql`SAVEPOINT sp_bundle_unit`);
+            try {
+              const batch: Array<{ row: InventoryRowPick; subPid: string }> = [];
+              for (const sub of withPid) {
+                await resetExpiredMultisellCooldowns(tx, sub.productId!);
+                const need = sub.quantity || 1;
+                for (let n = 0; n < need; n++) {
+                  const row = await pickOneInventoryLine(tx, sub.productId!);
+                  if (!row) throw new Error("shortage");
+                  batch.push({ row, subPid: sub.productId! });
+                }
+              }
+              for (const { row, subPid } of batch) {
+                const { decrementStock } = await applySaleToInventoryLine(
+                  tx,
+                  row,
+                  item.id,
+                  orderId,
+                  userId
+                );
+                deliveredIds.push(row.id);
+                deliveryItem.items.push({
+                  inventoryId: row.id,
+                  data: row.values,
+                });
+                totalDelivered++;
+                if (decrementStock) {
+                  await decrementLinkedProductStock(tx, [row.id]);
+                } else {
+                  // Multi-sell: still count the sale
+                  await tx.execute(sql`
+                    UPDATE ${products}
+                    SET total_sold = total_sold + 1,
+                        updated_at = NOW()
+                    WHERE id = ${subPid}
+                  `);
+                }
+              }
+              bundleUnitsDone++;
+              await tx.execute(sql`RELEASE SAVEPOINT sp_bundle_unit`);
+            } catch {
+              await tx.execute(sql`ROLLBACK TO SAVEPOINT sp_bundle_unit`);
+              result.errors.push(
+                `Bundle "${item.productName}": not enough stock on sub-products for bundle unit ${q + 1}/${item.quantity}`
+              );
+              totalErrors++;
+              break;
+            }
+          }
+
+          deliveryItem.quantity = bundleUnitsDone;
+
           await tx
-            .update(inventoryItems)
+            .update(orderItems)
             .set({
-              status: "sold",
-              orderItemId: item.id,
-              purchasedAt: new Date(),
+              deliveredInventoryIds: sql`${JSON.stringify(deliveredIds)}::jsonb`,
+              fulfilledQuantity: bundleUnitsDone,
+            })
+            .where(eq(orderItems.id, item.id));
+
+          // Track sales on the bundle product itself (no stock to decrement —
+          // stock lives on sub-products, already handled by decrementLinkedProductStock)
+          await tx
+            .update(products)
+            .set({
+              totalSold: sql`${products.totalSold} + ${bundleUnitsDone}`,
               updatedAt: new Date(),
             })
-            .where(eq(inventoryItems.id, row.id));
+            .where(eq(products.id, productId));
+
+          result.deliveredItems.push(deliveryItem);
+          continue;
+        }
+
+        // -----------------------------------------------------------------
+        // Normal product: inventory on this product
+        // -----------------------------------------------------------------
+        await resetExpiredMultisellCooldowns(tx, productId, item.variantId);
+
+        const soldIds: string[] = [];
+        const multiSellIds: string[] = [];
+
+        for (let q = 0; q < item.quantity; q++) {
+          const row = await pickOneInventoryLine(tx, productId, item.variantId);
+          if (!row) break;
+
+          const { decrementStock } = await applySaleToInventoryLine(
+            tx,
+            row,
+            item.id,
+            orderId,
+            userId
+          );
 
           deliveryItem.items.push({
             inventoryId: row.id,
             data: row.values,
           });
-
-          // Log inventory sale
-          await logInventorySold(userId || null, row.id, orderId);
-
+          deliveredIds.push(row.id);
+          if (decrementStock) {
+            soldIds.push(row.id);
+          } else {
+            multiSellIds.push(row.id);
+          }
           totalDelivered++;
         }
 
-        // Update order item with delivered inventory IDs
+        // Update stock for all linked products (primary FK + junction table)
+        await decrementLinkedProductStock(tx, soldIds);
+
+        // Multi-sell items that didn't fully sell: just bump totalSold
+        if (multiSellIds.length > 0) {
+          await tx.execute(sql`
+            UPDATE ${products}
+            SET total_sold = total_sold + 1,
+                updated_at = NOW()
+            WHERE id = ${productId}
+          `);
+        }
+
+        if (deliveredIds.length < item.quantity) {
+          result.errors.push(
+            `Insufficient inventory for ${item.productName}: ` +
+              `needed ${item.quantity}, allocated ${deliveredIds.length}`
+          );
+          totalErrors++;
+        }
+
         await tx
           .update(orderItems)
           .set({
-            deliveredInventoryIds: sql`${JSON.stringify(inventoryRows.map((r) => r.id))}::jsonb`,
+            deliveredInventoryIds: sql`${JSON.stringify(deliveredIds)}::jsonb`,
+            fulfilledQuantity: deliveredIds.length,
           })
           .where(eq(orderItems.id, item.id));
-
-        // Update product stock and sold counts
-        await tx
-          .update(products)
-          .set({
-            stockCount: sql`${products.stockCount} - ${inventoryRows.length}`,
-            totalSold: sql`${products.totalSold} + ${inventoryRows.length}`,
-            updatedAt: new Date(),
-          })
-          .where(eq(products.id, item.productId));
 
         result.deliveredItems.push(deliveryItem);
       }
@@ -177,7 +453,7 @@ export async function fulfillOrder(
         result.fulfillmentStatus = "delivered";
         result.success = true;
       } else if (totalDelivered > 0) {
-        result.fulfillmentStatus = "partial";
+        result.fulfillmentStatus = "processing";
         result.success = true;
       }
 
@@ -185,6 +461,7 @@ export async function fulfillOrder(
       await tx
         .update(orders)
         .set({
+          status: result.fulfillmentStatus === "delivered" ? "completed" : "pending",
           fulfillmentStatus: result.fulfillmentStatus,
           deliveredAt: result.fulfillmentStatus === "delivered" ? new Date() : null,
           processedBy: userId || null,
@@ -217,6 +494,34 @@ export async function fulfillOrder(
  * Check if an order can be fulfilled
  * Returns true if all products have sufficient inventory
  */
+/**
+ * Count of fulfillable units (each line counts once; multi-sell lines count remaining slots)
+ */
+export async function countFulfillableUnits(productId: string, variantId?: string | null): Promise<number> {
+  const db = getDb();
+  const variantFilter = variantId ? sql` AND variant_id = ${variantId}` : sql``;
+  const r = await db.execute(sql`
+    SELECT COALESCE(SUM(
+      CASE
+        WHEN status = 'available' AND COALESCE(multi_sell_enabled, false) = false THEN 1
+        WHEN status = 'available' AND COALESCE(multi_sell_enabled, false) = true
+          AND COALESCE(multi_sell_sale_count, 0) < COALESCE(multi_sell_max, 5)
+          AND (cooldown_until IS NULL OR cooldown_until <= NOW())
+        THEN GREATEST(0, COALESCE(multi_sell_max, 5) - COALESCE(multi_sell_sale_count, 0))
+        WHEN status = 'in_cooldown' AND cooldown_until IS NOT NULL AND cooldown_until <= NOW()
+        THEN COALESCE(multi_sell_max, 5)
+        ELSE 0
+      END
+    ), 0)::int AS n
+    FROM inventory_items
+    WHERE ${sqlInventoryRowsForProduct(productId)}
+      AND deleted_at IS NULL
+      ${variantFilter}
+  `);
+  const row = r.rows[0] as { n: number } | undefined;
+  return row?.n ?? 0;
+}
+
 export async function canFulfillOrder(orderId: string): Promise<boolean> {
   const db = getDb();
 
@@ -224,24 +529,37 @@ export async function canFulfillOrder(orderId: string): Promise<boolean> {
     .select({
       productId: orderItems.productId,
       quantity: orderItems.quantity,
+      isBundle: products.isBundle,
     })
     .from(orderItems)
+    .innerJoin(products, eq(orderItems.productId, products.id))
     .where(eq(orderItems.orderId, orderId));
 
   for (const item of items) {
-    const stock = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(inventoryItems)
-      .where(
-        and(
-          eq(inventoryItems.productId, item.productId),
-          sql`status = 'available'`,
-          sql`deleted_at IS NULL`
-        )
-      );
+    if (!item.productId) continue;
 
-    if (!stock[0] || stock[0].count < item.quantity) {
-      return false;
+    if (item.isBundle) {
+      const subs = await db
+        .select()
+        .from(bundleItems)
+        .where(eq(bundleItems.bundleProductId, item.productId));
+      const withPid = subs.filter((s) => s.productId);
+      if (withPid.length === 0) return false;
+
+      let maxBundles = Infinity;
+      for (const sub of withPid) {
+        const n = await countFulfillableUnits(sub.productId!);
+        const need = sub.quantity || 1;
+        const possible = Math.floor(n / need);
+        maxBundles = Math.min(maxBundles, possible);
+      }
+      if (!Number.isFinite(maxBundles)) maxBundles = 0;
+      if (maxBundles < item.quantity) return false;
+    } else {
+      const n = await countFulfillableUnits(item.productId);
+      if (n < item.quantity) {
+        return false;
+      }
     }
   }
 
@@ -252,20 +570,7 @@ export async function canFulfillOrder(orderId: string): Promise<boolean> {
  * Get available stock count for a product
  */
 export async function getProductStock(productId: string): Promise<number> {
-  const db = getDb();
-
-  const result = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(inventoryItems)
-    .where(
-      and(
-        eq(inventoryItems.productId, productId),
-        sql`status = 'available'`,
-        sql`deleted_at IS NULL`
-      )
-    );
-
-  return result[0]?.count || 0;
+  return countFulfillableUnits(productId);
 }
 
 /**
@@ -280,13 +585,15 @@ export async function getProductStock(productId: string): Promise<number> {
 export async function reserveInventory(
   productId: string,
   quantity: number,
-  durationMinutes: number = 15
+  durationMinutes: number = 15,
+  variantId?: string | null
 ): Promise<string[]> {
   const db = getDb();
 
   const reservedUntil = new Date(
     Date.now() + durationMinutes * 60 * 1000
   );
+  const variantFilter = variantId ? sql` AND variant_id = ${variantId}` : sql``;
 
   const result: string[] = await db.transaction(async (tx) => {
     // Find and lock available inventory
@@ -299,9 +606,10 @@ export async function reserveInventory(
         WHERE id IN (
           SELECT id
           FROM inventory_items
-          WHERE product_id = ${productId}
+          WHERE ${sqlInventoryRowsForProduct(productId)}
             AND status = 'available'
             AND deleted_at IS NULL
+            ${variantFilter}
           ORDER BY created_at ASC
           LIMIT ${quantity}
           FOR UPDATE SKIP LOCKED
@@ -371,11 +679,10 @@ export async function getOrderDeliveryData(
   const items = await db
     .select({
       productId: orderItems.productId,
-      productName: products.name,
+      productName: orderItems.productName,
       deliveredInventoryIds: orderItems.deliveredInventoryIds,
     })
     .from(orderItems)
-    .innerJoin(products, eq(orderItems.productId, products.id))
     .where(eq(orderItems.orderId, orderId));
 
   const result: DeliveryItem[] = [];
