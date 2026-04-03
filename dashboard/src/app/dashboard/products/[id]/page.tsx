@@ -27,11 +27,9 @@ interface InventoryTemplate {
 interface Product {
   id: string;
   name: string;
-  slug: string;
   nameAr: string | null;
   description: string | null;
   descriptionAr: string | null;
-  sku: string | null;
   basePrice: string;
   compareAtPrice: string | null;
   deliveryType: string;
@@ -39,9 +37,6 @@ interface Product {
   isActive: boolean;
   isFeatured: boolean;
   isNew: boolean;
-  pointsReward: number;
-  maxQuantity: number;
-  currentStock: number;
   videoUrl: string | null;
   videoThumbnail: string | null;
   categories: Array<{ id: string; name: string; parentId: string | null }>;
@@ -61,11 +56,9 @@ export default function EditProductPage() {
 
   const [formData, setFormData] = useState({
     name: "",
-    slug: "",
     nameAr: "",
     description: "",
     descriptionAr: "",
-    sku: "",
     basePrice: "",
     compareAtPrice: "",
     deliveryType: "manual",
@@ -73,9 +66,6 @@ export default function EditProductPage() {
     isActive: true,
     isFeatured: false,
     isNew: false,
-    pointsReward: 0,
-    maxQuantity: 999,
-    currentStock: -1,
     videoUrl: "",
     videoThumbnail: "",
   });
@@ -106,11 +96,9 @@ export default function EditProductPage() {
           const product: Product = productResult.data;
           setFormData({
             name: product.name,
-            slug: product.slug,
             nameAr: product.nameAr || "",
             description: product.description || "",
             descriptionAr: product.descriptionAr || "",
-            sku: product.sku || "",
             basePrice: product.basePrice,
             compareAtPrice: product.compareAtPrice || "",
             deliveryType: product.deliveryType,
@@ -118,9 +106,6 @@ export default function EditProductPage() {
             isActive: product.isActive,
             isFeatured: product.isFeatured,
             isNew: product.isNew,
-            pointsReward: product.pointsReward,
-            maxQuantity: product.maxQuantity,
-            currentStock: product.currentStock,
             videoUrl: product.videoUrl || "",
             videoThumbnail: product.videoThumbnail || "",
           });
@@ -149,15 +134,8 @@ export default function EditProductPage() {
     }
   }, [productId]);
 
-  const generateSlug = (name: string) => {
-    return name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "");
-  };
-
   const handleNameChange = (value: string) => {
-    setFormData({ ...formData, name: value, slug: generateSlug(value) });
+    setFormData({ ...formData, name: value });
   };
 
   const addImage = () => {
@@ -189,9 +167,19 @@ export default function EditProductPage() {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...formData,
+          name: formData.name,
+          nameAr: formData.nameAr,
+          description: formData.description,
+          descriptionAr: formData.descriptionAr,
           basePrice: parseFloat(formData.basePrice) || 0,
           compareAtPrice: formData.compareAtPrice ? parseFloat(formData.compareAtPrice) : null,
+          deliveryType: formData.deliveryType,
+          inventoryTemplateId: formData.inventoryTemplateId || null,
+          isActive: formData.isActive,
+          isFeatured: formData.isFeatured,
+          isNew: formData.isNew,
+          videoUrl: formData.videoUrl,
+          videoThumbnail: formData.videoThumbnail,
           categoryIds,
           images: validImages,
         }),
@@ -291,19 +279,6 @@ export default function EditProductPage() {
 
             <div>
               <label className="block text-sm font-medium text-muted-foreground mb-2">
-                Slug *
-              </label>
-              <input
-                type="text"
-                value={formData.slug}
-                onChange={(e) => setFormData({ ...formData, slug: e.target.value })}
-                required
-                className="w-full px-4 py-2 bg-muted border border-input text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-muted-foreground mb-2">
                 Arabic Name (الاسم بالعربية)
               </label>
               <input
@@ -313,19 +288,6 @@ export default function EditProductPage() {
                 className="w-full px-4 py-2 bg-muted border border-input text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground text-right"
                 placeholder="اسم المنتج"
                 dir="rtl"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-muted-foreground mb-2">
-                SKU
-              </label>
-              <input
-                type="text"
-                value={formData.sku}
-                onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
-                className="w-full px-4 py-2 bg-muted border border-input text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
-                placeholder="PROD-001"
               />
             </div>
           </div>
@@ -400,7 +362,7 @@ export default function EditProductPage() {
         <div className="mb-8">
           <h2 className="text-lg font-semibold text-foreground mb-4">Inventory & Delivery</h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className="block text-sm font-medium text-muted-foreground mb-2">
                 Delivery Type *
@@ -435,50 +397,6 @@ export default function EditProductPage() {
                   </option>
                 ))}
               </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-muted-foreground mb-2">
-                Stock Count
-              </label>
-              <input
-                type="number"
-                min="-1"
-                value={formData.currentStock}
-                onChange={(e) => setFormData({ ...formData, currentStock: parseInt(e.target.value) || -1 })}
-                className="w-full px-4 py-2 bg-muted border border-input text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                -1 for unlimited stock
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
-            <div>
-              <label className="block text-sm font-medium text-muted-foreground mb-2">
-                Max Quantity Per Order
-              </label>
-              <input
-                type="number"
-                min="1"
-                value={formData.maxQuantity}
-                onChange={(e) => setFormData({ ...formData, maxQuantity: parseInt(e.target.value) || 999 })}
-                className="w-full px-4 py-2 bg-muted border border-input text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-muted-foreground mb-2">
-                Points Reward
-              </label>
-              <input
-                type="number"
-                min="0"
-                value={formData.pointsReward}
-                onChange={(e) => setFormData({ ...formData, pointsReward: parseInt(e.target.value) || 0 })}
-                className="w-full px-4 py-2 bg-muted border border-input text-foreground rounded-lg focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
-              />
             </div>
           </div>
         </div>

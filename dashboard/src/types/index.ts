@@ -32,12 +32,17 @@ export interface Customer {
 // Field Visibility Context
 export type VisibilityContext = "admin" | "merchant" | "customer";
 
+/** Staff-only: which dashboard areas this user may access (see STAFF_SCOPE_PERMISSIONS). */
+export type StaffAccessScope = "full" | "inventory" | "inventory_orders";
+
 export interface UserWithPermissions {
   id: string;
   email: string;
   name: string;
   role: UserRole;
   isActive: boolean;
+  /** Set for staff users; ignored for admin */
+  staffAccessScope?: StaffAccessScope | null;
 }
 
 // Permission definitions for RBAC
@@ -76,6 +81,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     PERMISSIONS.VIEW_ORDERS,
   ],
   staff: [
+    PERMISSIONS.VIEW_ANALYTICS,
     PERMISSIONS.VIEW_PRODUCTS,
     PERMISSIONS.MANAGE_INVENTORY,
     PERMISSIONS.VIEW_ORDERS,
@@ -84,6 +90,27 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
   merchant: [
     PERMISSIONS.VIEW_PRODUCTS,
     PERMISSIONS.VIEW_ORDERS,
+  ],
+};
+
+/** Effective permissions for staff accounts (admin uses ROLE_PERMISSIONS.admin). */
+export const STAFF_SCOPE_PERMISSIONS: Record<StaffAccessScope, Permission[]> = {
+  /** Overview, analytics, catalog (view), inventory, orders, manual sell */
+  full: [
+    PERMISSIONS.VIEW_ANALYTICS,
+    PERMISSIONS.VIEW_PRODUCTS,
+    PERMISSIONS.MANAGE_INVENTORY,
+    PERMISSIONS.VIEW_ORDERS,
+    PERMISSIONS.PROCESS_ORDERS,
+  ],
+  /** Inventory, costs, templates — no orders or overview analytics */
+  inventory: [PERMISSIONS.VIEW_PRODUCTS, PERMISSIONS.MANAGE_INVENTORY],
+  /** Inventory plus orders and manual sell — no overview/analytics */
+  inventory_orders: [
+    PERMISSIONS.VIEW_PRODUCTS,
+    PERMISSIONS.MANAGE_INVENTORY,
+    PERMISSIONS.VIEW_ORDERS,
+    PERMISSIONS.PROCESS_ORDERS,
   ],
 };
 
@@ -203,6 +230,7 @@ export type InventoryItem = {
   status: InventoryStatus;
   orderItemId: string | null;
   reservedUntil: Date | null;
+  reservedBy?: string | null;
   purchasedAt: Date | null;
 };
 
@@ -338,6 +366,7 @@ export type ActivityAction =
   | "inventory_added"
   | "inventory_sold"
   | "inventory_deleted"
+  | "manual_template_sell"
   | "order_created"
   | "order_completed"
   | "order_cancelled"
@@ -360,6 +389,8 @@ export type ActivityAction =
   | "currency_deleted"
   | "settings_updated"
   | "manual_sell"
+  | "cost_entry_created"
+  | "cost_entry_updated"
   | "login"
   | "logout";
 

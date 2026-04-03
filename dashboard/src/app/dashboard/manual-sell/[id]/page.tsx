@@ -44,6 +44,22 @@ interface DeliveryData {
   fromSnapshot: boolean;
 }
 
+const INTERNAL_VALUE_KEYS = new Set(["_metadata", "values"]);
+
+function formatCellValue(v: unknown): string {
+  if (v === null || v === undefined) return "-";
+  if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return String(v);
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return String(v);
+  }
+}
+
+function filterFieldKeys(keys: string[]): string[] {
+  return keys.filter((k) => k && !INTERNAL_VALUE_KEYS.has(k));
+}
+
 export default function ManualSellDeliveryPage() {
   const params = useParams();
   const orderId = params.id as string;
@@ -91,7 +107,7 @@ export default function ManualSellDeliveryPage() {
         }
       }
     }
-    const fields = Array.from(fieldNames);
+    const fields = filterFieldKeys(Array.from(fieldNames));
     lines.push(["Product", ...fields].join("\t"));
 
     for (const item of data.deliveryItems) {
@@ -100,7 +116,7 @@ export default function ManualSellDeliveryPage() {
           if (row?.values) {
             lines.push([
               item.productName,
-              ...fields.map((f) => String(row.values[f] ?? "")),
+              ...fields.map((f) => formatCellValue(row.values[f])),
             ].join("\t"));
           }
         }
@@ -123,7 +139,7 @@ export default function ManualSellDeliveryPage() {
         }
       }
     }
-    const fields = Array.from(fieldNames);
+    const fields = filterFieldKeys(Array.from(fieldNames));
     lines.push(["Product", ...fields].join(","));
 
     for (const item of data.deliveryItems) {
@@ -133,7 +149,7 @@ export default function ManualSellDeliveryPage() {
             lines.push([
               `"${item.productName}"`,
               ...fields.map((f) => {
-                const val = String(row.values[f] ?? "");
+                const val = formatCellValue(row.values[f]);
                 return `"${val.replace(/"/g, '""')}"`;
               }),
             ].join(","));
@@ -153,9 +169,11 @@ export default function ManualSellDeliveryPage() {
     for (const item of data.deliveryItems) {
       if (item?.items && Array.isArray(item.items)) {
         for (const row of item.items) {
-          if (row?.values) {
+          if (row?.values && fieldName in row.values) {
             const val = row.values[fieldName];
-            if (val) values.push(String(val));
+            if (val !== null && val !== undefined && val !== "") {
+              values.push(formatCellValue(val));
+            }
           }
         }
       }
@@ -167,7 +185,7 @@ export default function ManualSellDeliveryPage() {
 
   const copyRowAsText = (item: DeliveryItem, row: { inventoryId: string; values: Record<string, string | number | boolean> }) => {
     const fieldNames = getAllFields();
-    const line = fieldNames.map((f) => `${f}: ${String(row.values[f] ?? "-")}`).join(" | ");
+    const line = fieldNames.map((f) => `${f}: ${formatCellValue(row.values[f])}`).join(" | ");
     copyText(`${item.productName} - ${line}`, `row-${row.inventoryId}`);
     toast.success("Row copied");
   };
@@ -182,7 +200,7 @@ export default function ManualSellDeliveryPage() {
         }
       }
     }
-    return Array.from(fieldNames);
+    return filterFieldKeys(Array.from(fieldNames));
   };
 
   const allFields = getAllFields();
@@ -330,10 +348,10 @@ export default function ManualSellDeliveryPage() {
           <table className="w-full">
             <thead className="bg-muted">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase w-10">
+                <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase w-10 select-none">
                   #
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase">
+                <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase select-none">
                   Product
                 </th>
                 {allFields.map((field) => (
@@ -352,20 +370,21 @@ export default function ManualSellDeliveryPage() {
             <tbody className="divide-y divide-border">
               {data.deliveryItems && Array.isArray(data.deliveryItems) && data.deliveryItems.map((deliveryItem) =>
                 deliveryItem.items && Array.isArray(deliveryItem.items) ? deliveryItem.items.map((row, idx) => (
-                  <tr key={row.inventoryId} className="hover:bg-muted/50 group">
-                    <td className="px-4 py-3 text-sm text-muted-foreground">
+                  <tr key={`${row.inventoryId}-${idx}`} className="hover:bg-muted/50 group">
+                    <td className="px-4 py-3 text-sm text-muted-foreground select-none">
                       {idx + 1}
                     </td>
-                    <td className="px-4 py-3 text-sm font-medium text-foreground">
+                    <td className="px-4 py-3 text-sm font-medium text-foreground select-none">
                       {deliveryItem.productName || "-"}
                     </td>
                     {allFields.map((field) => {
-                      const cellValue = String((row.values && row.values[field]) ?? "-");
+                      const raw = row.values?.[field];
+                      const cellValue = formatCellValue(raw);
                       const cellId = `${row.inventoryId}-${field}`;
                       return (
                         <td
                           key={field}
-                          className={`px-4 py-3 text-sm font-mono cursor-pointer transition-colors ${
+                          className={`px-4 py-3 text-sm font-mono cursor-pointer transition-colors select-text ${
                             copiedCell === cellId
                               ? "bg-success/10 text-success"
                               : "text-foreground hover:bg-muted"

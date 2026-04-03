@@ -24,6 +24,7 @@ export async function POST(request: NextRequest) {
       cost,
       eachLineIsProduct,
       variantId,
+      batchName,
     } = body as {
       templateId?: string | null;
       productId?: string | null;
@@ -31,6 +32,7 @@ export async function POST(request: NextRequest) {
       cost?: string | number | null;
       eachLineIsProduct?: boolean;
       variantId?: string | null;
+      batchName?: string;
     };
 
     // Validate input - templateId is now optional (for custom-field inventory)
@@ -79,6 +81,7 @@ export async function POST(request: NextRequest) {
           _metadata: {
             eachLineIsProduct,
             hasTemplate: !!templateId,
+            ...(batchName ? { batchName } : {}),
           },
         },
         status: "available" as const,

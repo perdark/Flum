@@ -19,6 +19,9 @@ export function AddStaffModal({ onClose, onAdded }: AddStaffModalProps) {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [role, setRole] = useState<"admin" | "staff">("staff");
+  const [staffAccessScope, setStaffAccessScope] = useState<
+    "full" | "inventory" | "inventory_orders"
+  >("full");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,7 +50,13 @@ export function AddStaffModal({ onClose, onAdded }: AddStaffModalProps) {
       const response = await fetch("/api/staff", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, name, password, role }),
+        body: JSON.stringify({
+          email,
+          name,
+          password,
+          role,
+          ...(role === "staff" ? { staffAccessScope } : {}),
+        }),
       });
 
       const result = await response.json();
@@ -127,6 +136,35 @@ export function AddStaffModal({ onClose, onAdded }: AddStaffModalProps) {
               <option value="admin">Admin</option>
             </select>
           </div>
+
+          {role === "staff" && (
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">
+                Page access
+              </label>
+              <select
+                value={staffAccessScope}
+                onChange={(e) =>
+                  setStaffAccessScope(
+                    e.target.value as "full" | "inventory" | "inventory_orders"
+                  )
+                }
+                className="w-full px-4 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="full">
+                  All staff pages (overview, inventory, orders, catalog view)
+                </option>
+                <option value="inventory_orders">
+                  Inventory & orders (no overview / analytics)
+                </option>
+                <option value="inventory">Inventory only</option>
+              </select>
+              <p className="text-xs text-muted-foreground mt-1.5">
+                Controls which sidebar sections this account can open. Admins always have full
+                access.
+              </p>
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-foreground mb-2">

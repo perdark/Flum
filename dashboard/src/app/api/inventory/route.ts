@@ -10,7 +10,8 @@ import { getDb } from "@/db";
 import { inventoryItems, products, orders, orderItems, productVariants } from "@/db/schema";
 import { requirePermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
-import { eq, and, sql, desc, asc, like, or, isNull } from "drizzle-orm";
+import { eq, and, sql, desc, asc, like, or, isNull, notInArray } from "drizzle-orm";
+import { manualSellInventoryCondition } from "@/lib/inventoryManualSellFilters";
 import { logInventoryAdded, logActivity } from "@/services/activityLog";
 
 function extractMultisell(row: Record<string, unknown>): {
@@ -49,13 +50,21 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const productId = searchParams.get("productId");
     const status = searchParams.get("status");
+    const manualSell =
+      searchParams.get("manualSell") === "1" || searchParams.get("manualSell") === "true";
     const page = parseInt(searchParams.get("page") || "1");
     const limit = parseInt(searchParams.get("limit") || "50");
     const offset = (page - 1) * limit;
     const unlinkedOnly = searchParams.get("unlinked") === "true";
     const variantId = searchParams.get("variantId");
+    const templateId = searchParams.get("templateId");
     const sortBy = searchParams.get("sortBy") || "createdAt";
     const sortOrder = searchParams.get("sortOrder") || "desc";
+    const excludeRaw = searchParams.get("excludeIds");
+    const excludeIds = (excludeRaw || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => /^[0-9a-f-]{36}$/i.test(s));
 
     const db = getDb();
 
@@ -63,6 +72,9 @@ export async function GET(request: NextRequest) {
     const conditions = [
       sql`${inventoryItems.deletedAt} IS NULL`,
     ];
+    if (excludeIds.length > 0) {
+      conditions.push(notInArray(inventoryItems.id, excludeIds));
+    }
 
     if (unlinkedOnly) {
       // Only show items without a product
@@ -76,7 +88,13 @@ export async function GET(request: NextRequest) {
       conditions.push(eq(inventoryItems.variantId, variantId));
     }
 
-    if (status) {
+    if (templateId) {
+      conditions.push(eq(inventoryItems.templateId, templateId));
+    }
+
+    if (manualSell && templateId) {
+      conditions.push(manualSellInventoryCondition(user.id));
+    } else if (status) {
       conditions.push(eq(inventoryItems.status, status as "available" | "reserved" | "sold" | "expired"));
     }
 
@@ -107,6 +125,7 @@ export async function GET(request: NextRequest) {
         cooldownDurationHours: inventoryItems.cooldownDurationHours,
         orderItemId: inventoryItems.orderItemId,
         reservedUntil: inventoryItems.reservedUntil,
+        reservedBy: inventoryItems.reservedBy,
         purchasedAt: inventoryItems.purchasedAt,
         createdAt: inventoryItems.createdAt,
         updatedAt: inventoryItems.updatedAt,

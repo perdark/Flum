@@ -5,6 +5,9 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
+  turbopack: {
+    root: "/home/mint/Desktop/Flum/Flum/dashboard",
+  },
 };
 
 export default nextConfig;

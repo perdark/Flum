@@ -10,7 +10,8 @@ import { getDb } from "@/db";
 import { users } from "@/db/schema";
 import { requireAdmin } from "@/lib/auth";
 import { hashPassword, isValidEmail, isValidPassword } from "@/utils/security";
-import { eq, sql, or } from "drizzle-orm";
+import { eq, sql, or, and, inArray } from "drizzle-orm";
+import type { StaffAccessScope } from "@/types";
 import { logStaffCreated } from "@/services/activityLog";
 
 // ============================================================================
@@ -19,7 +20,7 @@ import { logStaffCreated } from "@/services/activityLog";
 
 export async function GET() {
   try {
-    const currentUser = await requireAdmin();
+    await requireAdmin();
 
     const db = getDb();
 
@@ -29,12 +30,18 @@ export async function GET() {
         email: users.email,
         name: users.name,
         role: users.role,
+        staffAccessScope: users.staffAccessScope,
         isActive: users.isActive,
         lastLoginAt: users.lastLoginAt,
         createdAt: users.createdAt,
       })
       .from(users)
-      .where(sql`deleted_at IS NULL`)
+      .where(
+        and(
+          sql`deleted_at IS NULL`,
+          inArray(users.role, ["admin", "staff"])
+        )
+      )
       .orderBy(users.createdAt);
 
     return NextResponse.json({
@@ -74,7 +81,15 @@ export async function POST(request: NextRequest) {
     const currentUser = await requireAdmin();
 
     const body = await request.json();
-    const { email, name, password, role = "staff" } = body;
+    const { email, name, password, role = "staff", staffAccessScope: rawScope } = body;
+
+    const validScopes: StaffAccessScope[] = ["full", "inventory", "inventory_orders"];
+    const staffAccessScope: StaffAccessScope | null =
+      role === "staff"
+        ? typeof rawScope === "string" && validScopes.includes(rawScope as StaffAccessScope)
+          ? (rawScope as StaffAccessScope)
+          : "full"
+        : null;
 
     // Validate input
     if (!email || !name || !password) {
@@ -132,6 +147,7 @@ export async function POST(request: NextRequest) {
             name,
             passwordHash,
             role,
+            staffAccessScope,
             isActive: true,
             deletedAt: null,
             updatedAt: new Date(),
@@ -167,6 +183,7 @@ export async function POST(request: NextRequest) {
         name,
         passwordHash,
         role,
+        staffAccessScope,
         isActive: true,
       })
       .returning();

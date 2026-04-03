@@ -24,7 +24,7 @@ export async function PUT(
     const { id } = await params;
 
     const body = await request.json();
-    const { name, description, fieldsSchema } = body;
+    const { name, description, fieldsSchema, multiSellEnabled, multiSellMax, cooldownEnabled, cooldownDurationHours, color, icon } = body;
 
     // Validate input
     if (!name || !fieldsSchema) {
@@ -93,15 +93,21 @@ export async function PUT(
       );
     }
 
+    const updateData: Record<string, any> = { updatedAt: new Date() };
+    if (name !== undefined) updateData.name = name;
+    if (description !== undefined) updateData.description = description;
+    if (fieldsSchema !== undefined) updateData.fieldsSchema = fieldsSchema;
+    if (multiSellEnabled !== undefined) updateData.multiSellEnabled = multiSellEnabled;
+    if (multiSellMax !== undefined) updateData.multiSellMax = multiSellMax;
+    if (cooldownEnabled !== undefined) updateData.cooldownEnabled = cooldownEnabled;
+    if (cooldownDurationHours !== undefined) updateData.cooldownDurationHours = cooldownDurationHours;
+    if (color !== undefined) updateData.color = color;
+    if (icon !== undefined) updateData.icon = icon;
+
     // Update template
     const [updated] = await db
       .update(inventoryTemplates)
-      .set({
-        name,
-        description,
-        fieldsSchema,
-        updatedAt: new Date(),
-      })
+      .set(updateData)
       .where(eq(inventoryTemplates.id, id))
       .returning();
 

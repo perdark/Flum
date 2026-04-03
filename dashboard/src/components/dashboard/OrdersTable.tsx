@@ -7,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 interface OrderItem {
   id: string;
-  productId: string;
+  productId: string | null;
   productName: string;
   quantity: number;
   unitPrice: string;
@@ -109,8 +109,9 @@ export function OrdersTable() {
         const map: Record<string, TemplateField[]> = {};
         for (const order of result.data as Order[]) {
           for (const item of order.items) {
-            if (!map[item.productId] && item.templateFieldsSchema) {
-              map[item.productId] = item.templateFieldsSchema as TemplateField[];
+            const key = item.productId ?? item.id;
+            if (!map[key] && item.templateFieldsSchema) {
+              map[key] = item.templateFieldsSchema as TemplateField[];
             }
           }
         }
@@ -235,22 +236,30 @@ export function OrdersTable() {
     }
   };
 
-  const getParsedLines = (productId: string, fieldName: string): string[] => {
-    const values = fieldValues[productId]?.[fieldName] || "";
+  /** Stable key for textarea state: product id or order line id for template-only orders */
+  const lineKey = (item: OrderItem) => item.productId ?? item.id;
+
+  const getParsedLines = (key: string, fieldName: string): string[] => {
+    const values = fieldValues[key]?.[fieldName] || "";
     return values.split("\n").map((line) => line.trim()).filter((line) => line);
   };
 
-  const getFieldCounts = (productId: string): Record<string, number> => {
-    const templateFields = getTemplateFieldsForProduct(productId);
+  const getTemplateFieldsForItem = (item: OrderItem): TemplateField[] => {
+    return templateFieldsByProductId[lineKey(item)] || [];
+  };
+
+  const getFieldCounts = (item: OrderItem): Record<string, number> => {
+    const templateFields = getTemplateFieldsForItem(item);
+    const key = lineKey(item);
     const counts: Record<string, number> = {};
     templateFields.forEach((field) => {
-      counts[field.name] = getParsedLines(productId, field.name).length;
+      counts[field.name] = getParsedLines(key, field.name).length;
     });
     return counts;
   };
 
-  const getTotalItems = (productId: string): number => {
-    const counts = Object.values(getFieldCounts(productId));
+  const getTotalItems = (item: OrderItem): number => {
+    const counts = Object.values(getFieldCounts(item));
     return counts.length > 0 ? Math.min(...counts) : 0;
   };
 
@@ -284,8 +293,8 @@ export function OrdersTable() {
     updatedOrder.items.forEach((item) => {
       const delivered = (item.deliveredInventoryIds || []).length;
       const pending = item.quantity - delivered;
-      if (pending > 0 && !initialFields[item.productId]) {
-        initialFields[item.productId] = {};
+      if (pending > 0 && !initialFields[lineKey(item)]) {
+        initialFields[lineKey(item)] = {};
       }
     });
     setFieldValues(initialFields);
@@ -301,21 +310,26 @@ export function OrdersTable() {
   const handleAddInventoryAndComplete = async () => {
     if (!processingModal.order) return;
     const order = processingModal.order;
-    const inventoryItems: Array<{ productId: string; values: Record<string, string | number | boolean> }> = [];
+    const inventoryItems: Array<{
+      productId?: string;
+      orderItemId?: string;
+      values: Record<string, string | number | boolean>;
+    }> = [];
 
     for (const item of order.items) {
       const delivered = (item.deliveredInventoryIds || []).length;
       const pending = item.quantity - delivered;
       if (pending <= 0) continue;
 
-      const templateFields = getTemplateFieldsForProduct(item.productId);
-      const totalItems = getTotalItems(item.productId);
+      const templateFields = getTemplateFieldsForItem(item);
+      const totalItems = getTotalItems(item);
       if (totalItems === 0) continue;
 
+      const key = lineKey(item);
       for (let i = 0; i < totalItems; i++) {
         const itemObj: Record<string, string | number | boolean> = {};
         templateFields.forEach((field) => {
-          const lines = getParsedLines(item.productId, field.name);
+          const lines = getParsedLines(key, field.name);
           const value = lines[i] || "";
           if (field.type === "number") {
             itemObj[field.name] = parseFloat(value) || 0;
@@ -325,7 +339,11 @@ export function OrdersTable() {
             itemObj[field.name] = value;
           }
         });
-        inventoryItems.push({ productId: item.productId, values: itemObj });
+        inventoryItems.push({
+          orderItemId: item.id,
+          ...(item.productId ? { productId: item.productId } : {}),
+          values: itemObj,
+        });
       }
     }
 
@@ -362,10 +380,6 @@ export function OrdersTable() {
     } finally {
       setSubmittingProcessing(false);
     }
-  };
-
-  const getTemplateFieldsForProduct = (productId: string): TemplateField[] => {
-    return templateFieldsByProductId[productId] || [];
   };
 
   const formatCurrency = (amount: string) => {
@@ -799,9 +813,9 @@ export function OrdersTable() {
                   const pending = item.quantity - delivered;
                   if (pending <= 0) return null;
 
-                  const templateFields = getTemplateFieldsForProduct(item.productId);
-                  const fieldCounts = getFieldCounts(item.productId);
-                  const totalItems = getTotalItems(item.productId);
+                  const templateFields = getTemplateFieldsForItem(item);
+                  const fieldCounts = getFieldCounts(item);
+                  const totalItems = getTotalItems(item);
                   const counts = Object.values(fieldCounts);
                   const minCount = counts.length > 0 ? Math.min(...counts) : 0;
                   const maxCount = counts.length > 0 ? Math.max(...counts) : 0;
@@ -833,8 +847,8 @@ export function OrdersTable() {
                                 </span>
                               </label>
                               <textarea
-                                value={fieldValues[item.productId]?.[field.name] || ""}
-                                onChange={(e) => updateFieldValue(item.productId, field.name, e.target.value)}
+                                value={fieldValues[lineKey(item)]?.[field.name] || ""}
+                                onChange={(e) => updateFieldValue(lineKey(item), field.name, e.target.value)}
                                 className="w-full px-3 py-2 bg-card border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring font-mono text-sm"
                                 rows={5}
                                 placeholder={`Enter one value per line\nExample:\nABC\nFVB`}
@@ -859,7 +873,7 @@ export function OrdersTable() {
                             {Array.from({ length: Math.min(3, totalItems) }).map((_, i) => (
                               <div key={i} className="text-xs font-mono text-foreground">
                                 {templateFields.map((f) => {
-                                  const lines = getParsedLines(item.productId, f.name);
+                                  const lines = getParsedLines(lineKey(item), f.name);
                                   return lines[i] || "-";
                                 }).join(" → ")}
                               </div>

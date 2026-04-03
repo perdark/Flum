@@ -9,7 +9,7 @@ import { getDb } from "@/db";
 import { orders, orderItems, inventoryItems, products, orderDeliverySnapshots } from "@/db/schema";
 import { requirePermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
-import { eq, and, sql, inArray } from "drizzle-orm";
+import { eq, sql, inArray } from "drizzle-orm";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -71,10 +71,10 @@ export async function GET(request: NextRequest, context: RouteContext) {
         productId: orderItems.productId,
         quantity: orderItems.quantity,
         deliveredInventoryIds: orderItems.deliveredInventoryIds,
-        productName: products.name,
+        productName: sql<string>`COALESCE(${products.name}, ${orderItems.productName})`.as("productName"),
       })
       .from(orderItems)
-      .innerJoin(products, eq(orderItems.productId, products.id))
+      .leftJoin(products, eq(orderItems.productId, products.id))
       .where(eq(orderItems.orderId, orderId));
 
     const deliveryItems = [];

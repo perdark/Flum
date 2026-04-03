@@ -130,6 +130,7 @@ export async function GET(request: NextRequest) {
         claimantName: users.name,
         createdAt: orders.createdAt,
         updatedAt: orders.updatedAt,
+        metadata: orders.metadata,
       })
       .from(orders)
       .leftJoin(users, eq(orders.claimedBy, users.id))
@@ -151,7 +152,7 @@ export async function GET(request: NextRequest) {
     // Get order items for each order
     const orderIds = ordersList.map((o) => o.id);
 
-    const itemsList = await db
+    const itemsListRaw = await db
       .select({
         id: orderItems.id,
         orderId: orderItems.orderId,
@@ -160,16 +161,42 @@ export async function GET(request: NextRequest) {
         unitPrice: orderItems.price,
         subtotal: orderItems.subtotal,
         deliveredInventoryIds: orderItems.deliveredInventoryIds,
-        productName: products.name,
-        productSlug: products.slug,
+        productName: sql<string>`COALESCE(${products.name}, ${orderItems.productName})`.as("productName"),
+        productSlug: orderItems.productSlug,
         inventoryTemplateId: products.inventoryTemplateId,
-        // Ship template fields to avoid client-side N+1 fetching.
         templateFieldsSchema: inventoryTemplates.fieldsSchema,
       })
       .from(orderItems)
-      .innerJoin(products, eq(orderItems.productId, products.id))
+      .leftJoin(products, eq(orderItems.productId, products.id))
       .leftJoin(inventoryTemplates, eq(products.inventoryTemplateId, inventoryTemplates.id))
       .where(inArray(orderItems.orderId, orderIds));
+
+    const templateIdsFromMeta = new Set<string>();
+    for (const o of ordersList) {
+      const tid = (o.metadata as Record<string, unknown> | null | undefined)?.templateId;
+      if (typeof tid === "string" && tid.length > 0) templateIdsFromMeta.add(tid);
+    }
+    const schemaByTemplateId: Record<string, unknown> = {};
+    if (templateIdsFromMeta.size > 0) {
+      const tidList = [...templateIdsFromMeta];
+      const tplRows = await db
+        .select({ id: inventoryTemplates.id, fieldsSchema: inventoryTemplates.fieldsSchema })
+        .from(inventoryTemplates)
+        .where(inArray(inventoryTemplates.id, tidList));
+      for (const r of tplRows) {
+        schemaByTemplateId[r.id] = r.fieldsSchema;
+      }
+    }
+
+    const itemsList = itemsListRaw.map((item) => {
+      if (item.templateFieldsSchema) return item;
+      const order = ordersList.find((o) => o.id === item.orderId);
+      const tid = (order?.metadata as Record<string, unknown> | undefined)?.templateId;
+      if (typeof tid === "string" && schemaByTemplateId[tid] !== undefined) {
+        return { ...item, templateFieldsSchema: schemaByTemplateId[tid] };
+      }
+      return item;
+    });
 
     // Group items by order and add computed fields
     const ordersWithItems = ordersList.map((order: any) => ({

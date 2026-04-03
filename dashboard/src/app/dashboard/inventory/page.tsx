@@ -1,737 +1,451 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { formatCurrency } from "@/lib/utils";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
+import {
+  Plus,
+  Package,
+  Clock,
+  Box,
+  Edit,
+  Trash,
+  Check,
+  X,
+  ChevronDown,
+  ChevronRight,
+  Search,
+  RefreshCw,
+  Eye,
+} from "lucide-react";
 
-interface Category {
-  id: string;
+// ============================================================================
+// Types
+// ============================================================================
+
+interface FieldSchema {
   name: string;
-  parentId: string | null;
-  depth?: number;
-}
-
-interface Product {
-  id: string;
-  name: string;
-  slug: string;
-  availableCount: number;
-  reservedCount: number;
-  soldCount: number;
-  templateName: string | null;
-  categories: Category[];
-  fieldsSchema?: any[] | null;
-}
-
-interface InventoryItem {
-  id: string;
-  values: Record<string, string | number | boolean>;
-  status: string;
-  createdAt: string;
-  purchasedAt: string | null;
-  cost?: string | null;
-  productId?: string | null;
-  productName?: string | null;
-}
-
-interface TemplateField {
-  name: string;
-  type: "string" | "number" | "boolean";
+  type: "string" | "number" | "boolean" | "group" | "multiline";
+  required: boolean;
   label: string;
-  required: boolean;
-  multiSell?: boolean;
-  multiSellMax?: number;
-  cooldownEnabled?: boolean;
-  cooldownDurationHours?: number;
-  wholeFieldIsOneItem?: boolean;
+  isVisibleToAdmin: boolean;
+  isVisibleToMerchant: boolean;
+  isVisibleToCustomer: boolean;
+  repeatable: boolean;
+  parentId: string | null;
+  displayOrder: number;
+  linkedTo: string | null;
+  linkGroup: string | null;
+  eachLineIsProduct?: boolean;
 }
 
-interface StandaloneCustomFieldRow {
+interface TemplateWithStock {
+  id: string;
   name: string;
-  value: string;
-  type: string;
-  required: boolean;
-  multiSell: boolean;
+  description: string | null;
+  fieldsSchema: FieldSchema[];
+  isActive: boolean;
+  multiSellEnabled: boolean;
   multiSellMax: number;
   cooldownEnabled: boolean;
   cooldownDurationHours: number;
-  wholeFieldIsOneItem: boolean;
-  linkedTo: string;
-  isMainStockField: boolean;
+  color: string | null;
+  icon: string | null;
+  stockCount: number;
+  /** Sum of atomic values across template fields (multiline/array aware) */
+  codesCount?: number;
+  createdAt: string;
 }
 
-const PAGE_SIZE_OPTIONS = [20, 50, 100];
+interface StockEntry {
+  id: string;
+  values: Record<string, any>;
+  status: string;
+  cost: string | null;
+  productId: string | null;
+  productName: string | null;
+  multiSellEnabled: boolean;
+  multiSellMax: number;
+  multiSellSaleCount: number;
+  cooldownEnabled: boolean;
+  cooldownUntil: string | null;
+  cooldownDurationHours: number;
+  createdAt: string;
+}
+
+// ============================================================================
+// Main Inventory Page — Template-centric
+// ============================================================================
 
 export default function InventoryPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const productIdParam = searchParams.get("productId");
-
-  const [products, setProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [selectedProductId, setSelectedProductId] = useState<string | null>(productIdParam);
+  const [templates, setTemplates] = useState<TemplateWithStock[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState<string>("");
-  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
-  const [templateFields, setTemplateFields] = useState<TemplateField[]>([]);
-  const [inventoryLoading, setInventoryLoading] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<string>("");
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [inventoryPageSize, setInventoryPageSize] = useState(50);
-  const [pageInput, setPageInput] = useState("");
-  const [sortBy, setSortBy] = useState("createdAt");
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [showStandaloneStockModal, setShowStandaloneStockModal] = useState(false);
-  const [showUnlinkedModal, setShowUnlinkedModal] = useState(false);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const [search, setSearch] = useState("");
 
-  const parentRef = useRef<HTMLDivElement>(null);
+  // Which template is expanded (shows fields underneath)
+  const [expandedTemplateId, setExpandedTemplateId] = useState<string | null>(null);
 
-  const rowVirtualizer = useVirtualizer({
-    count: products.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => 80,
-    overscan: 5,
-  });
+  // Stock modal state
+  const [stockModalOpen, setStockModalOpen] = useState(false);
+  const [stockModalTemplate, setStockModalTemplate] = useState<TemplateWithStock | null>(null);
+  const [stockModalField, setStockModalField] = useState<FieldSchema | null>(null);
+  const [stockItems, setStockItems] = useState<StockEntry[]>([]);
+  const [stockLoading, setStockLoading] = useState(false);
+  const [stockStatusFilter, setStockStatusFilter] = useState<string>("available");
 
-  useEffect(() => {
-    fetchCategories();
-  }, []);
+  // Create template modal (inline when adding stock)
+  const [showCreateTemplate, setShowCreateTemplate] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<TemplateWithStock | null>(null);
 
-  useEffect(() => {
-    fetchProducts();
-  }, [debouncedSearch, categoryFilter]);
+  // Add stock modal
+  const [addStockOpen, setAddStockOpen] = useState(false);
+  const [addStockTemplate, setAddStockTemplate] = useState<TemplateWithStock | null>(null);
 
-  useEffect(() => {
-    if (selectedProductId) {
-      fetchInventory();
-    } else {
-      setTemplateFields([]);
-      fetchUnlinkedInventory();
-    }
-  }, [selectedProductId, statusFilter, page, inventoryPageSize, sortBy, sortOrder]);
+  // ── Data loading ──────────────────────────────────────────────────────────
 
-  const fetchProducts = useCallback(async () => {
-    setLoading(true);
+  const fetchTemplates = useCallback(async () => {
     try {
-      const params = new URLSearchParams({ limit: "500" });
-      if (debouncedSearch) params.set("search", debouncedSearch);
-      if (categoryFilter) params.set("categoryId", categoryFilter);
-
-      const res = await fetch(`/api/products/summary?${params}`);
+      const res = await fetch("/api/inventory/templates");
       const data = await res.json();
       if (data.success) {
-        setProducts(data.data);
+        setTemplates(data.data);
+      } else {
+        toast.error(data.error || "Failed to load templates");
       }
     } catch {
-      console.error("Failed to load products");
+      toast.error("Network error loading templates");
     } finally {
       setLoading(false);
     }
-  }, [debouncedSearch, categoryFilter]);
+  }, []);
 
-  const fetchCategories = async () => {
+  useEffect(() => {
+    fetchTemplates();
+  }, [fetchTemplates]);
+
+  const fetchStock = async (templateId: string, fieldName?: string, status?: string) => {
+    setStockLoading(true);
     try {
-      const res = await fetch("/api/categories?asTree=true");
+      const params = new URLSearchParams();
+      if (fieldName) params.set("field", fieldName);
+      params.set("status", status || stockStatusFilter || "available");
+      params.set("limit", "200");
+      const res = await fetch(`/api/inventory/templates/${templateId}/stock?${params}`);
       const data = await res.json();
       if (data.success) {
-        const flat = flattenCategories(data.data);
-        setCategories(flat);
+        setStockItems(data.data);
+      } else {
+        toast.error(data.error || "Failed to load stock");
       }
     } catch {
-      console.error("Failed to load categories");
-    }
-  };
-
-  const flattenCategories = (nodes: any[], prefix = "", depth = 0): Category[] => {
-    const result: Category[] = [];
-    for (const node of nodes) {
-      result.push({ id: node.id, name: prefix + node.name, parentId: null, depth });
-      if (node.children && node.children.length > 0) {
-        result.push(...flattenCategories(node.children, prefix + node.name + " / ", depth + 1));
-      }
-    }
-    return result;
-  };
-
-  const fetchInventory = async () => {
-    if (!selectedProductId) return;
-    setInventoryLoading(true);
-    try {
-      const params = new URLSearchParams({
-        productId: selectedProductId,
-        page: page.toString(),
-        limit: inventoryPageSize.toString(),
-        sortBy,
-        sortOrder,
-      });
-      if (statusFilter) params.set("status", statusFilter);
-
-      const res = await fetch(`/api/inventory?${params}`);
-      const data = await res.json();
-
-      if (data.success) {
-        setInventoryItems(data.data);
-        setTotalPages(data.pagination?.totalPages || 1);
-
-        const product = products.find((p) => p.id === selectedProductId);
-        if (product?.templateName) {
-          const templateRes = await fetch(`/api/inventory/templates`);
-          const templateData = await templateRes.json();
-          if (templateData.success) {
-            const template = templateData.data.find((t: any) => t.name === product.templateName);
-            if (template?.fieldsSchema) {
-              setTemplateFields(template.fieldsSchema);
-            }
-          }
-        } else if (product?.fieldsSchema) {
-          setTemplateFields(product.fieldsSchema as TemplateField[]);
-        }
-      }
-    } catch {
-      console.error("Failed to load inventory");
+      toast.error("Network error loading stock");
     } finally {
-      setInventoryLoading(false);
+      setStockLoading(false);
     }
   };
 
-  const fetchUnlinkedInventory = async () => {
-    setInventoryLoading(true);
-    try {
-      const params = new URLSearchParams({
-        unlinked: "true",
-        page: page.toString(),
-        limit: inventoryPageSize.toString(),
-        sortBy,
-        sortOrder,
-      });
-      if (statusFilter) params.set("status", statusFilter);
+  // ── Template toggle ───────────────────────────────────────────────────────
 
-      const res = await fetch(`/api/inventory?${params}`);
-      const data = await res.json();
-
-      if (data.success) {
-        setInventoryItems(data.data);
-        setTotalPages(data.pagination?.totalPages || 1);
-      }
-    } catch {
-      console.error("Failed to load unlinked inventory");
-    } finally {
-      setInventoryLoading(false);
-    }
-  };
-
-  const handleSearchChange = (value: string) => {
-    setSearchQuery(value);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      setDebouncedSearch(value);
-    }, 300);
-  };
-
-  const handleProductSelect = (productId: string) => {
-    setSelectedProductId(productId);
-    setPage(1);
-    router.push(`/dashboard/inventory?productId=${productId}`);
-  };
-
-  const handleExport = async (format: "tsv" | "csv") => {
-    if (!selectedProductId) return;
-    try {
-      const res = await fetch(`/api/inventory/export?productId=${selectedProductId}&format=${format}`);
-      if (res.ok) {
-        const blob = await res.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `inventory.${format}`;
-        a.click();
-        window.URL.revokeObjectURL(url);
-        toast.success(`Exported as ${format.toUpperCase()}`);
-      }
-    } catch {
-      toast.error("Export failed");
-    }
-  };
-
-  const handleSort = (column: string) => {
-    if (sortBy === column) {
-      setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
+  const toggleTemplate = (template: TemplateWithStock) => {
+    if (expandedTemplateId === template.id) {
+      setExpandedTemplateId(null);
     } else {
-      setSortBy(column);
-      setSortOrder("asc");
-    }
-    setPage(1);
-  };
-
-  const sortIndicator = (column: string) => {
-    if (sortBy !== column) return <span className="ml-1 text-muted-foreground/40">&uarr;&darr;</span>;
-    return <span className="ml-1 text-primary">{sortOrder === "asc" ? "&uarr;" : "&darr;"}</span>;
-  };
-
-  const selectedProduct = products.find((p) => p.id === selectedProductId);
-
-  const fieldNames = new Set<string>();
-  inventoryItems.forEach((item) => {
-    if (item.values) {
-      Object.keys(item.values).forEach((k) => {
-        if (k !== "_metadata") fieldNames.add(k);
-      });
-    }
-  });
-  const fields = Array.from(fieldNames);
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "available": return "bg-success/20 text-success";
-      case "reserved": return "bg-warning/20 text-warning";
-      case "sold": return "bg-info/20 text-info";
-      default: return "bg-error/20 text-error";
+      setExpandedTemplateId(template.id);
     }
   };
 
-  const getPageNumbers = () => {
-    const pages: (number | "ellipsis")[] = [];
-    if (totalPages <= 7) {
-      for (let i = 1; i <= totalPages; i++) pages.push(i);
-    } else {
-      pages.push(1);
-      if (page > 3) pages.push("ellipsis");
-      const start = Math.max(2, page - 1);
-      const end = Math.min(totalPages - 1, page + 1);
-      for (let i = start; i <= end; i++) pages.push(i);
-      if (page < totalPages - 2) pages.push("ellipsis");
-      pages.push(totalPages);
-    }
-    return pages;
+  const openStockModal = (template: TemplateWithStock, field: FieldSchema) => {
+    setStockModalTemplate(template);
+    setStockModalField(field);
+    setStockModalOpen(true);
+    setStockStatusFilter("available");
+    fetchStock(template.id, field.name, "available");
   };
+
+  const openAddStockModal = (template: TemplateWithStock) => {
+    setAddStockTemplate(template);
+    setAddStockOpen(true);
+  };
+
+  // ── Filtering ─────────────────────────────────────────────────────────────
+
+  const filteredTemplates = search.trim()
+    ? templates.filter(
+        (t) =>
+          t.name.toLowerCase().includes(search.toLowerCase()) ||
+          (t.description || "").toLowerCase().includes(search.toLowerCase())
+      )
+    : templates;
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="rounded-2xl border border-border bg-gradient-to-br from-card via-card to-muted/30 staff-card-elevated p-5 sm:p-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0">
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">Inventory</h1>
-            <p className="text-muted-foreground mt-1 max-w-2xl text-sm sm:text-base">
-              Pick a product for its lines, or leave none selected to work <strong className="text-foreground font-semibold">unlinked stock</strong>. Use search & templates for speed.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button className="shadow-md shadow-primary/20" onClick={() => setShowStandaloneStockModal(true)}>
-              + Add stock
-            </Button>
-            <Button variant="secondary" onClick={() => setShowUnlinkedModal(true)}>
-              Link stock
-            </Button>
-            <Button variant="outline" asChild>
-              <a href="/dashboard/inventory/search">Global search</a>
-            </Button>
-            <Button variant="outline" asChild>
-              <a href="/dashboard/inventory/templates">Templates</a>
-            </Button>
-            {selectedProductId && (
-              <>
-                <Button variant="outline" onClick={() => handleExport("tsv")}>
-                  Export TSV
-                </Button>
-                <Button onClick={() => setShowAddModal(true)}>
-                  Add to product
-                </Button>
-              </>
-            )}
-          </div>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Inventory</h1>
+          <p className="text-sm text-muted-foreground">
+            Manage stock by template. {templates.length} template{templates.length !== 1 ? "s" : ""},{" "}
+            {templates.reduce((s, t) => s + (t.codesCount ?? 0), 0)} codes in stock.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => { setLoading(true); fetchTemplates(); }}>
+            <RefreshCw className="w-4 h-4 mr-1" /> Refresh
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => {
+              setEditingTemplate(null);
+              setShowCreateTemplate(true);
+            }}
+          >
+            <Plus className="w-4 h-4 mr-1" /> New Template
+          </Button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Products List - Virtualized */}
-        <div className="lg:col-span-1">
-            <div className="bg-card rounded-2xl border border-border overflow-hidden staff-card-elevated">
-            <div className="p-4 border-b border-border space-y-3 bg-muted/20">
-              <input
-                type="text"
-                placeholder="Search products..."
-                value={searchQuery}
-                onChange={(e) => handleSearchChange(e.target.value)}
-                className="w-full px-3 py-2.5 bg-background border border-input rounded-xl text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring text-sm"
-              />
-              <select
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
-                className="w-full px-3 py-2.5 bg-background border border-input rounded-xl text-foreground focus:outline-none focus:ring-2 focus:ring-ring text-sm"
-              >
-                <option value="">All Categories</option>
-                {categories.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {"\u00A0".repeat((p.depth || 0) * 2) + p.name}
-                  </option>
-                ))}
-              </select>
-              <p className="text-xs text-muted-foreground">{products.length} product{products.length !== 1 ? "s" : ""}</p>
-            </div>
+      {/* Search */}
+      <div className="relative max-w-md">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search templates…"
+          className="w-full pl-10 pr-3 py-2.5 bg-background border border-input rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+        />
+      </div>
 
-            <div ref={parentRef} className="max-h-[600px] overflow-y-auto">
-              {loading ? (
-                <div className="p-4 space-y-3">
-                  {[...Array(8)].map((_, i) => (
-                    <Skeleton key={i} className="h-16 w-full rounded" />
-                  ))}
-                </div>
-              ) : products.length === 0 ? (
-                <div className="p-8 text-center text-muted-foreground text-sm">No products found</div>
-              ) : (
+      {/* Loading */}
+      {loading && (
+        <div className="flex items-center justify-center py-20">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        </div>
+      )}
+
+      {/* Empty State */}
+      {!loading && templates.length === 0 && (
+        <div className="bg-background border border-border rounded-xl p-12 text-center">
+          <Box className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
+          <p className="text-muted-foreground mb-4">No inventory templates yet.</p>
+          <p className="text-sm text-muted-foreground mb-6">
+            Create a template to define the structure of your stock (fields, multi-sell, etc).
+          </p>
+          <Button onClick={() => setShowCreateTemplate(true)}>
+            Create Your First Template
+          </Button>
+        </div>
+      )}
+
+      {/* Template Grid — 4 columns */}
+      {!loading && filteredTemplates.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {filteredTemplates.map((template) => {
+            const isExpanded = expandedTemplateId === template.id;
+
+            return (
+              <div key={template.id} className="flex flex-col">
+                {/* Card */}
                 <div
+                  onClick={() => toggleTemplate(template)}
+                  className={cn(
+                    "relative bg-card border rounded-xl p-4 cursor-pointer transition-all hover:shadow-md",
+                    isExpanded
+                      ? "border-primary ring-1 ring-primary shadow-md rounded-b-none"
+                      : "border-border hover:border-primary/40"
+                  )}
                   style={{
-                    height: `${rowVirtualizer.getTotalSize()}px`,
-                    width: "100%",
-                    position: "relative",
+                    borderTopColor: template.color || undefined,
+                    borderTopWidth: template.color ? "4px" : "1px",
                   }}
                 >
-                  {rowVirtualizer.getVirtualItems().map((virtualItem) => {
-                    const product = products[virtualItem.index];
-                    return (
-                      <button
-                        key={product.id}
-                        onClick={() => handleProductSelect(product.id)}
-                        className={`w-full p-4 text-left transition-all absolute top-0 left-0 border-b border-border ${
-                          selectedProductId === product.id
-                            ? "bg-primary/12 border-l-[3px] border-l-primary shadow-inner"
-                            : "hover:bg-accent border-l-[3px] border-l-transparent"
-                        }`}
-                        style={{
-                          height: `${virtualItem.size}px`,
-                          transform: `translateY(${virtualItem.start}px)`,
-                        }}
-                      >
-                        <div className="font-medium text-foreground truncate mb-1">{product.name}</div>
-                        {product.categories && product.categories.length > 0 && (
-                          <div className="flex flex-wrap gap-1 mb-2">
-                            {product.categories.slice(0, 2).map((p) => (
-                              <span key={p.id} className="px-1.5 py-0.5 bg-secondary text-muted-foreground text-xs rounded">{p.name}</span>
-                            ))}
-                            {product.categories.length > 2 && (
-                              <span className="px-1.5 py-0.5 bg-secondary text-muted-foreground text-xs rounded">+{product.categories.length - 2}</span>
-                            )}
-                          </div>
-                        )}
-                        <div className="flex items-center gap-3 text-xs">
-                          <span className="text-success">{product.availableCount} avail</span>
-                          <span className="text-warning">{product.reservedCount} reserved</span>
-                          <span className="text-info">{product.soldCount} sold</span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Inventory Table */}
-        <div className="lg:col-span-3">
-          {!selectedProductId ? (
-          <div className="bg-card rounded-2xl border border-border overflow-hidden staff-card-elevated">
-              <div className="p-4 border-b border-border flex flex-wrap items-center justify-between gap-3 bg-muted/10">
-                <div>
-                  <h2 className="text-lg font-semibold text-foreground">Unlinked stock</h2>
-                  <p className="text-sm text-muted-foreground mt-1">Items with no product — link them from &quot;Link Stock&quot; or leave as standalone</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <select
-                    value={statusFilter}
-                    onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-                    className="px-3 py-2 bg-muted border border-input rounded-lg text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  >
-                    <option value="">All Statuses</option>
-                    <option value="available">Available</option>
-                    <option value="reserved">Reserved</option>
-                    <option value="sold">Sold</option>
-                    <option value="expired">Expired</option>
-                  </select>
-                  <select
-                    value={inventoryPageSize}
-                    onChange={(e) => { setInventoryPageSize(Number(e.target.value)); setPage(1); }}
-                    className="px-2 py-2 bg-muted border border-input rounded-lg text-foreground text-xs focus:outline-none focus:ring-2 focus:ring-ring"
-                  >
-                    {PAGE_SIZE_OPTIONS.map((s) => (
-                      <option key={s} value={s}>{s}/page</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {inventoryLoading ? (
-                <div className="p-8 space-y-3">
-                  {[...Array(5)].map((_, i) => (
-                    <Skeleton key={i} className="h-12 w-full rounded" />
-                  ))}
-                </div>
-              ) : inventoryItems.length === 0 ? (
-                <div className="p-8 text-center text-muted-foreground">No unlinked inventory items</div>
-              ) : (
-                <>
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead className="bg-muted">
-                        <tr>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase cursor-pointer hover:text-foreground select-none" onClick={() => handleSort("status")}>Status{sortIndicator("status")}</th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Cost</th>
-                          {fields.map((field) => (
-                            <th key={field} className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase">{field}</th>
-                          ))}
-                          <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase cursor-pointer hover:text-foreground select-none" onClick={() => handleSort("createdAt")}>Created{sortIndicator("createdAt")}</th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase cursor-pointer hover:text-foreground select-none" onClick={() => handleSort("purchasedAt")}>Sold At{sortIndicator("purchasedAt")}</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
-                        {inventoryItems.map((item) => (
-                          <tr key={item.id} className="hover:bg-muted/50">
-                            <td className="px-4 py-3">
-                              <span className={`px-2 py-1 text-xs rounded ${getStatusColor(item.status)}`}>{item.status}</span>
-                            </td>
-                            <td className="px-4 py-3 text-sm text-foreground">{item.cost != null && item.cost !== "" ? formatCurrency(item.cost) : "—"}</td>
-                            {fields.map((field) => (
-                              <td key={field} className="px-4 py-3 text-sm text-foreground font-mono">{String(item.values?.[field] ?? "—")}</td>
-                            ))}
-                            <td className="px-4 py-3 text-sm text-muted-foreground">{new Date(item.createdAt).toLocaleDateString()}</td>
-                            <td className="px-4 py-3 text-sm text-muted-foreground">{item.purchasedAt ? new Date(item.purchasedAt).toLocaleDateString() : "—"}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
-              )}
-
-              {totalPages > 1 && (
-                <div className="px-4 py-3 border-t border-border flex items-center justify-between">
-                  <p className="text-sm text-muted-foreground">Page {page} of {totalPages}</p>
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setPage((p) => Math.max(1, p - 1))}
-                      disabled={page === 1}
-                      className="px-3 py-1.5 text-sm border border-border text-muted-foreground rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-muted"
-                    >
-                      &laquo;
-                    </button>
-                    {getPageNumbers().map((p, i) =>
-                      p === "ellipsis" ? (
-                        <span key={`e${i}`} className="px-2 text-muted-foreground">...</span>
+                  {/* Top row: name + actions */}
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      {isExpanded ? (
+                        <ChevronDown className="w-4 h-4 text-primary shrink-0" />
                       ) : (
-                        <button
-                          key={p}
-                          type="button"
-                          onClick={() => setPage(p)}
-                          className={`w-8 h-8 text-sm rounded-lg transition-colors ${p === page ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
-                        >
-                          {p}
-                        </button>
-                      )
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                      disabled={page === totalPages}
-                      className="px-3 py-1.5 text-sm border border-border text-muted-foreground rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-muted"
-                    >
-                      &raquo;
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : (
-          <div className="bg-card rounded-2xl border border-border overflow-hidden staff-card-elevated">
-              <div className="p-4 border-b border-border flex flex-wrap items-center justify-between gap-3 bg-muted/10">
-                <div className="min-w-0">
-                  <h2 className="text-lg font-semibold text-foreground truncate">{selectedProduct?.name}</h2>
-                  <div className="flex items-center gap-2 mt-1">
-                    {selectedProduct?.categories && selectedProduct.categories.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {selectedProduct.categories.map((p) => (
-                          <span key={p.id} className="px-2 py-0.5 bg-info/20 text-info text-xs rounded">{p.name}</span>
-                        ))}
-                      </div>
-                    )}
-                    <span className="text-sm text-muted-foreground">Template: {selectedProduct?.templateName || "None"}</span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <select
-                    value={statusFilter}
-                    onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-                    className="px-3 py-2 bg-muted border border-input rounded-lg text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  >
-                    <option value="">All Statuses</option>
-                    <option value="available">Available</option>
-                    <option value="reserved">Reserved</option>
-                    <option value="sold">Sold</option>
-                    <option value="expired">Expired</option>
-                  </select>
-                  <select
-                    value={inventoryPageSize}
-                    onChange={(e) => { setInventoryPageSize(Number(e.target.value)); setPage(1); }}
-                    className="px-2 py-2 bg-muted border border-input rounded-lg text-foreground text-xs focus:outline-none focus:ring-2 focus:ring-ring"
-                  >
-                    {PAGE_SIZE_OPTIONS.map((s) => (
-                      <option key={s} value={s}>{s}/page</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {inventoryLoading ? (
-                <div className="p-8 space-y-3">
-                  {[...Array(5)].map((_, i) => (
-                    <Skeleton key={i} className="h-12 w-full rounded" />
-                  ))}
-                </div>
-              ) : inventoryItems.length === 0 ? (
-                <div className="p-8 text-center text-muted-foreground">No inventory items found</div>
-              ) : (
-                <>
-                  {templateFields.length > 0 && (
-                    <div className="px-4 py-2 bg-muted/50 border-b border-border flex flex-wrap gap-3 text-xs">
-                      {templateFields.map((f) => (
-                        <span key={f.name} className="text-muted-foreground">
-                          <span className="font-medium text-foreground">{f.name}</span>
-                          {f.required && <span className="text-destructive">*</span>}
-                        </span>
-                      ))}
+                        <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                      )}
+                      <h3 className="font-semibold text-foreground truncate" title={template.name}>
+                        {template.icon && <span className="mr-1.5">{template.icon}</span>}
+                        {template.name}
+                      </h3>
                     </div>
-                  )}
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead className="bg-muted">
-                        <tr>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase cursor-pointer hover:text-foreground select-none" onClick={() => handleSort("status")}>Status{sortIndicator("status")}</th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase">Cost</th>
-                          {fields.map((field) => (
-                            <th key={field} className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase">{field}</th>
-                          ))}
-                          <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase cursor-pointer hover:text-foreground select-none" onClick={() => handleSort("createdAt")}>Created{sortIndicator("createdAt")}</th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase cursor-pointer hover:text-foreground select-none" onClick={() => handleSort("purchasedAt")}>Sold At{sortIndicator("purchasedAt")}</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
-                        {inventoryItems.map((item) => (
-                          <tr key={item.id} className="hover:bg-muted/50">
-                            <td className="px-4 py-3">
-                              <span className={`px-2 py-1 text-xs rounded ${getStatusColor(item.status)}`}>{item.status}</span>
-                            </td>
-                            <td className="px-4 py-3 text-sm text-foreground">{item.cost != null && item.cost !== "" ? formatCurrency(item.cost) : "—"}</td>
-                            {fields.map((field) => (
-                              <td key={field} className="px-4 py-3 text-sm text-foreground font-mono">{String(item.values[field] ?? "-")}</td>
-                            ))}
-                            <td className="px-4 py-3 text-sm text-muted-foreground">{new Date(item.createdAt).toLocaleDateString()}</td>
-                            <td className="px-4 py-3 text-sm text-muted-foreground">{item.purchasedAt ? new Date(item.purchasedAt).toLocaleDateString() : "-"}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
-              )}
-
-              {/* Numbered Pagination */}
-              {totalPages > 1 && (
-                <div className="px-4 py-3 border-t border-border flex items-center justify-between">
-                  <p className="text-sm text-muted-foreground">Page {page} of {totalPages}</p>
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setPage((p) => Math.max(1, p - 1))}
-                      disabled={page === 1}
-                      className="px-3 py-1.5 text-sm border border-border text-muted-foreground rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-muted"
-                    >
-                      &laquo;
-                    </button>
-                    {getPageNumbers().map((p, i) =>
-                      p === "ellipsis" ? (
-                        <span key={`e${i}`} className="px-2 text-muted-foreground">...</span>
-                      ) : (
-                        <button
-                          key={p}
-                          onClick={() => setPage(p)}
-                          className={`w-8 h-8 text-sm rounded-lg transition-colors ${p === page ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
-                        >
-                          {p}
-                        </button>
-                      )
-                    )}
-                    <button
-                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                      disabled={page === totalPages}
-                      className="px-3 py-1.5 text-sm border border-border text-muted-foreground rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-muted"
-                    >
-                      &raquo;
-                    </button>
-                    <div className="ml-3 flex items-center gap-1 text-sm">
-                      <input
-                        type="text"
-                        value={pageInput}
-                        onChange={(e) => setPageInput(e.target.value.replace(/\D/, ""))}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            const num = parseInt(pageInput);
-                            if (num >= 1 && num <= totalPages) setPage(num);
-                            setPageInput("");
-                          }
-                        }}
-                        placeholder="#"
-                        className="w-12 px-2 py-1 bg-muted border border-input rounded text-foreground text-center text-xs focus:outline-none focus:ring-2 focus:ring-ring"
-                      />
-                      <button
+                    <div className="flex gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        title="Add stock"
+                        onClick={() => openAddStockModal(template)}
+                      >
+                        <Plus className="w-4 h-4 text-muted-foreground" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        title="Edit template"
                         onClick={() => {
-                          const num = parseInt(pageInput);
-                          if (num >= 1 && num <= totalPages) setPage(num);
-                          setPageInput("");
+                          setEditingTemplate(template);
+                          setShowCreateTemplate(true);
                         }}
-                        className="px-2 py-1 text-xs text-primary hover:text-primary/80"
                       >
-                        Go
-                      </button>
+                        <Edit className="w-4 h-4 text-muted-foreground" />
+                      </Button>
                     </div>
                   </div>
+
+                  {/* Description */}
+                  <p className="text-xs text-muted-foreground line-clamp-1 mb-2">
+                    {template.description || "No description"}
+                  </p>
+
+                  {/* Stats row */}
+                  <div className="flex items-center gap-3 text-xs text-muted-foreground mb-2">
+                    <span className="flex items-center gap-1">
+                      <Package className="w-3.5 h-3.5" />
+                      <strong className="text-foreground">{template.codesCount ?? 0}</strong> codes
+                    </span>
+                    <span className="text-muted-foreground/50">|</span>
+                    <span>
+                      {template.fieldsSchema.length} field{template.fieldsSchema.length !== 1 ? "s" : ""}
+                    </span>
+                    {template.stockCount > 0 && (template.codesCount ?? 0) !== template.stockCount && (
+                      <>
+                        <span className="text-muted-foreground/50">|</span>
+                        <span className="tabular-nums">{template.stockCount} row{template.stockCount !== 1 ? "s" : ""}</span>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Badges */}
+                  <div className="flex flex-wrap gap-1">
+                    {template.multiSellEnabled && (
+                      <span className="px-2 py-0.5 bg-blue-500/10 text-blue-500 text-[10px] rounded-full inline-flex items-center font-medium">
+                        <Eye className="w-3 h-3 mr-1" />
+                        Multi×{template.multiSellMax}
+                      </span>
+                    )}
+                    {template.cooldownEnabled && (
+                      <span className="px-2 py-0.5 bg-amber-500/10 text-amber-500 text-[10px] rounded-full inline-flex items-center font-medium">
+                        <Clock className="w-3 h-3 mr-1" />
+                        {template.cooldownDurationHours}h
+                      </span>
+                    )}
+                    <span
+                      className={cn(
+                        "px-2 py-0.5 text-[10px] rounded-full font-medium",
+                        template.isActive ? "bg-emerald-500/10 text-emerald-500" : "bg-red-500/10 text-red-500"
+                      )}
+                    >
+                      {template.isActive ? "Active" : "Inactive"}
+                    </span>
+                  </div>
                 </div>
-              )}
-            </div>
-          )}
+
+                {/* Expanded Fields Panel (directly below card) */}
+                {isExpanded && (
+                  <div className="border border-t-0 border-primary rounded-b-xl bg-muted/30 p-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                    <p className="text-xs text-muted-foreground mb-3">
+                      Click a field to view &amp; manage stock entries.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {template.fieldsSchema
+                        .sort((a, b) => a.displayOrder - b.displayOrder)
+                        .map((field) => (
+                          <button
+                            key={field.name}
+                            onClick={() => openStockModal(template, field)}
+                            className="flex items-center gap-2 px-3 py-2 bg-background hover:bg-primary/5 border border-input hover:border-primary/40 rounded-lg transition-colors text-left group"
+                          >
+                            <div>
+                              <span className="text-sm font-medium text-foreground group-hover:text-primary transition-colors">
+                                {field.label}
+                              </span>
+                              <span className="block text-[10px] text-muted-foreground font-mono">
+                                {field.type}
+                                {field.required && " • required"}
+                              </span>
+                            </div>
+                          </button>
+                        ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
-      </div>
+      )}
 
-      {showAddModal && selectedProductId && selectedProduct && (
-        <AddInventoryModal
-          productId={selectedProductId}
-          productName={selectedProduct.name}
-          templateFields={templateFields}
-          onClose={() => setShowAddModal(false)}
-          onSuccess={() => { setShowAddModal(false); fetchInventory(); fetchProducts(); }}
+      {/* No search results */}
+      {!loading && filteredTemplates.length === 0 && templates.length > 0 && (
+        <div className="py-12 text-center text-muted-foreground text-sm">
+          No templates match &ldquo;{search}&rdquo;
+        </div>
+      )}
+
+      {/* ── Modals ────────────────────────────────────────────────────────── */}
+
+      {/* Stock View/Edit Modal */}
+      {stockModalOpen && stockModalTemplate && stockModalField && (
+        <StockModal
+          template={stockModalTemplate}
+          field={stockModalField}
+          isOpen={stockModalOpen}
+          onClose={() => {
+            setStockModalOpen(false);
+            fetchTemplates(); // refresh counts
+          }}
+          stockItems={stockItems}
+          loading={stockLoading}
+          statusFilter={stockStatusFilter}
+          onStatusFilterChange={(status) => {
+            setStockStatusFilter(status);
+            fetchStock(stockModalTemplate.id, stockModalField.name, status);
+          }}
+          onRefresh={() => fetchStock(stockModalTemplate.id, stockModalField.name, stockStatusFilter)}
         />
       )}
 
-      {showStandaloneStockModal && (
-        <StandaloneStockModal
-          onClose={() => setShowStandaloneStockModal(false)}
-          onSuccess={() => { setShowStandaloneStockModal(false); fetchProducts(); }}
+      {/* Add Stock Modal */}
+      {addStockOpen && addStockTemplate && (
+        <AddStockModal
+          template={addStockTemplate}
+          isOpen={addStockOpen}
+          onClose={() => {
+            setAddStockOpen(false);
+            fetchTemplates();
+          }}
         />
       )}
 
-      {showUnlinkedModal && (
-        <LinkStockModal
-          onClose={() => setShowUnlinkedModal(false)}
-          onSuccess={() => { setShowUnlinkedModal(false); fetchProducts(); if (selectedProductId) fetchInventory(); }}
+      {/* Create/Edit Template Modal */}
+      {showCreateTemplate && (
+        <CreateTemplateModal
+          editingTemplate={editingTemplate}
+          onClose={() => {
+            setShowCreateTemplate(false);
+            setEditingTemplate(null);
+          }}
+          onSaved={() => {
+            setShowCreateTemplate(false);
+            setEditingTemplate(null);
+            fetchTemplates();
+          }}
         />
       )}
     </div>
@@ -739,1073 +453,902 @@ export default function InventoryPage() {
 }
 
 // ============================================================================
-// Add Inventory Modal
+// Stock Modal — view all stock entries for a template + field
 // ============================================================================
 
-function AddInventoryModal({ productId, productName, templateFields, onClose, onSuccess }: {
-  productId: string;
-  productName: string;
-  templateFields: TemplateField[];
+function StockModal({
+  template,
+  field,
+  isOpen,
+  onClose,
+  stockItems,
+  loading,
+  statusFilter,
+  onStatusFilterChange,
+  onRefresh,
+}: {
+  template: TemplateWithStock;
+  field: FieldSchema;
+  isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  stockItems: StockEntry[];
+  loading: boolean;
+  statusFilter: string;
+  onStatusFilterChange: (status: string) => void;
+  onRefresh: () => void;
 }) {
-  const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
-  const [batchName, setBatchName] = useState("");
-  const [batchCost, setBatchCost] = useState("");
-  const [eachLineIsProduct, setEachLineIsProduct] = useState(false);
-  /** Same multi-sell settings for every line in this upload (per-line overrides below) */
-  const [multiSellEnabled, setMultiSellEnabled] = useState(false);
-  const [multiSellMax, setMultiSellMax] = useState(5);
-  const [cooldownEnabled, setCooldownEnabled] = useState(false);
-  const [cooldownDurationHours, setCooldownDurationHours] = useState(12);
-  /** If true, each row can have its own multi-sell toggle / max */
-  const [perRowMultisell, setPerRowMultisell] = useState(false);
-  const [rowMultisell, setRowMultisell] = useState<Array<{ enabled: boolean; max: number }>>([]);
-  const [submitting, setSubmitting] = useState(false);
-  const [pendingData, setPendingData] = useState<{ pendingItems: number; pendingOrdersCount: number } | null>(null);
-  const [sellPendingFirst, setSellPendingFirst] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValues, setEditValues] = useState<Record<string, string>>({});
+  const [adding, setAdding] = useState(false);
+  const [newValues, setNewValues] = useState<Record<string, string>>({});
 
-  useEffect(() => {
-    const fetchPendingCount = async () => {
-      try {
-        const res = await fetch(`/api/inventory/pending-count?productId=${productId}`);
-        const data = await res.json();
-        if (data.success && data.data.pendingItems > 0) {
-          setPendingData(data.data);
-        }
-      } catch { /* silent */ }
-    };
-    fetchPendingCount();
-  }, [productId]);
-
-  const getParsedLines = (fieldName: string): string[] => {
-    const fieldSchema = templateFields.find(f => f.name === fieldName);
-    if (fieldSchema?.wholeFieldIsOneItem && fieldValues[fieldName]?.trim()) {
-      return [fieldValues[fieldName].trim()];
+  const handleAddStock = async () => {
+    try {
+      const res = await fetch(`/api/inventory/templates/${template.id}/stock`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: [newValues] }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success("Stock added");
+        setNewValues({});
+        setAdding(false);
+        onRefresh();
+      } else {
+        toast.error(data.error || "Failed to add stock");
+      }
+    } catch {
+      toast.error("Network error");
     }
-    return (fieldValues[fieldName] || "").split("\n").map((l) => l.trim()).filter(Boolean);
   };
 
-  const fieldCounts = templateFields.reduce((acc, field) => {
-    acc[field.name] = getParsedLines(field.name).length;
-    return acc;
-  }, {} as Record<string, number>);
+  const handleUpdate = async (itemId: string) => {
+    try {
+      const res = await fetch(`/api/inventory/templates/${template.id}/stock/${itemId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ values: editValues }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success("Updated");
+        setEditingId(null);
+        setEditValues({});
+        onRefresh();
+      } else {
+        toast.error(data.error || "Failed to update");
+      }
+    } catch {
+      toast.error("Network error");
+    }
+  };
 
-  const counts = Object.values(fieldCounts);
-  const minCount = counts.length > 0 ? Math.min(...counts) : 0;
-  const maxCount = counts.length > 0 ? Math.max(...counts) : 0;
-  const hasMismatch = minCount > 0 && maxCount > minCount;
+  const handleDelete = async (itemId: string) => {
+    if (!confirm("Delete this stock entry?")) return;
+    try {
+      const res = await fetch(`/api/inventory/templates/${template.id}/stock/${itemId}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success("Deleted");
+        onRefresh();
+      } else {
+        toast.error(data.error || "Failed to delete");
+      }
+    } catch {
+      toast.error("Network error");
+    }
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={(val) => !val && onClose()}>
+      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Package className="w-5 h-5 text-primary" />
+            {template.name} &rsaquo; {field.label}
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 pt-2">
+          {/* Toolbar: status filter + add */}
+          <div className="flex flex-wrap items-center gap-3">
+            <select
+              value={statusFilter}
+              onChange={(e) => onStatusFilterChange(e.target.value)}
+              className="px-3 py-2 bg-secondary border border-input rounded-lg text-sm"
+            >
+              <option value="available">Available</option>
+              <option value="sold">Sold</option>
+              <option value="reserved">Reserved</option>
+              <option value="in_cooldown">In Cooldown</option>
+              <option value="all">All Statuses</option>
+            </select>
+            <Button variant="outline" size="sm" onClick={onRefresh}>
+              <RefreshCw className="w-3.5 h-3.5 mr-1" /> Refresh
+            </Button>
+            <div className="flex-1" />
+            {!adding && (
+              <Button size="sm" onClick={() => setAdding(true)}>
+                <Plus className="w-4 h-4 mr-1" /> Add Stock
+              </Button>
+            )}
+          </div>
+
+          {/* Add form */}
+          {adding && (
+            <div className="bg-muted/50 p-4 rounded-lg border border-border">
+              <h4 className="font-semibold text-sm mb-3">Add New Stock Entry</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {template.fieldsSchema.map((f) => (
+                  <div key={f.name}>
+                    <label className="text-xs text-muted-foreground block mb-1">
+                      {f.label} {f.required && <span className="text-destructive">*</span>}
+                    </label>
+                    {f.type === "multiline" ? (
+                      <textarea
+                        rows={3}
+                        className="w-full px-3 py-1.5 text-sm bg-background border border-input rounded resize-y"
+                        value={newValues[f.name] || ""}
+                        onChange={(e) => setNewValues({ ...newValues, [f.name]: e.target.value })}
+                      />
+                    ) : f.type === "boolean" ? (
+                      <select
+                        className="w-full px-3 py-1.5 text-sm bg-background border border-input rounded"
+                        value={newValues[f.name] || "false"}
+                        onChange={(e) => setNewValues({ ...newValues, [f.name]: e.target.value })}
+                      >
+                        <option value="true">True</option>
+                        <option value="false">False</option>
+                      </select>
+                    ) : (
+                      <input
+                        type={f.type === "number" ? "number" : "text"}
+                        className="w-full px-3 py-1.5 text-sm bg-background border border-input rounded"
+                        value={newValues[f.name] || ""}
+                        onChange={(e) => setNewValues({ ...newValues, [f.name]: e.target.value })}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2 mt-3">
+                <Button size="sm" onClick={handleAddStock}>
+                  Save
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setAdding(false);
+                    setNewValues({});
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Stock table */}
+          {loading ? (
+            <div className="text-center py-12 text-muted-foreground animate-pulse">Loading stock…</div>
+          ) : stockItems.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground border border-dashed rounded-lg">
+              No stock entries found.
+            </div>
+          ) : (
+            <div className="border border-border rounded-lg overflow-x-auto">
+              <table className="w-full text-sm text-left">
+                <thead className="bg-muted text-muted-foreground text-xs uppercase">
+                  <tr>
+                    <th className="px-4 py-3">Value ({field.label})</th>
+                    {template.fieldsSchema
+                      .filter((f) => f.name !== field.name)
+                      .slice(0, 2)
+                      .map((f) => (
+                        <th key={f.name} className="px-4 py-3 hidden lg:table-cell">
+                          {f.label}
+                        </th>
+                      ))}
+                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3 hidden sm:table-cell">Product</th>
+                    <th className="px-4 py-3 hidden md:table-cell">Created</th>
+                    <th className="px-4 py-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {stockItems.map((item) => {
+                    const isEditing = editingId === item.id;
+                    const isMultiSell = item.multiSellEnabled || template.multiSellEnabled;
+                    const maxSells = item.multiSellMax || template.multiSellMax;
+                    const remaining = maxSells - (item.multiSellSaleCount || 0);
+
+                    return (
+                      <tr key={item.id} className="hover:bg-muted/50">
+                        <td className="px-4 py-3 font-mono text-xs break-all max-w-[200px]">
+                          {isEditing ? (
+                            <input
+                              type="text"
+                              className="w-full px-2 py-1 bg-background border border-input rounded text-sm"
+                              value={editValues[field.name] || ""}
+                              onChange={(e) =>
+                                setEditValues({ ...editValues, [field.name]: e.target.value })
+                              }
+                            />
+                          ) : (
+                            <>
+                              {item.values?.[field.name] || (
+                                <em className="text-muted-foreground">empty</em>
+                              )}
+                              {isMultiSell && (
+                                <span className="ml-2 px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-500 text-[10px] font-medium">
+                                  {remaining}/{maxSells} left
+                                </span>
+                              )}
+                            </>
+                          )}
+                        </td>
+                        {template.fieldsSchema
+                          .filter((f) => f.name !== field.name)
+                          .slice(0, 2)
+                          .map((f) => (
+                            <td
+                              key={f.name}
+                              className="px-4 py-3 font-mono text-xs text-muted-foreground break-all max-w-[150px] hidden lg:table-cell"
+                            >
+                              {isEditing ? (
+                                <input
+                                  type="text"
+                                  className="w-full px-2 py-1 bg-background border border-input rounded text-xs"
+                                  value={editValues[f.name] || ""}
+                                  onChange={(e) =>
+                                    setEditValues({ ...editValues, [f.name]: e.target.value })
+                                  }
+                                />
+                              ) : (
+                                String(item.values?.[f.name] ?? "")
+                              )}
+                            </td>
+                          ))}
+                        <td className="px-4 py-3">
+                          <span
+                            className={cn(
+                              "px-2 py-1 rounded-full text-xs font-medium",
+                              item.status === "available"
+                                ? "bg-emerald-500/10 text-emerald-500"
+                                : item.status === "sold"
+                                  ? "bg-blue-500/10 text-blue-500"
+                                  : item.status === "reserved"
+                                    ? "bg-amber-500/10 text-amber-500"
+                                    : "bg-muted text-muted-foreground"
+                            )}
+                          >
+                            {item.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-xs text-muted-foreground hidden sm:table-cell">
+                          {item.productName || <span className="italic">unlinked</span>}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-muted-foreground hidden md:table-cell whitespace-nowrap">
+                          {new Date(item.createdAt).toLocaleDateString()}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex justify-end gap-1">
+                            {isEditing ? (
+                              <>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-7 w-7 text-emerald-500"
+                                  onClick={() => handleUpdate(item.id)}
+                                >
+                                  <Check className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-7 w-7"
+                                  onClick={() => {
+                                    setEditingId(null);
+                                    setEditValues({});
+                                  }}
+                                >
+                                  <X className="w-4 h-4" />
+                                </Button>
+                              </>
+                            ) : (
+                              <>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-7 w-7"
+                                  onClick={() => {
+                                    setEditingId(item.id);
+                                    const vals: Record<string, string> = {};
+                                    for (const f of template.fieldsSchema) {
+                                      vals[f.name] = String(item.values?.[f.name] ?? "");
+                                    }
+                                    setEditValues(vals);
+                                  }}
+                                >
+                                  <Edit className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-7 w-7 text-destructive hover:bg-destructive/10"
+                                  onClick={() => handleDelete(item.id)}
+                                >
+                                  <Trash className="w-4 h-4" />
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ============================================================================
+// Add Stock Modal — line-by-line per field (one column = one field, rows = entries)
+// ============================================================================
+
+function splitFieldLines(text: string): string[] {
+  const s = text.replace(/\r\n/g, "\n");
+  if (s === "") return [];
+  return s.split("\n");
+}
+
+function AddStockModal({
+  template,
+  isOpen,
+  onClose,
+}: {
+  template: TemplateWithStock;
+  isOpen: boolean;
+  onClose: () => void;
+}) {
+  const [lineTexts, setLineTexts] = useState<Record<string, string>>({});
+  const [cost, setCost] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    setRowMultisell((prev) =>
-      Array.from({ length: minCount }, (_, i) => prev[i] || { enabled: false, max: 5 })
-    );
-  }, [minCount]);
-
-  const fieldsWithMismatch: { field: string; count: number }[] = [];
-  if (hasMismatch) {
-    templateFields.forEach((field) => {
-      if (fieldCounts[field.name] !== maxCount) {
-        fieldsWithMismatch.push({ field: field.label || field.name, count: fieldCounts[field.name] });
-      }
-    });
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (minCount === 0) { toast.error("Please enter values in at least one field"); return; }
-
-    const parsedItems: Array<Record<string, string | number | boolean>> = [];
-    for (let i = 0; i < minCount; i++) {
-      const itemObj: Record<string, string | number | boolean> = {};
-      let hasFieldMultiSell = false;
-      let fieldMultiSellMax = 5;
-      let fieldCooldownEnabled = false;
-      let fieldCooldownDuration = 12;
-
-      templateFields.forEach((field) => {
-        const lines = getParsedLines(field.name);
-        itemObj[field.name] = lines[i] || "";
-        if (field.multiSell) {
-           hasFieldMultiSell = true;
-           fieldMultiSellMax = field.multiSellMax || 5;
-           if (field.cooldownEnabled) {
-               fieldCooldownEnabled = true;
-               if (field.cooldownDurationHours) fieldCooldownDuration = field.cooldownDurationHours;
-           }
-        }
-      });
-      const msOn = perRowMultisell ? Boolean(rowMultisell[i]?.enabled) : (multiSellEnabled || hasFieldMultiSell);
-      const msMax = perRowMultisell
-        ? Math.max(1, rowMultisell[i]?.max ?? 5)
-        : (multiSellEnabled ? Math.max(1, multiSellMax) : fieldMultiSellMax);
-      
-      const cdEnabled = multiSellEnabled ? cooldownEnabled : fieldCooldownEnabled;
-      const cdHrs = multiSellEnabled ? cooldownDurationHours : fieldCooldownDuration;
-
-      if (msOn) {
-        itemObj.multiSellEnabled = true;
-        itemObj.multiSellMax = msMax;
-        itemObj.cooldownEnabled = cdEnabled;
-        itemObj.cooldownDurationHours = cdHrs;
-      }
-      parsedItems.push(itemObj);
+    if (!isOpen) return;
+    const init: Record<string, string> = {};
+    for (const f of template.fieldsSchema) {
+      init[f.name] = "";
     }
+    setLineTexts(init);
+    setCost("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset only when opening or switching template id
+  }, [isOpen, template.id]);
 
-    const validationErrors: string[] = [];
-    parsedItems.forEach((item, idx) => {
-      templateFields.forEach((field) => {
-        if (field.required && !String(item[field.name] || "").trim()) {
-          validationErrors.push(`Item ${idx + 1}: "${field.label || field.name}" is required`);
-        }
-      });
-    });
+  const entryCount = useMemo(() => {
+    const lengths = template.fieldsSchema.map((f) =>
+      splitFieldLines(lineTexts[f.name] ?? "").length
+    );
+    return lengths.length ? Math.max(0, ...lengths) : 0;
+  }, [lineTexts, template.fieldsSchema]);
 
-    if (validationErrors.length > 0) {
-      toast.error("Validation: " + validationErrors.slice(0, 3).join(", ") + (validationErrors.length > 3 ? ` +${validationErrors.length - 3} more` : ""));
+  const parsedItems = useMemo(() => {
+    if (entryCount === 0) return [];
+    const out: Record<string, string>[] = [];
+    for (let i = 0; i < entryCount; i++) {
+      const row: Record<string, string> = {};
+      for (const f of template.fieldsSchema) {
+        const lines = splitFieldLines(lineTexts[f.name] ?? "");
+        row[f.name] = (lines[i] ?? "").trim();
+      }
+      if (Object.values(row).some((v) => v.length > 0)) {
+        out.push(row);
+      }
+    }
+    return out;
+  }, [entryCount, lineTexts, template.fieldsSchema]);
+
+  const setFieldText = (fieldName: string, value: string) => {
+    setLineTexts((prev) => ({ ...prev, [fieldName]: value }));
+  };
+
+  const handleSubmit = async () => {
+    if (parsedItems.length === 0) {
+      toast.error("No items to add");
       return;
     }
 
     setSubmitting(true);
     try {
-      const res = await fetch("/api/inventory", {
+      const res = await fetch(`/api/inventory/templates/${template.id}/stock`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          productId,
-          items: parsedItems as Record<string, string>[],
-          batchName: batchName || undefined,
-          cost: batchCost.trim() ? batchCost : undefined,
-          sellPendingFirst,
-          eachLineIsProduct,
-        }),
+        body: JSON.stringify({ items: parsedItems, cost: cost || null }),
       });
       const data = await res.json();
       if (data.success) {
-        const n = data.data.totalAdded ?? data.data.count ?? minCount;
-        if (data.data.fulfilledOrders?.length > 0) {
-          toast.success(`Added ${n} item(s) and fulfilled ${data.data.fulfilledOrders.length} order(s)!`);
-        } else {
-          toast.success(`Added ${n} item(s)`);
-        }
-        onSuccess();
+        toast.success(`Added ${data.data.count} stock entries`);
+        onClose();
       } else {
-        toast.error(data.error || "Failed to add inventory");
+        toast.error(data.error || "Failed to add stock");
       }
     } catch {
-      toast.error("Failed to add inventory");
+      toast.error("Network error");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const fieldGridClass =
+    template.fieldsSchema.length === 1
+      ? "grid grid-cols-1 gap-4"
+      : template.fieldsSchema.length === 2
+        ? "grid grid-cols-1 sm:grid-cols-2 gap-4"
+        : "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4";
+
+  return (
+    <Dialog open={isOpen} onOpenChange={(val) => !val && onClose()}>
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Add Stock to {template.name}</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 pt-2">
+          <p className="text-xs text-muted-foreground">
+            Each line in a column is one value for that field. Line 1 across columns = first stock entry, line 2 =
+            second entry, and so on. Shorter columns count as empty values for missing lines.
+          </p>
+
+          {/* Cost */}
+          <div className="max-w-xs">
+            <label className="text-xs text-muted-foreground block mb-1">Cost per item (optional)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={cost}
+              onChange={(e) => setCost(e.target.value)}
+              placeholder="0.00"
+              className="w-full px-3 py-2 bg-secondary border border-input rounded-lg text-sm"
+            />
+          </div>
+
+          <div className={fieldGridClass}>
+            {template.fieldsSchema.map((f) => {
+              const lines = splitFieldLines(lineTexts[f.name] ?? "");
+              return (
+                <div key={f.name} className="flex flex-col gap-1.5 min-w-0">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <label className="text-sm font-medium text-foreground">
+                      {f.label}
+                      {f.required && <span className="text-destructive"> *</span>}
+                    </label>
+                    <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">
+                      {lines.length} lines
+                    </span>
+                  </div>
+                  <textarea
+                    rows={8}
+                    className="w-full min-h-[12rem] px-3 py-2 bg-background border border-input rounded-lg text-sm font-mono resize-y"
+                    value={lineTexts[f.name] ?? ""}
+                    onChange={(e) => setFieldText(f.name, e.target.value)}
+                    placeholder={`One value per line for ${f.label}…`}
+                    spellCheck={false}
+                  />
+                </div>
+              );
+            })}
+          </div>
+
+          <p className="text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">{entryCount}</span> entries detected (by max line count)
+            {parsedItems.length !== entryCount && entryCount > 0 ? (
+              <span className="block text-xs mt-1">
+                {parsedItems.length} non-empty row{parsedItems.length === 1 ? "" : "s"} will be submitted (all-blank
+                rows skipped).
+              </span>
+            ) : null}
+          </p>
+
+          {/* Submit */}
+          <div className="flex justify-end gap-2 pt-2 border-t border-border">
+            <Button variant="outline" onClick={onClose} disabled={submitting}>
+              Cancel
+            </Button>
+            <Button onClick={handleSubmit} disabled={submitting || parsedItems.length === 0}>
+              {submitting ? "Adding…" : `Add ${parsedItems.length} entries`}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ============================================================================
+// Create/Edit Template Modal — with inline creation
+// ============================================================================
+
+function CreateTemplateModal({
+  editingTemplate,
+  onClose,
+  onSaved,
+}: {
+  editingTemplate: TemplateWithStock | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(editingTemplate?.name || "");
+  const [description, setDescription] = useState(editingTemplate?.description || "");
+  const [color, setColor] = useState(editingTemplate?.color || "");
+  const [icon, setIcon] = useState(editingTemplate?.icon || "");
+  const [multiSellEnabled, setMultiSellEnabled] = useState(editingTemplate?.multiSellEnabled || false);
+  const [multiSellMax, setMultiSellMax] = useState(editingTemplate?.multiSellMax || 5);
+  const [cooldownEnabled, setCooldownEnabled] = useState(editingTemplate?.cooldownEnabled || false);
+  const [cooldownDurationHours, setCooldownDurationHours] = useState(editingTemplate?.cooldownDurationHours || 12);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const [fields, setFields] = useState<FieldSchema[]>(
+    editingTemplate?.fieldsSchema || [
+      {
+        name: "key",
+        type: "string",
+        required: true,
+        label: "Key",
+        isVisibleToAdmin: true,
+        isVisibleToMerchant: false,
+        isVisibleToCustomer: true,
+        repeatable: false,
+        parentId: null,
+        displayOrder: 0,
+        linkedTo: null,
+        linkGroup: null,
+      },
+    ]
+  );
+
+  const [expandedField, setExpandedField] = useState<number | null>(0);
+
+  const addField = () => {
+    setFields([
+      ...fields,
+      {
+        name: `field_${Date.now()}`,
+        type: "string",
+        required: false,
+        label: `Field ${fields.length + 1}`,
+        isVisibleToAdmin: true,
+        isVisibleToMerchant: true,
+        isVisibleToCustomer: true,
+        repeatable: false,
+        parentId: null,
+        displayOrder: fields.length,
+        linkedTo: null,
+        linkGroup: null,
+      },
+    ]);
+    setExpandedField(fields.length);
+  };
+
+  const removeField = (idx: number) => {
+    if (fields.length <= 1) return;
+    setFields(fields.filter((_, i) => i !== idx));
+  };
+
+  const updateField = (idx: number, updates: Partial<FieldSchema>) => {
+    const updated = [...fields];
+    updated[idx] = { ...updated[idx], ...updates };
+    setFields(updated);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    if (!name.trim()) {
+      setError("Template name is required");
+      return;
+    }
+    if (fields.length === 0) {
+      setError("At least one field is required");
+      return;
+    }
+    for (const field of fields) {
+      if (!field.name || !field.label) {
+        setError("All fields must have a name and label");
+        return;
+      }
+    }
+
+    setSubmitting(true);
+    try {
+      const url = editingTemplate
+        ? `/api/inventory/templates/${editingTemplate.id}`
+        : "/api/inventory/templates";
+      const method = editingTemplate ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: name.trim(),
+          description: description.trim() || "",
+          fieldsSchema: fields,
+          color: color.trim() || null,
+          icon: icon.trim() || null,
+          multiSellEnabled,
+          multiSellMax: Number(multiSellMax),
+          cooldownEnabled,
+          cooldownDurationHours: Number(cooldownDurationHours),
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        toast.success(editingTemplate ? "Template updated" : "Template created");
+        onSaved();
+      } else {
+        setError(data.error || "Failed to save");
+      }
+    } catch {
+      setError("Network error");
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 overflow-y-auto py-8">
-      <div className="bg-card rounded-lg border border-border w-full max-w-2xl p-6 my-auto">
-        <h2 className="text-xl font-bold text-card-foreground mb-4">Add Inventory - {productName}</h2>
-
-        <div className="mb-4 p-3 rounded-lg border border-border bg-muted/50 text-xs text-muted-foreground space-y-1">
-          <p><strong className="text-foreground">Stock type</strong> (on the product) tags how you classify stock for reporting — it does not define which keys (code, email, …) each line stores.</p>
-          <p><strong className="text-foreground">Template</strong> defines the field names and structure of each inventory row. You add keys here; the product’s template must match what buyers see at delivery.</p>
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+      <div className="bg-background border border-border rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+        <div className="p-6 border-b border-border">
+          <h2 className="text-xl font-bold text-foreground">
+            {editingTemplate ? "Edit Template" : "Create Template"}
+          </h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Define the structure for your inventory stock.
+          </p>
         </div>
 
-        {pendingData && pendingData.pendingItems > 0 && (
-          <div className="mb-4 p-3 bg-warning/10 border border-warning/30 rounded-lg">
-            <div className="flex items-start gap-3">
-              <svg className="w-5 h-5 text-warning mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-              <div className="flex-1">
-                <p className="text-warning text-sm font-medium">{pendingData.pendingItems} pending item(s) in {pendingData.pendingOrdersCount} order(s)</p>
-                <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer mt-2">
-                  <input type="checkbox" checked={sellPendingFirst} onChange={(e) => setSellPendingFirst(e.target.checked)} className="w-4 h-4 rounded border-input bg-background text-primary focus:ring-ring" />
-                  <span>Sell to pending orders first</span>
-                </label>
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-6">
+          {error && (
+            <div className="p-3 bg-destructive/10 text-destructive border border-destructive/30 rounded-lg text-sm">
+              {error}
+            </div>
+          )}
+
+          {/* General */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Name *</label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+                className="w-full px-3 py-2 bg-secondary border border-input rounded-lg text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Description</label>
+              <input
+                type="text"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                className="w-full px-3 py-2 bg-secondary border border-input rounded-lg text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Color</label>
+              <div className="flex gap-2">
+                <input
+                  type="color"
+                  value={color || "#000000"}
+                  onChange={(e) => setColor(e.target.value)}
+                  className="w-10 h-10 rounded cursor-pointer"
+                />
+                <input
+                  type="text"
+                  value={color}
+                  onChange={(e) => setColor(e.target.value)}
+                  placeholder="#3b82f6"
+                  className="flex-1 px-3 py-2 bg-secondary border border-input rounded-lg text-sm"
+                />
               </div>
             </div>
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit}>
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-foreground mb-1">Batch Name (optional)</label>
-            <input type="text" value={batchName} onChange={(e) => setBatchName(e.target.value)} className="w-full px-3 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring" placeholder="e.g., Import 2024-03-15" />
-          </div>
-
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-foreground mb-1">Cost per line (optional)</label>
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              value={batchCost}
-              onChange={(e) => setBatchCost(e.target.value)}
-              className="w-full px-3 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-              placeholder="0.00"
-            />
-            <p className="text-xs text-muted-foreground mt-1">Same cost applied to every row in this batch</p>
+            <div>
+              <label className="block text-sm font-medium mb-1">Icon (emoji)</label>
+              <input
+                type="text"
+                value={icon}
+                onChange={(e) => setIcon(e.target.value)}
+                placeholder="🎮"
+                className="w-full px-3 py-2 bg-secondary border border-input rounded-lg text-sm"
+              />
+            </div>
           </div>
 
-          <div className="mb-4">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" checked={eachLineIsProduct} onChange={(e) => setEachLineIsProduct(e.target.checked)} className="w-4 h-4 rounded border-input bg-background text-primary focus:ring-ring" />
-              <span className="text-sm text-foreground">Each line is a separate product</span>
-            </label>
-          </div>
-
-          <div className="mb-4 p-4 rounded-lg border border-border space-y-3">
-            <p className="text-sm font-medium text-foreground">Multi-sell (optional)</p>
-            <p className="text-xs text-muted-foreground">Allow the same inventory line to be sold multiple times up to a limit (e.g. shared seats). Cooldown limits how soon the line can sell again.</p>
-            <label className="flex items-center gap-2 cursor-pointer text-sm">
+          {/* Multi-sell */}
+          <div className="bg-muted/30 p-4 rounded-lg border border-border space-y-3">
+            <label className="flex items-center gap-2">
               <input
                 type="checkbox"
-                checked={perRowMultisell}
-                onChange={(e) => setPerRowMultisell(e.target.checked)}
-                className="w-4 h-4 rounded border-input bg-background text-primary focus:ring-ring"
+                checked={multiSellEnabled}
+                onChange={(e) => setMultiSellEnabled(e.target.checked)}
+                className="w-4 h-4 rounded"
               />
-              <span>Set multi-sell per row (otherwise one setting applies to all rows below)</span>
+              <span className="text-sm font-medium">Enable Multi-sell</span>
             </label>
-            {!perRowMultisell && (
-              <label className="flex items-center gap-2 cursor-pointer text-sm">
-                <input
-                  type="checkbox"
-                  checked={multiSellEnabled}
-                  onChange={(e) => setMultiSellEnabled(e.target.checked)}
-                  className="w-4 h-4 rounded border-input bg-background text-primary focus:ring-ring"
-                />
-                <span>Enable multi-sell for this batch</span>
-              </label>
-            )}
-            {(multiSellEnabled || perRowMultisell) && (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 items-end">
-                {!perRowMultisell && (
-                  <div>
-                    <label className="block text-xs text-muted-foreground mb-1">Max sells per line</label>
-                    <input
-                      type="number"
-                      min={1}
-                      value={multiSellMax}
-                      onChange={(e) => setMultiSellMax(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                      className="w-full px-2 py-1.5 bg-muted border border-input rounded text-sm"
-                    />
-                  </div>
-                )}
-                <label className="flex items-center gap-2 text-sm col-span-2">
+            {multiSellEnabled && (
+              <div className="flex gap-4 ml-6">
+                <div>
+                  <label className="block text-xs text-muted-foreground mb-1">Max Sales</label>
+                  <input
+                    type="number"
+                    value={multiSellMax}
+                    onChange={(e) => setMultiSellMax(Number(e.target.value))}
+                    className="w-24 px-3 py-1.5 bg-background border border-input rounded-lg text-sm"
+                  />
+                </div>
+                <label className="flex items-center gap-2 self-end pb-1">
                   <input
                     type="checkbox"
                     checked={cooldownEnabled}
                     onChange={(e) => setCooldownEnabled(e.target.checked)}
-                    className="w-4 h-4 rounded border-input"
+                    className="w-4 h-4 rounded"
                   />
-                  Cooldown between sells
+                  <span className="text-sm">Cooldown</span>
                 </label>
                 {cooldownEnabled && (
                   <div>
                     <label className="block text-xs text-muted-foreground mb-1">Hours</label>
                     <input
                       type="number"
-                      min={1}
                       value={cooldownDurationHours}
-                      onChange={(e) => setCooldownDurationHours(Math.max(1, parseInt(e.target.value, 10) || 12))}
-                      className="w-full px-2 py-1.5 bg-muted border border-input rounded text-sm"
+                      onChange={(e) => setCooldownDurationHours(Number(e.target.value))}
+                      className="w-24 px-3 py-1.5 bg-background border border-input rounded-lg text-sm"
                     />
                   </div>
                 )}
               </div>
             )}
-            {perRowMultisell && minCount > 0 && (
-              <div className="max-h-40 overflow-y-auto border border-border rounded-md">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="bg-muted/80 text-left">
-                      <th className="p-2">Row</th>
-                      <th className="p-2">Multi-sell</th>
-                      <th className="p-2">Max</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rowMultisell.slice(0, minCount).map((row, idx) => (
-                      <tr key={idx} className="border-t border-border">
-                        <td className="p-2">{idx + 1}</td>
-                        <td className="p-2">
-                          <input
-                            type="checkbox"
-                            checked={row.enabled}
-                            onChange={(e) => {
-                              const next = [...rowMultisell];
-                              next[idx] = { ...next[idx], enabled: e.target.checked };
-                              setRowMultisell(next);
-                            }}
-                            className="w-4 h-4 rounded"
-                          />
-                        </td>
-                        <td className="p-2">
-                          <input
-                            type="number"
-                            min={1}
-                            className="w-16 px-1 py-0.5 bg-muted border border-input rounded"
-                            value={row.max}
-                            onChange={(e) => {
-                              const next = [...rowMultisell];
-                              next[idx] = { ...next[idx], max: Math.max(1, parseInt(e.target.value, 10) || 5) };
-                              setRowMultisell(next);
-                            }}
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
           </div>
 
-          <div className="mb-4 space-y-4">
-            <p className="text-sm text-muted-foreground">Enter values for each field (one value per line). Items will be created by combining values in order.</p>
-            {templateFields.length === 0 ? (
-              <div className="p-3 bg-muted rounded border border-border text-muted-foreground text-sm">No template fields configured for this product.</div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {templateFields.map((field) => (
-                  <div key={field.name}>
-                    <label className="block text-sm font-medium text-foreground mb-1">
-                      {field.label || field.name}{field.required && <span className="text-destructive"> *</span>}
-                      <span className="text-muted-foreground font-normal ml-2">({fieldCounts[field.name]} lines)</span>
-                    </label>
-                    <textarea
-                      value={fieldValues[field.name] || ""}
-                      onChange={(e) => setFieldValues({ ...fieldValues, [field.name]: e.target.value })}
-                      className="w-full px-3 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring font-mono text-sm"
-                      rows={6}
-                      placeholder="Enter one value per line"
-                    />
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {minCount > 0 && (
-            <div className="mb-4 p-3 bg-info/10 border border-info/30 rounded-lg">
-              <span className="text-info text-sm">Will create <strong>{minCount}</strong> item(s)</span>
-              {hasMismatch && <span className="text-warning text-xs ml-2">Some fields have extra values</span>}
-            </div>
-          )}
-
-          {hasMismatch && (
-            <div className="mb-4 p-3 bg-warning/10 border border-warning/30 rounded-lg">
-              <p className="text-warning text-sm font-medium">Field count mismatch</p>
-              <p className="text-muted-foreground text-xs mt-1">Only {minCount} items will be created:</p>
-              <ul className="text-xs text-muted-foreground mt-1 list-disc list-inside">
-                {fieldsWithMismatch.map((m) => <li key={m.field}><strong>{m.field}</strong>: {m.count} values (needs {maxCount})</li>)}
-              </ul>
-            </div>
-          )}
-
-          {minCount > 0 && templateFields.length > 0 && (
-            <div className="mb-4 p-3 bg-muted rounded border border-border">
-              <p className="text-xs text-muted-foreground mb-2">Preview (first 3):</p>
-              <div className="space-y-1">
-                {Array.from({ length: Math.min(3, minCount) }).map((_, i) => (
-                  <div key={i} className="text-xs font-mono text-foreground">
-                    {templateFields.map((f) => getParsedLines(f.name)[i] || "-").join(" → ")}
-                  </div>
-                ))}
-                {minCount > 3 && <div className="text-xs text-muted-foreground italic">... and {minCount - 3} more</div>}
-              </div>
-            </div>
-          )}
-
-          <div className="flex justify-end gap-3">
-            <Button type="button" variant="ghost" onClick={onClose} disabled={submitting}>Cancel</Button>
-            <Button type="submit" disabled={submitting || minCount === 0}>
-              {submitting ? "Adding..." : `Add ${minCount} Item${minCount !== 1 ? "s" : ""}`}
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-// ============================================================================
-// Standalone Stock Modal
-// ============================================================================
-
-function StandaloneStockModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void; }) {
-  const [templates, setTemplates] = useState<any[]>([]);
-  const [products, setProducts] = useState<any[]>([]);
-  const [selectedTemplateId, setSelectedTemplateId] = useState("");
-  const [selectedProductId, setSelectedProductId] = useState("");
-  const [templateFields, setTemplateFields] = useState<TemplateField[]>([]);
-  const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
-  const [batchName, setBatchName] = useState("");
-  const [stockCost, setStockCost] = useState("");
-  const [eachLineIsProduct, setEachLineIsProduct] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [loading, setLoading] = useState(true);
-
-  /** When 2+ custom fields: one multi-sell setting for every created row */
-  const [batchMultiSellEnabled, setBatchMultiSellEnabled] = useState(false);
-  const [batchMultiSellMax, setBatchMultiSellMax] = useState(5);
-  const [batchCooldownEnabled, setBatchCooldownEnabled] = useState(false);
-  const [batchCooldownHours, setBatchCooldownHours] = useState(12);
-
-  // Custom fields mode
-  const [useCustomFields, setUseCustomFields] = useState(false);
-  const [customFields, setCustomFields] = useState<StandaloneCustomFieldRow[]>([
-    { name: "code", value: "", type: "string", required: true, multiSell: false, multiSellMax: 5, cooldownEnabled: false, cooldownDurationHours: 12, wholeFieldIsOneItem: false, linkedTo: "", isMainStockField: true },
-  ]);
-
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [templatesRes, productsRes] = await Promise.all([fetch("/api/inventory/templates"), fetch("/api/products?limit=500")]);
-        const templatesData = await templatesRes.json();
-        const productsData = await productsRes.json();
-        if (templatesData.success) setTemplates(templatesData.data);
-        if (productsData.success) setProducts(productsData.data);
-      } catch { /* silent */ } finally { setLoading(false); }
-    };
-    fetchData();
-  }, []);
-
-  useEffect(() => {
-    if (useCustomFields) { setTemplateFields([]); setFieldValues({}); return; }
-    if (!selectedTemplateId) { setTemplateFields([]); setFieldValues({}); return; }
-    const template = templates.find((t) => t.id === selectedTemplateId);
-    if (template?.fieldsSchema) {
-      setTemplateFields(template.fieldsSchema);
-      const initialValues: Record<string, string> = {};
-      template.fieldsSchema.forEach((field: TemplateField) => { initialValues[field.name] = ""; });
-      setFieldValues(initialValues);
-    }
-  }, [selectedTemplateId, templates, useCustomFields]);
-
-  // Template mode counts
-  const getParsedLines = (fieldName: string): string[] => {
-    const fieldSchema = templateFields.find(f => f.name === fieldName);
-    if (fieldSchema?.wholeFieldIsOneItem && fieldValues[fieldName]?.trim()) {
-      return [fieldValues[fieldName].trim()];
-    }
-    return (fieldValues[fieldName] || "").split("\n").map((l) => l.trim()).filter(Boolean);
-  };
-  const fieldCounts = templateFields.reduce((acc, field) => { acc[field.name] = getParsedLines(field.name).length; return acc; }, {} as Record<string, number>);
-  const counts = Object.values(fieldCounts);
-  const minCount = counts.length > 0 ? Math.min(...counts) : 0;
-
-  // Custom fields mode counts
-  const getCustomFieldParsedLines = (index: number): string[] => {
-    const f = customFields[index];
-    if (!f) return [];
-    if (f.wholeFieldIsOneItem && f.value.trim()) return [f.value.trim()];
-    return (f.value || "").split("\n").map((l) => l.trim()).filter(Boolean);
-  };
-  const customFieldCounts = customFields.map((_, i) => getCustomFieldParsedLines(i).length);
-  const contributingCounts = customFields.map((f, i) => {
-    const c = customFieldCounts[i];
-    if (!f.name.trim() || c === 0) return null;
-    if (f.wholeFieldIsOneItem && c === 1) return null;
-    return c;
-  }).filter((c): c is number => c !== null);
-  const customMinCount =
-    customFields.some((f) => f.value.trim()) && customFields.some((f) => f.name.trim())
-      ? contributingCounts.length > 0
-        ? Math.min(...contributingCounts)
-        : Math.min(...customFieldCounts.filter((c) => c > 0)) || 0
-      : 0;
-
-  const addCustomField = () =>
-    setCustomFields([
-      ...customFields,
-      {
-        name: "",
-        value: "",
-        type: "string",
-        required: false,
-        multiSell: false,
-        multiSellMax: 5,
-        cooldownEnabled: false,
-        cooldownDurationHours: 12,
-        wholeFieldIsOneItem: false,
-        linkedTo: "",
-        isMainStockField: false,
-      },
-    ]);
-  const removeCustomField = (index: number) => {
-    const next = customFields.filter((_, i) => i !== index);
-    if (next.length && !next.some((f) => f.isMainStockField)) {
-      next[0] = { ...next[0], isMainStockField: true };
-    }
-    setCustomFields(next);
-  };
-  const updateCustomField = (index: number, key: string, val: unknown) => {
-    const newFields = [...customFields];
-    newFields[index] = { ...newFields[index], [key]: val } as StandaloneCustomFieldRow;
-    setCustomFields(newFields);
-  };
-  const setMainStockField = (index: number) => {
-    setCustomFields(customFields.map((f, i) => ({ ...f, isMainStockField: i === index })));
-  };
-
-  const effectiveMinCount = useCustomFields ? customMinCount : minCount;
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    let parsedItems: Record<string, any>[] = [];
-
-    if (useCustomFields) {
-      const filled = customFields.filter((f) => f.name.trim() && f.value.trim());
-      if (filled.length === 0) {
-        toast.error("Please add at least one field with values");
-        return;
-      }
-      if (customMinCount === 0) {
-        toast.error("Please enter values in at least one field");
-        return;
-      }
-      const multiFieldMode = filled.length >= 2;
-      const reqMissing = customFields.some((f) => f.required && f.name.trim() && !f.value.trim());
-      if (reqMissing) {
-        toast.error("Fill all required fields");
-        return;
-      }
-      for (let i = 0; i < customMinCount; i++) {
-        const itemObj: Record<string, unknown> = {};
-        customFields.forEach((field, idx) => {
-          if (!field.name.trim() || !field.value.trim()) return;
-          const lines = getCustomFieldParsedLines(idx);
-          const broadcast = field.wholeFieldIsOneItem && lines.length === 1 && customMinCount > 1;
-          itemObj[field.name] = broadcast ? lines[0] : (lines[i] ?? "");
-        });
-        if (multiFieldMode) {
-          if (batchMultiSellEnabled) {
-            itemObj.multiSellEnabled = true;
-            itemObj.multiSellMax = Math.max(1, batchMultiSellMax);
-            itemObj.cooldownEnabled = batchCooldownEnabled;
-            itemObj.cooldownDurationHours = Math.max(1, batchCooldownHours);
-          }
-        } else {
-          customFields.forEach((field, idx) => {
-            if (!field.name.trim() || !field.value.trim()) return;
-            if (field.multiSell) {
-              itemObj.multiSellEnabled = true;
-              itemObj.multiSellMax = field.multiSellMax || 5;
-              itemObj.cooldownEnabled = field.cooldownEnabled || false;
-              itemObj.cooldownDurationHours = field.cooldownDurationHours || 12;
-            }
-          });
-        }
-        parsedItems.push(itemObj);
-      }
-      const rowErrors: string[] = [];
-      parsedItems.forEach((item, idx) => {
-        customFields.forEach((field) => {
-          if (!field.required || !field.name.trim()) return;
-          if (!String(item[field.name] ?? "").trim()) {
-            rowErrors.push(`Row ${idx + 1}: "${field.name}" is required`);
-          }
-        });
-      });
-      if (rowErrors.length > 0) {
-        toast.error(rowErrors.slice(0, 2).join("; "));
-        return;
-      }
-    } else {
-      if (minCount === 0) { toast.error("Please enter values in at least one field"); return; }
-      for (let i = 0; i < minCount; i++) {
-        const itemObj: Record<string, any> = {};
-        templateFields.forEach((field) => { 
-          itemObj[field.name] = getParsedLines(field.name)[i] || ""; 
-          if (field.multiSell) {
-            itemObj.multiSellEnabled = true;
-            itemObj.multiSellMax = field.multiSellMax || 5;
-            itemObj.cooldownEnabled = field.cooldownEnabled || false;
-            itemObj.cooldownDurationHours = field.cooldownDurationHours || 12;
-          }
-        });
-        parsedItems.push(itemObj);
-      }
-    }
-
-    setSubmitting(true);
-    try {
-      const res = await fetch("/api/inventory/standalone", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          templateId: useCustomFields ? null : selectedTemplateId,
-          productId: selectedProductId || null,
-          items: parsedItems,
-          batchName: batchName || undefined,
-          cost: stockCost.trim() ? stockCost : undefined,
-          eachLineIsProduct,
-        }),
-      });
-      const data = await res.json();
-      if (data.success) { toast.success(`Added ${data.data.count} stock item(s)!`); onSuccess(); }
-      else { toast.error(data.error || "Failed to add stock"); }
-    } catch { toast.error("Failed to add stock"); } finally { setSubmitting(false); }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 overflow-y-auto py-8">
-      <div className="bg-card rounded-lg border border-border w-full max-w-3xl p-6 my-auto max-h-[90vh] overflow-y-auto">
-        <h2 className="text-xl font-bold text-card-foreground mb-4">Add Stock</h2>
-
-        {loading ? (
-          <div className="text-center py-8"><Skeleton className="h-8 w-48 mx-auto" /></div>
-        ) : (
-          <form onSubmit={handleSubmit}>
-            {/* Mode Toggle */}
-            <div className="mb-4 p-3 bg-muted rounded-lg border border-input">
-              <div className="flex items-center gap-4">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="radio" name="mode" checked={!useCustomFields} onChange={() => setUseCustomFields(false)} className="w-4 h-4" />
-                  <span className="text-sm font-medium text-foreground">Use Template</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="radio" name="mode" checked={useCustomFields} onChange={() => setUseCustomFields(true)} className="w-4 h-4" />
-                  <span className="text-sm font-medium text-foreground">Custom Fields</span>
-                </label>
-              </div>
-              <p className="text-xs text-muted-foreground mt-2">
-                {useCustomFields
-                  ? "Define your own field names and paste values. No template needed."
-                  : "Select a pre-defined template to use its field structure."}
-              </p>
-            </div>
-
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-foreground mb-1">Cost per stock line (optional)</label>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={stockCost}
-                onChange={(e) => setStockCost(e.target.value)}
-                className="w-full px-4 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                placeholder="0.00"
-              />
-              <p className="text-xs text-muted-foreground mt-1">Applied to every line you create in this batch (same as product &quot;Add Inventory&quot;).</p>
-            </div>
-
-            {useCustomFields && customFields.length >= 2 && (
-              <div className="mb-4 p-4 rounded-lg border border-border space-y-3 bg-muted/40">
-                <p className="text-sm font-medium text-foreground">Multi-sell for this batch (all rows)</p>
-                <p className="text-xs text-muted-foreground">With several fields, one setting here applies to every stock line — easier for manual sell.</p>
-                <label className="flex items-center gap-2 cursor-pointer text-sm">
-                  <input
-                    type="checkbox"
-                    checked={batchMultiSellEnabled}
-                    onChange={(e) => setBatchMultiSellEnabled(e.target.checked)}
-                    className="w-4 h-4 rounded border-input bg-background text-primary focus:ring-ring"
-                  />
-                  <span>Enable multi-sell for all lines below</span>
-                </label>
-                {batchMultiSellEnabled && (
-                  <div className="flex flex-wrap items-end gap-3">
-                    <div>
-                      <label className="block text-xs text-muted-foreground mb-1">Max sells per line</label>
-                      <input
-                        type="number"
-                        min={1}
-                        value={batchMultiSellMax}
-                        onChange={(e) => setBatchMultiSellMax(Math.max(1, parseInt(e.target.value, 10) || 5))}
-                        className="w-24 px-2 py-1.5 bg-muted border border-input rounded text-sm"
-                      />
-                    </div>
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={batchCooldownEnabled}
-                        onChange={(e) => setBatchCooldownEnabled(e.target.checked)}
-                        className="w-4 h-4 rounded border-input"
-                      />
-                      Cooldown between sells
-                    </label>
-                    {batchCooldownEnabled && (
-                      <div>
-                        <label className="block text-xs text-muted-foreground mb-1">Hours</label>
-                        <input
-                          type="number"
-                          min={1}
-                          value={batchCooldownHours}
-                          onChange={(e) => setBatchCooldownHours(Math.max(1, parseInt(e.target.value, 10) || 12))}
-                          className="w-20 px-2 py-1.5 bg-muted border border-input rounded text-sm"
-                        />
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Template Selector (only in template mode) */}
-            {!useCustomFields && (
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-foreground mb-2">Inventory Template</label>
-                <select value={selectedTemplateId} onChange={(e) => setSelectedTemplateId(e.target.value)} className="w-full px-4 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring">
-                  <option value="">Select a template...</option>
-                  {templates.map((t) => <option key={t.id} value={t.id}>{t.name}{t.description ? ` - ${t.description}` : ""}</option>)}
-                </select>
-              </div>
-            )}
-
-            {/* Custom Fields Editor (only in custom mode) */}
-            {useCustomFields && (
-              <div className="mb-4">
-                <div className="flex items-center justify-between mb-2">
-                  <label className="block text-sm font-medium text-foreground">Fields</label>
-                  <Button type="button" variant="ghost" size="sm" onClick={addCustomField}>+ Add Field</Button>
-                </div>
-                {customFields.length >= 2 && (
-                  <p className="text-xs text-muted-foreground mb-3">
-                    The <strong className="text-foreground">main</strong> field is shown first: one line = one stock unit. Detail fields use the same line order so row 1 matches row 1 everywhere — easier for manual sell.
-                  </p>
-                )}
-                <div className="space-y-4">
-                  {(() => {
-                    const mainI = Math.max(0, customFields.findIndex((f) => f.isMainStockField));
-                    const detailIdx = customFields.map((_, i) => i).filter((i) => customFields.length < 2 || i !== mainI);
-
-                    const renderFieldCard = (index: number, role: "main" | "detail" | "single") => {
-                      const field = customFields[index];
-                      const multiField = customFields.length >= 2;
-                      return (
-                        <div
-                          key={index}
-                          className={`p-4 rounded-xl border shadow-sm ${
-                            role === "main" ? "bg-primary/5 border-primary/40" : "bg-muted border-input"
-                          }`}
-                        >
-                          {role === "main" && (
-                            <p className="text-xs font-semibold text-primary mb-2">Main stock row</p>
-                          )}
-                          <div className="flex flex-wrap items-center gap-3 mb-3">
-                            <input
-                              type="text"
-                              value={field.name}
-                              onChange={(e) => updateCustomField(index, "name", e.target.value.replace(/[^a-zA-Z0-9_]/g, ""))}
-                              className="flex-1 min-w-[120px] px-3 py-2 bg-card border border-input rounded-lg text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                              placeholder="Field name (e.g. sku)"
-                            />
-                            <select
-                              value={field.type}
-                              onChange={(e) => updateCustomField(index, "type", e.target.value)}
-                              className="px-3 py-2 bg-card border border-input rounded-lg text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                            >
-                              <option value="string">String</option>
-                              <option value="number">Number</option>
-                              <option value="boolean">Boolean</option>
-                            </select>
-                            <span className="text-xs text-muted-foreground">{getCustomFieldParsedLines(index).length} lines</span>
-                            {multiField && !field.isMainStockField && (
-                              <button
-                                type="button"
-                                onClick={() => setMainStockField(index)}
-                                className="text-xs text-primary hover:underline"
-                              >
-                                Set as main
-                              </button>
-                            )}
-                            {customFields.length > 1 && (
-                              <button type="button" onClick={() => removeCustomField(index)} className="px-2 py-1 text-sm text-destructive hover:text-destructive/80">
-                                Remove
-                              </button>
-                            )}
-                          </div>
-
-                          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-3 text-sm">
-                            <label className="flex items-center gap-2 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={field.required}
-                                onChange={(e) => updateCustomField(index, "required", e.target.checked)}
-                                className="w-4 h-4 rounded text-primary focus:ring-ring bg-card border-input"
-                              />
-                              <span>Required</span>
-                            </label>
-                            <label className="flex items-center gap-2 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={field.wholeFieldIsOneItem}
-                                onChange={(e) => updateCustomField(index, "wholeFieldIsOneItem", e.target.checked)}
-                                className="w-4 h-4 rounded text-primary focus:ring-ring bg-card border-input"
-                              />
-                              <span>Single value (same for every row)</span>
-                            </label>
-                            {!multiField && (
-                              <label className="flex items-center gap-2 cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={field.multiSell}
-                                  onChange={(e) => updateCustomField(index, "multiSell", e.target.checked)}
-                                  className="w-4 h-4 rounded text-primary focus:ring-ring bg-card border-input"
-                                />
-                                <span>Multi-sell</span>
-                              </label>
-                            )}
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm text-muted-foreground">Link:</span>
-                              <select
-                                value={field.linkedTo}
-                                onChange={(e) => updateCustomField(index, "linkedTo", e.target.value)}
-                                className="px-3 py-1 bg-card border border-input rounded text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                              >
-                                <option value="">None</option>
-                                {customFields.filter((_, i) => i !== index).map((f, oi) => (
-                                  <option key={`${index}-link-${oi}-${f.name}`} value={f.name}>{f.name || "Unnamed"}</option>
-                                ))}
-                              </select>
-                            </div>
-                          </div>
-
-                          {!multiField && field.multiSell && (
-                            <div className="flex flex-wrap items-center gap-3 bg-muted/50 px-2 py-2 rounded mb-3">
-                              <div className="flex items-center gap-1">
-                                <span className="text-sm text-muted-foreground">Max sales:</span>
-                                <input
-                                  type="number"
-                                  min={1}
-                                  value={field.multiSellMax}
-                                  onChange={(e) => updateCustomField(index, "multiSellMax", parseInt(e.target.value, 10) || 1)}
-                                  className="w-16 px-2 py-1 bg-card border border-input rounded text-sm"
-                                />
-                              </div>
-                              <label className="flex items-center gap-1 cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={field.cooldownEnabled}
-                                  onChange={(e) => updateCustomField(index, "cooldownEnabled", e.target.checked)}
-                                  className="w-4 h-4 rounded text-primary"
-                                />
-                                <span className="text-sm">Cooldown</span>
-                              </label>
-                              {field.cooldownEnabled && (
-                                <div className="flex items-center gap-1">
-                                  <input
-                                    type="number"
-                                    min={1}
-                                    value={field.cooldownDurationHours}
-                                    onChange={(e) => updateCustomField(index, "cooldownDurationHours", parseInt(e.target.value, 10) || 1)}
-                                    className="w-16 px-2 py-1 bg-card border border-input rounded text-sm"
-                                  />
-                                  <span className="text-sm text-muted-foreground">hours</span>
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          <textarea
-                            value={field.value}
-                            onChange={(e) => updateCustomField(index, "value", e.target.value)}
-                            className="w-full px-3 py-2 bg-card border border-input rounded text-foreground font-mono text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                            rows={field.wholeFieldIsOneItem ? 2 : 4}
-                            placeholder={field.wholeFieldIsOneItem ? "One shared value for all rows…" : "One value per line (same count as other fields, unless single value is checked)"}
-                          />
-                        </div>
-                      );
-                    };
-
-                    if (customFields.length === 1) {
-                      return <>{renderFieldCard(0, "single")}</>;
-                    }
-                    return (
-                      <>
-                        {renderFieldCard(mainI, "main")}
-                        {detailIdx.length > 0 && (
-                          <p className="text-xs font-semibold text-muted-foreground pt-1">Detail fields</p>
-                        )}
-                        {detailIdx.map((i) => renderFieldCard(i, "detail"))}
-                      </>
-                    );
-                  })()}
-                </div>
-              </div>
-            )}
-
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-foreground mb-2">Link to Product (Optional)</label>
-              <select value={selectedProductId} onChange={(e) => setSelectedProductId(e.target.value)} className="w-full px-4 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring">
-                <option value="">No product</option>
-                {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </div>
-
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-foreground mb-2">Batch Name (optional)</label>
-              <input type="text" value={batchName} onChange={(e) => setBatchName(e.target.value)} className="w-full px-4 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring" placeholder="e.g., Import 2024-03-15" />
-            </div>
-
-            {/* Template mode field values */}
-            {!useCustomFields && templateFields.length > 0 && (
-              <div className="mb-4">
-                <h3 className="text-sm font-medium text-foreground mb-2">Field Values</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {templateFields.map((field) => (
-                    <div key={field.name}>
-                      <label className="block text-sm font-medium text-foreground mb-1">
-                        {field.label || field.name}{field.required && <span className="text-destructive"> *</span>}
-                        <span className="text-muted-foreground font-normal ml-2">({fieldCounts[field.name] || 0} lines)</span>
-                      </label>
-                      {field.type === "boolean" ? (
-                        <select value={fieldValues[field.name] || ""} onChange={(e) => setFieldValues({ ...fieldValues, [field.name]: e.target.value })} className="w-full px-4 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring">
-                          <option value="">Select...</option><option value="true">True</option><option value="false">False</option>
-                        </select>
-                      ) : field.type === "number" ? (
-                        <input type="number" value={fieldValues[field.name] || ""} onChange={(e) => setFieldValues({ ...fieldValues, [field.name]: e.target.value })} className="w-full px-4 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
-                      ) : (
-                        <textarea value={fieldValues[field.name] || ""} onChange={(e) => setFieldValues({ ...fieldValues, [field.name]: e.target.value })} className="w-full px-4 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring font-mono text-sm" rows={6} placeholder="One value per line" />
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {effectiveMinCount > 0 && (
-              <div className="mb-4 p-3 bg-info/10 border border-info/30 rounded-lg">
-                <span className="text-info text-sm">Will create <strong>{effectiveMinCount}</strong> stock item(s)</span>
-              </div>
-            )}
-
-            <div className="flex justify-end gap-3">
-              <Button type="button" variant="ghost" onClick={onClose} disabled={submitting}>Cancel</Button>
-              <Button type="submit" disabled={submitting || effectiveMinCount === 0}>
-                {submitting ? "Adding..." : `Add ${effectiveMinCount} Stock Item${effectiveMinCount !== 1 ? "s" : ""}`}
+          {/* Fields */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold text-foreground">Fields</h3>
+              <Button type="button" size="sm" variant="outline" onClick={addField}>
+                <Plus className="w-4 h-4 mr-1" /> Add Field
               </Button>
             </div>
-          </form>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ============================================================================
-// Link Stock Modal
-// ============================================================================
-
-function LinkStockModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void; }) {
-  const [products, setProducts] = useState<any[]>([]);
-  const [unlinkedItems, setUnlinkedItems] = useState<InventoryItem[]>([]);
-  const [selectedProductId, setSelectedProductId] = useState("");
-  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(true);
-  const [linking, setLinking] = useState(false);
-
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [productsRes, itemsRes] = await Promise.all([fetch("/api/products?limit=500"), fetch("/api/inventory?unlinked=true&limit=100")]);
-        const productsData = await productsRes.json();
-        const itemsData = await itemsRes.json();
-        if (productsData.success) setProducts(productsData.data);
-        if (itemsData.success) setUnlinkedItems(itemsData.data);
-      } catch { /* silent */ } finally { setLoading(false); }
-    };
-    fetchData();
-  }, []);
-
-  const toggleItem = (id: string) => {
-    const next = new Set(selectedItemIds);
-    if (next.has(id)) next.delete(id); else next.add(id);
-    setSelectedItemIds(next);
-  };
-
-  const toggleAll = () => {
-    setSelectedItemIds(selectedItemIds.size === unlinkedItems.length ? new Set() : new Set(unlinkedItems.map((item) => item.id)));
-  };
-
-  const handleLink = async () => {
-    if (selectedItemIds.size === 0) { toast.error("Select at least one stock item"); return; }
-    if (!selectedProductId) { toast.error("Select a product to link to"); return; }
-
-    setLinking(true);
-    try {
-      const res = await fetch("/api/inventory/link", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inventoryIds: Array.from(selectedItemIds), productId: selectedProductId }),
-      });
-      const data = await res.json();
-      if (data.success) { toast.success(`Linked ${selectedItemIds.size} item(s) to product!`); onSuccess(); }
-      else { toast.error(data.error || "Failed to link stock"); }
-    } catch { toast.error("Failed to link stock"); } finally { setLinking(false); }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 overflow-y-auto py-8">
-      <div className="bg-card rounded-lg border border-border w-full max-w-4xl p-6 my-auto max-h-[90vh] overflow-y-auto">
-        <h2 className="text-xl font-bold text-card-foreground mb-4">Link Stock to Product</h2>
-        <p className="text-sm text-muted-foreground mb-4">Select unlinked stock items and link them to a product.</p>
-
-        {loading ? (
-          <div className="text-center py-8"><Skeleton className="h-8 w-48 mx-auto" /></div>
-        ) : (
-          <>
-            {unlinkedItems.length === 0 ? (
-              <div className="text-center py-8">
-                <p className="text-muted-foreground mb-4">No unlinked stock items found.</p>
-                <Button variant="ghost" onClick={onClose}>Close</Button>
-              </div>
-            ) : (
-              <>
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-foreground mb-2">Select Product *</label>
-                  <select value={selectedProductId} onChange={(e) => setSelectedProductId(e.target.value)} className="w-full px-4 py-2 bg-muted border border-input rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring">
-                    <option value="">Select a product...</option>
-                    {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
-                </div>
-
-                <div className="mb-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-sm font-medium text-foreground">Unlinked Stock Items ({unlinkedItems.length})</h3>
-                    <button type="button" onClick={toggleAll} className="text-xs text-primary hover:text-primary/80">
-                      {selectedItemIds.size === unlinkedItems.length ? "Deselect All" : "Select All"}
-                    </button>
+            <div className="space-y-2">
+              {fields.map((field, idx) => (
+                <div key={idx} className="bg-muted rounded-lg border border-border overflow-hidden">
+                  <div
+                    className="p-3 cursor-pointer hover:bg-muted/80 flex items-center justify-between"
+                    onClick={() => setExpandedField(expandedField === idx ? null : idx)}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">#{idx + 1}</span>
+                      <span className="font-medium text-sm">{field.label || "Untitled"}</span>
+                      <span className="font-mono text-[10px] bg-background px-1.5 py-0.5 rounded text-muted-foreground">
+                        {field.type}
+                      </span>
+                      {field.required && <span className="text-[10px] text-destructive font-medium">req</span>}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {fields.length > 1 && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 text-destructive text-xs"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeField(idx);
+                          }}
+                        >
+                          Remove
+                        </Button>
+                      )}
+                      {expandedField === idx ? (
+                        <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                      ) : (
+                        <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                      )}
+                    </div>
                   </div>
-
-                  <div className="border border-border rounded-lg overflow-hidden max-h-64 overflow-y-auto">
-                    <table className="w-full">
-                      <thead className="bg-muted sticky top-0">
-                        <tr>
-                          <th className="px-4 py-2 text-left"><input type="checkbox" checked={selectedItemIds.size === unlinkedItems.length && unlinkedItems.length > 0} onChange={toggleAll} className="w-4 h-4 rounded" /></th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase">Values</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground uppercase">Created</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
-                        {unlinkedItems.map((item) => (
-                          <tr key={item.id} className={`hover:bg-muted/50 cursor-pointer ${selectedItemIds.has(item.id) ? "bg-primary/5" : ""}`} onClick={() => toggleItem(item.id)}>
-                            <td className="px-4 py-2"><input type="checkbox" checked={selectedItemIds.has(item.id)} onChange={() => toggleItem(item.id)} className="w-4 h-4 rounded" onClick={(e) => e.stopPropagation()} /></td>
-                            <td className="px-4 py-2 text-sm text-foreground">{Object.entries(item.values || {}).map(([k, v]) => `${k}: ${v}`).join(", ")}</td>
-                            <td className="px-4 py-2 text-sm text-muted-foreground">{new Date(item.createdAt).toLocaleDateString()}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  {expandedField === idx && (
+                    <div className="p-3 pt-0 border-t border-border">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-3">
+                        <div>
+                          <label className="block text-xs text-muted-foreground mb-1">Field Name *</label>
+                          <input
+                            type="text"
+                            value={field.name}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const label = val
+                                .replace(/_/g, " ")
+                                .replace(/([A-Z])/g, " $1")
+                                .trim()
+                                .split(" ")
+                                .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+                                .join(" ");
+                              updateField(idx, { name: val, label });
+                            }}
+                            className="w-full px-3 py-1.5 bg-secondary border border-input rounded text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-muted-foreground mb-1">Type</label>
+                          <select
+                            value={field.type}
+                            onChange={(e) => updateField(idx, { type: e.target.value as any })}
+                            className="w-full px-3 py-1.5 bg-secondary border border-input rounded text-sm"
+                          >
+                            <option value="string">String</option>
+                            <option value="number">Number</option>
+                            <option value="boolean">Boolean</option>
+                            <option value="multiline">Multiline</option>
+                          </select>
+                        </div>
+                        <div className="flex items-end gap-3 pb-1">
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={field.required}
+                              onChange={(e) => updateField(idx, { required: e.target.checked })}
+                              className="w-4 h-4 rounded"
+                            />
+                            <span className="text-sm">Required</span>
+                          </label>
+                        </div>
+                      </div>
+                      {/* Visibility */}
+                      <div className="mt-3 flex flex-wrap gap-4 text-sm">
+                        <span className="text-xs text-muted-foreground self-center">Visible to:</span>
+                        {(["Admin", "Merchant", "Customer"] as const).map((role) => {
+                          const key = `isVisibleTo${role}` as keyof FieldSchema;
+                          return (
+                            <label key={role} className="flex items-center gap-1.5">
+                              <input
+                                type="checkbox"
+                                checked={!!field[key]}
+                                onChange={(e) => updateField(idx, { [key]: e.target.checked } as any)}
+                                className="w-3.5 h-3.5 rounded"
+                              />
+                              <span className="text-xs">{role}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
+              ))}
+            </div>
+          </div>
+        </form>
 
-                {selectedItemIds.size > 0 && (
-                  <div className="mb-4 p-3 bg-info/10 border border-info/30 rounded-lg">
-                    <span className="text-info text-sm">{selectedItemIds.size} item(s) selected</span>
-                  </div>
-                )}
-
-                <div className="flex justify-end gap-3">
-                  <Button variant="ghost" onClick={onClose} disabled={linking}>Cancel</Button>
-                  <Button onClick={handleLink} disabled={linking || selectedItemIds.size === 0 || !selectedProductId}>
-                    {linking ? "Linking..." : `Link ${selectedItemIds.size} Item(s)`}
-                  </Button>
-                </div>
-              </>
-            )}
-          </>
-        )}
+        <div className="p-4 border-t border-border flex justify-end gap-2 bg-muted/30">
+          <Button variant="outline" onClick={onClose} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button onClick={handleSubmit} disabled={submitting}>
+            {submitting ? "Saving…" : editingTemplate ? "Save Template" : "Create Template"}
+          </Button>
+        </div>
       </div>
     </div>
   );

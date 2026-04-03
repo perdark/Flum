@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(grep -l \"stockTypes\\\\|productPurchaseOptions\\\\|productRegionPrices\\\\|inventoryItemProductLinks\" /home/mint/Desktop/Flum/Flum/dashboard/src/**/*.ts /home/mint/Desktop/Flum/Flum/dashboard/src/**/*.tsx)"
+      "Bash(grep -l \"stockTypes\\\\|productPurchaseOptions\\\\|productRegionPrices\\\\|inventoryItemProductLinks\" /home/mint/Desktop/Flum/Flum/dashboard/src/**/*.ts /home/mint/Desktop/Flum/Flum/dashboard/src/**/*.tsx)",
+      "mcp__filesystem__read_text_file",
+      "mcp__claude_ai_Figma__get_figjam",
+      "mcp__claude_ai_Figma__generate_diagram"
     ]
   }
 }

@@ -22,6 +22,34 @@
       "when": 1775000000000,
       "tag": "0009_inventory_items_variant_id",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1775100000000,
+      "tag": "0010_cost_entries",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1775200000000,
+      "tag": "0011_product_variants",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1775300000000,
+      "tag": "0012_staff_access_scope",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1775400000000,
+      "tag": "0013_inventory_reserved_by",
+      "breakpoints": true
     }
   ]
 }

@@ -7,9 +7,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { inventoryTemplates } from "@/db/schema";
+import { inventoryTemplates, inventoryItems } from "@/db/schema";
 import { requireAdmin } from "@/lib/auth";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and } from "drizzle-orm";
+import { countCodesInRowWithSchema, getTemplateFieldsForCodes, type FieldSchemaForCodes } from "@/lib/inventoryCodes";
 
 // ============================================================================
 // GET /api/inventory/templates - List templates
@@ -26,16 +27,67 @@ export async function GET() {
         description: inventoryTemplates.description,
         fieldsSchema: inventoryTemplates.fieldsSchema,
         isActive: inventoryTemplates.isActive,
+        multiSellEnabled: inventoryTemplates.multiSellEnabled,
+        multiSellMax: inventoryTemplates.multiSellMax,
+        cooldownEnabled: inventoryTemplates.cooldownEnabled,
+        cooldownDurationHours: inventoryTemplates.cooldownDurationHours,
+        color: inventoryTemplates.color,
+        icon: inventoryTemplates.icon,
         createdAt: inventoryTemplates.createdAt,
         updatedAt: inventoryTemplates.updatedAt,
+        stockCount: sql<number>`(
+          SELECT COUNT(*)::int FROM inventory_items 
+          WHERE inventory_items.template_id = ${inventoryTemplates.id} 
+            AND inventory_items.status = 'available'
+            AND inventory_items.deleted_at IS NULL
+        )`,
       })
       .from(inventoryTemplates)
       .where(sql`${inventoryTemplates.deletedAt} IS NULL`)
       .orderBy(inventoryTemplates.createdAt);
 
+    const invRows = await db
+      .select({
+        templateId: inventoryItems.templateId,
+        values: inventoryItems.values,
+      })
+      .from(inventoryItems)
+      .where(
+        and(
+          eq(inventoryItems.status, "available"),
+          sql`${inventoryItems.deletedAt} IS NULL`,
+          sql`${inventoryItems.templateId} IS NOT NULL`
+        )
+      );
+
+    const fieldsByTemplate = new Map<string, FieldSchemaForCodes[]>();
+    for (const t of templates) {
+      fieldsByTemplate.set(
+        t.id,
+        getTemplateFieldsForCodes(Array.isArray(t.fieldsSchema) ? (t.fieldsSchema as FieldSchemaForCodes[]) : [])
+      );
+    }
+
+    const codesByTemplate = new Map<string, number>();
+    for (const row of invRows) {
+      const tid = row.templateId;
+      if (!tid) continue;
+      const fieldDefs = fieldsByTemplate.get(tid);
+      if (!fieldDefs?.length) continue;
+      const vals = row.values as Record<string, unknown>;
+      const add = countCodesInRowWithSchema(vals, fieldDefs);
+      if (add === 0) continue;
+      codesByTemplate.set(tid, (codesByTemplate.get(tid) ?? 0) + add);
+    }
+
+    const data = templates.map((t) => ({
+      ...t,
+      codesCount: codesByTemplate.get(t.id) ?? 0,
+    }));
+
     return NextResponse.json({
       success: true,
-      data: templates,
+      data,
     });
   } catch (error) {
     console.error("Get templates error:", error);
@@ -55,7 +107,7 @@ export async function POST(request: NextRequest) {
     const user = await requireAdmin();
 
     const body = await request.json();
-    const { name, description, fieldsSchema } = body;
+    const { name, description, fieldsSchema, multiSellEnabled, multiSellMax, cooldownEnabled, cooldownDurationHours, color, icon } = body;
 
     // Validate input
     if (!name || !fieldsSchema) {
@@ -118,6 +170,12 @@ export async function POST(request: NextRequest) {
         description,
         fieldsSchema,
         isActive: true,
+        multiSellEnabled: multiSellEnabled ?? false,
+        multiSellMax: multiSellMax ?? 5,
+        cooldownEnabled: cooldownEnabled ?? false,
+        cooldownDurationHours: cooldownDurationHours ?? 12,
+        color: color || null,
+        icon: icon || null,
       })
       .returning();
 

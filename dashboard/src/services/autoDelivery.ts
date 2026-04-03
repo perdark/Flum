@@ -47,7 +47,10 @@ export type InventoryRowPick = {
   cooldown_duration_hours: number;
 };
 
-/** Lock and return one allocatable inventory row for a product (supports multi-sell per line) */
+/**
+ * Lock and return one allocatable inventory row for a product (supports multi-sell per line).
+ * Uses FOR UPDATE SKIP LOCKED so concurrent sellers do not block each other or double-sell the same row.
+ */
 export async function pickOneInventoryLine(tx: any, productId: string, variantId?: string | null): Promise<InventoryRowPick | null> {
   const variantFilter = variantId ? sql` AND variant_id = ${variantId}` : sql``;
   const res = await tx.execute(sql`
@@ -72,6 +75,41 @@ export async function pickOneInventoryLine(tx: any, productId: string, variantId
       )
     ORDER BY created_at ASC
     LIMIT 1
+    FOR UPDATE SKIP LOCKED
+  `);
+  const row = res.rows[0] as InventoryRowPick | undefined;
+  return row ?? null;
+}
+
+/** Lock a specific inventory row by id if it is allocatable for this product (and optional variant). */
+export async function lockInventoryRowById(
+  tx: any,
+  productId: string,
+  rowId: string,
+  variantId?: string | null
+): Promise<InventoryRowPick | null> {
+  const variantFilter = variantId ? sql` AND variant_id = ${variantId}` : sql``;
+  const res = await tx.execute(sql`
+    SELECT id, product_id, values,
+      COALESCE(multi_sell_enabled, false) AS multi_sell_enabled,
+      COALESCE(multi_sell_max, 5) AS multi_sell_max,
+      COALESCE(multi_sell_sale_count, 0) AS multi_sell_sale_count,
+      COALESCE(cooldown_enabled, false) AS cooldown_enabled,
+      COALESCE(cooldown_duration_hours, 12) AS cooldown_duration_hours
+    FROM inventory_items
+    WHERE id = ${rowId}
+      AND ${sqlInventoryRowsForProduct(productId)}
+      AND deleted_at IS NULL
+      ${variantFilter}
+      AND (
+        (status = 'available' AND COALESCE(multi_sell_enabled, false) = false)
+        OR (
+          status = 'available'
+          AND COALESCE(multi_sell_enabled, false) = true
+          AND COALESCE(multi_sell_sale_count, 0) < COALESCE(multi_sell_max, 5)
+          AND (cooldown_until IS NULL OR cooldown_until <= NOW())
+        )
+      )
     FOR UPDATE SKIP LOCKED
   `);
   const row = res.rows[0] as InventoryRowPick | undefined;

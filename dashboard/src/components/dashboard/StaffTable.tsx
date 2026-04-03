@@ -8,11 +8,23 @@
 
 import { useEffect, useState } from "react";
 
+function scopeLabel(
+  role: string,
+  scope: string | null | undefined
+): string {
+  if (role === "admin") return "—";
+  if (!scope || scope === "full") return "All staff pages";
+  if (scope === "inventory_orders") return "Inventory & orders";
+  if (scope === "inventory") return "Inventory only";
+  return scope;
+}
+
 interface StaffMember {
   id: string;
   email: string;
   name: string;
   role: "admin" | "staff";
+  staffAccessScope?: string | null;
   isActive: boolean;
   lastLoginAt: string | null;
   createdAt: string;
@@ -80,6 +92,9 @@ export function StaffTable() {
                 Role
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">
+                Access
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">
                 Status
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase">
@@ -114,6 +129,9 @@ export function StaffTable() {
                   >
                     {member.role}
                   </span>
+                </td>
+                <td className="px-6 py-4 text-sm text-muted-foreground max-w-[220px]">
+                  {scopeLabel(member.role, member.staffAccessScope)}
                 </td>
                 <td className="px-6 py-4">
                   <span

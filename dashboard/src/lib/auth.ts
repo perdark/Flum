@@ -8,8 +8,8 @@ import { cookies } from "next/headers";
 import { getDb } from "@/db";
 import { users, sessions } from "@/db/schema";
 import { eq, and, gt } from "drizzle-orm";
-import type { UserRole, Permission, UserWithPermissions } from "@/types";
-import { ROLE_PERMISSIONS } from "@/types";
+import type { UserRole, Permission, UserWithPermissions, StaffAccessScope } from "@/types";
+import { ROLE_PERMISSIONS, STAFF_SCOPE_PERMISSIONS } from "@/types";
 import { generateSessionToken, isValidUuid } from "@/utils/security";
 
 // ============================================================================
@@ -18,6 +18,13 @@ import { generateSessionToken, isValidUuid } from "@/utils/security";
 
 const SESSION_COOKIE_NAME = "session_token";
 const SESSION_DURATION = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+function normalizeStaffAccessScope(raw: string | null | undefined): StaffAccessScope {
+  if (raw === "inventory" || raw === "inventory_orders" || raw === "full") {
+    return raw;
+  }
+  return "full";
+}
 
 // ============================================================================
 // SESSION MANAGEMENT
@@ -93,6 +100,7 @@ export async function getCurrentUser(): Promise<UserWithPermissions | null> {
       name: users.name,
       role: users.role,
       isActive: users.isActive,
+      staffAccessScope: users.staffAccessScope,
     })
     .from(users)
     .where(and(eq(users.id, session.userId), eq(users.isActive, true)))
@@ -113,6 +121,10 @@ export async function getCurrentUser(): Promise<UserWithPermissions | null> {
     name: userData.name || userData.email.split('@')[0],
     role: userData.role as UserRole,
     isActive: userData.isActive,
+    staffAccessScope:
+      userData.role === "staff"
+        ? normalizeStaffAccessScope(userData.staffAccessScope)
+        : null,
   };
 }
 
@@ -143,6 +155,17 @@ export async function invalidateAllUserSessions(userId: string): Promise<void> {
 // AUTHORIZATION / RBAC
 // ============================================================================()
 
+/** Permissions the user effectively has (staff scopes override flat ROLE_PERMISSIONS.staff). */
+export function getEffectivePermissions(user: UserWithPermissions | null): Permission[] {
+  if (!user?.role) return [];
+  if (user.role === "admin") return ROLE_PERMISSIONS.admin;
+  if (user.role === "staff") {
+    const scope = normalizeStaffAccessScope(user.staffAccessScope ?? undefined);
+    return STAFF_SCOPE_PERMISSIONS[scope];
+  }
+  return ROLE_PERMISSIONS[user.role] ?? [];
+}
+
 export function hasPermission(
   user: UserWithPermissions | null,
   permission: Permission
@@ -151,8 +174,7 @@ export function hasPermission(
   if (!user.isActive) return false;
   if (!user.role) return false;
 
-  const permissions = ROLE_PERMISSIONS[user.role];
-  return permissions.includes(permission);
+  return getEffectivePermissions(user).includes(permission);
 }
 
 /**
@@ -229,6 +251,7 @@ export async function verifyCredentials(
       name: users.name,
       role: users.role,
       isActive: users.isActive,
+      staffAccessScope: users.staffAccessScope,
     })
     .from(users)
     .where(eq(users.email, email))
@@ -254,6 +277,10 @@ export async function verifyCredentials(
     name: user[0].name || user[0].email.split('@')[0],
     role: user[0].role as UserRole,
     isActive: user[0].isActive,
+    staffAccessScope:
+      user[0].role === "staff"
+        ? normalizeStaffAccessScope(user[0].staffAccessScope)
+        : null,
   };
 }
 

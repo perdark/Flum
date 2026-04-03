@@ -16,24 +16,40 @@ import { getDb } from "@/db";
 import { products, orders, orderItems, inventoryItems, orderDeliverySnapshots, productPricing, bundleItems } from "@/db/schema";
 import { requirePermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
-import { eq, and, sql, inArray } from "drizzle-orm";
+import { eq, sql, inArray } from "drizzle-orm";
 import { logActivity, logOrderCompleted } from "@/services/activityLog";
 import {
   pickOneInventoryLine,
   applySaleToInventoryLine,
   resetExpiredMultisellCooldowns,
   decrementLinkedProductStock,
+  lockInventoryRowById,
   type InventoryRowPick,
 } from "@/services/autoDelivery";
 import { sqlInventoryRowsForProduct } from "@/lib/inventoryProductScope";
 
+function sqlUuidArray(ids: string[]) {
+  if (ids.length === 0) return sql`ARRAY[]::uuid[]`;
+  return sql`ARRAY[${sql.join(ids.map((id) => sql`${id}`), sql`, `)}]::uuid[]`;
+}
+
 interface ManualSellItem {
   productId: string;
   quantity: number;
+  variantId?: string | null;
+  /** FIFO snapshot from POS cart; fulfilled first, then automatic pick for any shortfall */
+  inventoryIds?: string[];
+}
+
+interface DirectSaleItem {
+  inventoryIds: string[];
+  price: number;
+  label: string;
 }
 
 interface ManualSellRequest {
   items: ManualSellItem[];
+  directItems?: DirectSaleItem[];
   customerEmail: string;
   customerName?: string;
   shortageAction?: "fail" | "partial" | "add-inventory" | "pending";
@@ -180,13 +196,14 @@ async function checkInventoryAvailability(
 }
 
 // Helper: Fulfill items with available inventory (up to requested quantity)
-// Uses pickOneInventoryLine + applySaleToInventoryLine for multi-sell awareness
+// Row locking: pickOneInventoryLine uses SELECT … FOR UPDATE SKIP LOCKED (see autoDelivery.ts)
 async function fulfillItems(
   tx: any,
   productId: string,
   requestedQuantity: number,
   product: any,
   unitPrice?: number,
+  variantId?: string | null,
   orderItemId?: string | null,
   orderId?: string | null,
   userId?: string | null
@@ -194,7 +211,7 @@ async function fulfillItems(
   deliveredItems: DeliveryItem;
   shortage: number;
 }> {
-  await resetExpiredMultisellCooldowns(tx, productId);
+  await resetExpiredMultisellCooldowns(tx, productId, variantId ?? undefined);
 
   const soldItems: Array<{
     inventoryId: string;
@@ -203,7 +220,7 @@ async function fulfillItems(
   const soldIds: string[] = [];
 
   for (let q = 0; q < requestedQuantity; q++) {
-    const row = await pickOneInventoryLine(tx, productId);
+    const row = await pickOneInventoryLine(tx, productId, variantId ?? undefined);
     if (!row) break;
 
     const { decrementStock } = await applySaleToInventoryLine(
@@ -226,6 +243,81 @@ async function fulfillItems(
 
   const shortage = requestedQuantity - soldItems.length;
 
+  return {
+    deliveredItems: {
+      productId: product.id,
+      productName: product.name,
+      quantity: soldItems.length,
+      unitPrice: unitPrice ?? parseFloat(product.price),
+      items: soldItems,
+    },
+    shortage,
+  };
+}
+
+/** Prefer explicit inventory IDs (cart preview), then FIFO for remaining quantity. */
+async function fulfillItemsWithOptionalIds(
+  tx: any,
+  productId: string,
+  requestedQuantity: number,
+  product: any,
+  unitPrice: number | undefined,
+  variantId: string | null | undefined,
+  explicitIds: string[] | undefined,
+  orderItemId?: string | null,
+  orderId?: string | null,
+  userId?: string | null
+): Promise<{
+  deliveredItems: DeliveryItem;
+  shortage: number;
+}> {
+  await resetExpiredMultisellCooldowns(tx, productId, variantId ?? undefined);
+
+  const soldItems: Array<{
+    inventoryId: string;
+    values: Record<string, string | number | boolean>;
+  }> = [];
+  const soldIds: string[] = [];
+  let q = 0;
+  const usedExplicit = new Set<string>();
+
+  const orderedIds = explicitIds?.filter((id) => typeof id === "string" && id.length > 0) ?? [];
+  for (const id of orderedIds) {
+    if (q >= requestedQuantity) break;
+    if (usedExplicit.has(id)) continue;
+    const row = await lockInventoryRowById(tx, productId, id, variantId ?? undefined);
+    if (!row) continue;
+    usedExplicit.add(id);
+    const { decrementStock } = await applySaleToInventoryLine(
+      tx,
+      row,
+      orderItemId ?? null,
+      orderId ?? null,
+      userId ?? null
+    );
+    soldItems.push({ inventoryId: row.id, values: row.values });
+    q++;
+    if (decrementStock) soldIds.push(row.id);
+  }
+
+  while (q < requestedQuantity) {
+    const row = await pickOneInventoryLine(tx, productId, variantId ?? undefined);
+    if (!row) break;
+    const { decrementStock } = await applySaleToInventoryLine(
+      tx,
+      row,
+      orderItemId ?? null,
+      orderId ?? null,
+      userId ?? null
+    );
+    soldItems.push({ inventoryId: row.id, values: row.values });
+    q++;
+    if (decrementStock) soldIds.push(row.id);
+  }
+
+  await decrementLinkedProductStock(tx, soldIds);
+
+  const shortage = requestedQuantity - soldItems.length;
   return {
     deliveredItems: {
       productId: product.id,
@@ -390,6 +482,7 @@ export async function POST(request: NextRequest) {
     const body: ManualSellRequest = await request.json();
     const {
       items,
+      directItems,
       customerEmail,
       customerName,
       inventoryItemsToAdd,
@@ -400,7 +493,7 @@ export async function POST(request: NextRequest) {
     const customerType = body.customerType || "retail";
 
     // Validate input
-    if (!items || items.length === 0) {
+    if ((!items || items.length === 0) && (!directItems || directItems.length === 0)) {
       return NextResponse.json(
         { success: false, error: "Items are required" },
         { status: 400 }
@@ -652,13 +745,33 @@ export async function POST(request: NextRequest) {
           continue;
         }
 
-        const { deliveredItems, shortage } = await fulfillItems(
-          tx,
-          requestItem.productId,
-          requestItem.quantity,
-          product,
-          priceMap.get(product.id)
-        );
+        const variantId = requestItem.variantId ?? null;
+        const explicitIds = requestItem.inventoryIds;
+        const { deliveredItems, shortage } =
+          explicitIds && explicitIds.length > 0
+            ? await fulfillItemsWithOptionalIds(
+                tx,
+                requestItem.productId,
+                requestItem.quantity,
+                product,
+                priceMap.get(product.id),
+                variantId,
+                explicitIds,
+                null,
+                null,
+                user.id
+              )
+            : await fulfillItems(
+                tx,
+                requestItem.productId,
+                requestItem.quantity,
+                product,
+                priceMap.get(product.id),
+                variantId,
+                null,
+                null,
+                user.id
+              );
         // Add requestedQuantity to track original request vs delivered
         (deliveredItems as any).requestedQuantity = requestItem.quantity;
         deliveryItems.push(deliveredItems);
@@ -729,6 +842,44 @@ export async function POST(request: NextRequest) {
               });
             }
           }
+        }
+      }
+
+      // Process direct stock items (template-based, no product requirement)
+      const directDeliveryItems: DeliveryItem[] = [];
+      if (directItems && directItems.length > 0) {
+        for (const di of directItems) {
+          if (!di.inventoryIds || di.inventoryIds.length === 0) continue;
+          // FOR UPDATE SKIP LOCKED: concurrent checkouts cannot claim the same lines
+          const directLocked = await tx.execute(sql`
+            SELECT id, values
+            FROM inventory_items
+            WHERE id = ANY(${sqlUuidArray(di.inventoryIds)})
+              AND status = 'available'
+              AND deleted_at IS NULL
+            FOR UPDATE SKIP LOCKED
+          `);
+          const invRows = directLocked.rows as Array<{ id: string; values: unknown }>;
+          const soldItems: Array<{ inventoryId: string; values: Record<string, string | number | boolean> }> = [];
+          for (const inv of invRows) {
+            await tx
+              .update(inventoryItems)
+              .set({ status: "sold", purchasedAt: new Date() })
+              .where(eq(inventoryItems.id, inv.id));
+            soldItems.push({ inventoryId: inv.id, values: inv.values as Record<string, string | number | boolean> });
+          }
+          const qty = soldItems.length;
+          const itemPrice = typeof di.price === "number" ? di.price : 0;
+          actualTotal += qty * itemPrice;
+          actualQuantity += qty;
+          directDeliveryItems.push({
+            productId: "__direct__",
+            productName: di.label,
+            quantity: qty,
+            requestedQuantity: di.inventoryIds.length,
+            unitPrice: itemPrice,
+            items: soldItems,
+          });
         }
       }
 
@@ -831,6 +982,33 @@ export async function POST(request: NextRequest) {
             .set({ orderItemId: orderItem.id })
             .where(eq(inventoryItems.id, soldItem.inventoryId));
         }
+      }
+
+      // Create order items for direct stock sales
+      for (const di of directDeliveryItems) {
+        const slug = di.productName.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 200) || "direct-stock";
+        const [directOrderItem] = await tx
+          .insert(orderItems)
+          .values({
+            orderId: order.id,
+            productId: null,
+            productName: di.productName,
+            productSlug: slug,
+            deliveryType: "auto",
+            price: di.unitPrice.toString(),
+            quantity: di.quantity,
+            subtotal: (di.unitPrice * di.quantity).toString(),
+            cost: null,
+            deliveredInventoryIds: sql`${JSON.stringify(di.items.map((i) => i.inventoryId))}::jsonb`,
+          })
+          .returning();
+        for (const soldItem of di.items) {
+          await tx
+            .update(inventoryItems)
+            .set({ orderItemId: directOrderItem.id })
+            .where(eq(inventoryItems.id, soldItem.inventoryId));
+        }
+        deliveryItems.push(di);
       }
 
       // Create delivery snapshot

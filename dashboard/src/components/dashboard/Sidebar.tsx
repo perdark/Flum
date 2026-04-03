@@ -3,10 +3,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useMemo, type ReactNode } from "react";
-import { PERMISSIONS, ROLE_PERMISSIONS } from "@/types";
+import { DollarSign } from "lucide-react";
+import type { Permission } from "@/types";
+import { PERMISSIONS } from "@/types";
 
 interface SidebarProps {
   userRole: "admin" | "staff";
+  permissions: Permission[];
 }
 
 type NavEntry = {
@@ -27,9 +30,9 @@ const Chevron = ({ open }: { open: boolean }) => (
   </svg>
 );
 
-export function Sidebar({ userRole }: SidebarProps) {
+export function Sidebar({ userRole, permissions }: SidebarProps) {
   const pathname = usePathname() || "";
-  const userPermissions = ROLE_PERMISSIONS[userRole];
+  const userPermissions = permissions;
 
   const navSections: Array<{
     id: string;
@@ -108,6 +111,12 @@ export function Sidebar({ userRole }: SidebarProps) {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
             ),
+            permission: PERMISSIONS.MANAGE_INVENTORY,
+          },
+          {
+            href: "/dashboard/costs",
+            label: "Costs & Debts",
+            icon: <DollarSign className="w-5 h-5" strokeWidth={2} />,
             permission: PERMISSIONS.MANAGE_INVENTORY,
           },
         ],

@@ -17,7 +17,10 @@ import { logActivity } from "@/services/activityLog";
 import { getOrderDeliveryData } from "@/services/autoDelivery";
 
 interface InventoryItemRequest {
-  productId: string;
+  /** Set for product-linked orders */
+  productId?: string | null;
+  /** Target order line (required for template-only / manual template orders) */
+  orderItemId?: string;
   values: Record<string, string | number | boolean>;
 }
 
@@ -40,9 +43,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const body: FulfillPendingRequest = await request.json();
     const { inventoryItems: inputInventoryItems = [], newCost, eachLineIsProduct } = body;
 
-    // Validate and filter input
     const validInventoryItems = inputInventoryItems.filter(
-      (item) => item && item.productId && item.values && typeof item.values === "object"
+      (item) =>
+        item &&
+        item.values &&
+        typeof item.values === "object" &&
+        (item.orderItemId || item.productId)
     );
 
     if (validInventoryItems.length === 0) {
@@ -54,7 +60,6 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     const db = getDb();
 
-    // Get order with claim info
     const [order] = await db
       .select({
         id: orders.id,
@@ -64,10 +69,17 @@ export async function POST(request: NextRequest, context: RouteContext) {
         claimedAt: orders.claimedAt,
         claimExpiresAt: orders.claimExpiresAt,
         customerEmail: orders.customerEmail,
+        metadata: orders.metadata,
       })
       .from(orders)
       .where(and(eq(orders.id, orderId), sql`deleted_at IS NULL`))
       .limit(1);
+
+    const templateIdFromOrder =
+      order?.metadata &&
+      typeof (order.metadata as Record<string, unknown>).templateId === "string"
+        ? ((order.metadata as Record<string, unknown>).templateId as string)
+        : undefined;
 
     if (!order) {
       return NextResponse.json(
@@ -118,18 +130,17 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
 
-    // Get order items to determine what needs fulfillment
     const orderItemsData = await db
       .select({
         id: orderItems.id,
         productId: orderItems.productId,
         quantity: orderItems.quantity,
         deliveredInventoryIds: orderItems.deliveredInventoryIds,
-        productName: products.name,
+        productName: sql<string>`COALESCE(${products.name}, ${orderItems.productName})`.as("productName"),
         inventoryTemplateId: products.inventoryTemplateId,
       })
       .from(orderItems)
-      .innerJoin(products, eq(orderItems.productId, products.id))
+      .leftJoin(products, eq(orderItems.productId, products.id))
       .where(eq(orderItems.orderId, orderId));
 
     // Get product costs for items that need fulfillment
@@ -162,13 +173,38 @@ export async function POST(request: NextRequest, context: RouteContext) {
       }
     });
 
-    // Group valid inventory items by product
+    const inventoryByOrderItemId = new Map<string, InventoryItemRequest[]>();
     const inventoryByProduct = new Map<string, InventoryItemRequest[]>();
     for (const item of validInventoryItems) {
-      if (!inventoryByProduct.has(item.productId)) {
-        inventoryByProduct.set(item.productId, []);
+      if (item.orderItemId) {
+        if (!inventoryByOrderItemId.has(item.orderItemId)) {
+          inventoryByOrderItemId.set(item.orderItemId, []);
+        }
+        inventoryByOrderItemId.get(item.orderItemId)!.push(item);
+      } else if (item.productId) {
+        if (!inventoryByProduct.has(item.productId)) {
+          inventoryByProduct.set(item.productId, []);
+        }
+        inventoryByProduct.get(item.productId)!.push(item);
       }
-      inventoryByProduct.get(item.productId)!.push(item);
+    }
+
+    for (const orderItem of orderItemsData) {
+      const itemsToAdd =
+        inventoryByOrderItemId.get(orderItem.id) ||
+        (orderItem.productId ? inventoryByProduct.get(orderItem.productId) || [] : []);
+      if (itemsToAdd.length === 0) continue;
+      const tid = orderItem.inventoryTemplateId ?? templateIdFromOrder;
+      if (!tid) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              "This order needs a template reference (metadata.templateId for manual template stock orders).",
+          },
+          { status: 400 }
+        );
+      }
     }
 
     // Process fulfillment
@@ -189,16 +225,24 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
       for (const orderItem of orderItemsData) {
         const lineProductId = orderItem.productId;
-        if (!lineProductId) continue;
-
-        const currentlyDelivered = (orderItem.deliveredInventoryIds || []).length;
+        const deliveredIds = Array.isArray(orderItem.deliveredInventoryIds)
+          ? orderItem.deliveredInventoryIds
+          : [];
+        const currentlyDelivered = deliveredIds.length;
         const stillNeeded = orderItem.quantity - currentlyDelivered;
-        const itemsToAdd = inventoryByProduct.get(lineProductId) || [];
+
+        let itemsToAdd =
+          inventoryByOrderItemId.get(orderItem.id) ||
+          (lineProductId ? inventoryByProduct.get(lineProductId) || [] : []);
+        if (itemsToAdd.length === 0) continue;
+
+        const templateIdForLine =
+          orderItem.inventoryTemplateId ?? templateIdFromOrder ?? null;
+        if (!templateIdForLine) continue;
 
         const toFulfillCount = Math.min(stillNeeded, itemsToAdd.length);
         const extraCount = Math.max(0, itemsToAdd.length - toFulfillCount);
 
-        // Create inventory items needed for order (mark as sold)
         const newSoldIds: string[] = [];
         for (let i = 0; i < toFulfillCount; i++) {
           const itemRequest = itemsToAdd[i];
@@ -207,7 +251,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
             .insert(inventoryItems)
             .values({
               productId: lineProductId,
-              templateId: orderItem.inventoryTemplateId!,
+              templateId: templateIdForLine,
               values: itemRequest.values || {},
               status: "sold",
               purchasedAt: new Date(),
@@ -218,8 +262,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
           newSoldIds.push(inserted.id);
         }
 
-        // Update product stats for sold items (increase totalSold only, not stockCount)
-        if (toFulfillCount > 0) {
+        if (toFulfillCount > 0 && lineProductId) {
           await tx
             .update(products)
             .set({
@@ -229,23 +272,19 @@ export async function POST(request: NextRequest, context: RouteContext) {
             .where(eq(products.id, lineProductId));
         }
 
-        // Create extra items as available for future sales
         for (let i = toFulfillCount; i < itemsToAdd.length; i++) {
           const itemRequest = itemsToAdd[i];
 
-          const [inserted] = await tx
-            .insert(inventoryItems)
-            .values({
-              productId: lineProductId,
-              templateId: orderItem.inventoryTemplateId!,
-              values: itemRequest.values || {},
-              status: "available",
-            })
-            .returning();
+          await tx.insert(inventoryItems).values({
+            productId: lineProductId,
+            templateId: templateIdForLine,
+            values: itemRequest.values || {},
+            status: "available",
+            orderItemId: null,
+          });
         }
 
-        // Update product stats for extra items (increase stockCount)
-        if (extraCount > 0) {
+        if (extraCount > 0 && lineProductId) {
           await tx
             .update(products)
             .set({
@@ -255,15 +294,13 @@ export async function POST(request: NextRequest, context: RouteContext) {
             .where(eq(products.id, lineProductId));
         }
 
-        // Update order item with new inventory IDs and cost
-        const updatedIds = [...(orderItem.deliveredInventoryIds || []), ...newSoldIds];
-        const updateValues: any = {
+        const updatedIds = [...deliveredIds, ...newSoldIds];
+        const updateValues: Record<string, unknown> = {
           deliveredInventoryIds: sql`${JSON.stringify(updatedIds)}::jsonb`,
         };
-        // Use provided newCost, or fetch from product pricing, or keep existing
         if (newCost !== undefined) {
           updateValues.cost = newCost.toString();
-        } else if (costMap.has(lineProductId)) {
+        } else if (lineProductId && costMap.has(lineProductId)) {
           const productCost = costMap.get(lineProductId);
           if (productCost !== null && productCost !== undefined) {
             updateValues.cost = productCost.toString();

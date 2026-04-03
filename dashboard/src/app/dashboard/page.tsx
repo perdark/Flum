@@ -7,6 +7,9 @@
  * - Quick actions for manual sell and inventory management
  */
 
+import { redirect } from "next/navigation";
+import { getCurrentUser, getEffectivePermissions } from "@/lib/auth";
+import { PERMISSIONS } from "@/types";
 import { getDb } from "@/db";
 import { orders, products, reviews, users, inventoryItems } from "@/db/schema";
 import { eq, and, count, gte, sql } from "drizzle-orm";
@@ -141,6 +144,17 @@ async function getOverviewStats() {
 }
 
 export default async function DashboardPage() {
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+
+  const perms = getEffectivePermissions(user);
+  if (user.role === "staff" && !perms.includes(PERMISSIONS.VIEW_ANALYTICS)) {
+    if (perms.includes(PERMISSIONS.VIEW_ORDERS)) {
+      redirect("/dashboard/orders");
+    }
+    redirect("/dashboard/inventory");
+  }
+
   const stats = await getOverviewStats();
 
   const statCards = [

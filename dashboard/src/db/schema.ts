@@ -38,6 +38,8 @@ export const users = pgTable('users', {
   avatar: varchar('avatar', { length: 500 }),
   phoneNumber: varchar('phone_number', { length: 20 }),
   role: varchar('role', { length: 20 }),
+  /** When role is staff: full | inventory | inventory_orders (null = treat as full) */
+  staffAccessScope: varchar('staff_access_scope', { length: 32 }),
   customerId: uuid('customer_id').references(() => customers.id),
   isActive: boolean('is_active').default(true).notNull(),
   emailVerified: timestamp('email_verified'),
@@ -190,6 +192,12 @@ export const inventoryTemplates = pgTable('inventory_templates', {
     parentId: string | null;
     displayOrder: number;
   }>>(),
+  multiSellEnabled: boolean('multi_sell_enabled').default(false).notNull(),
+  multiSellMax: integer('multi_sell_max').default(5).notNull(),
+  cooldownEnabled: boolean('cooldown_enabled').default(false).notNull(),
+  cooldownDurationHours: integer('cooldown_duration_hours').default(12).notNull(),
+  color: varchar('color', { length: 20 }),
+  icon: varchar('icon', { length: 50 }),
   isActive: boolean('is_active').default(true).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -217,6 +225,8 @@ export const inventoryItems = pgTable('inventory_items', {
   cooldownDurationHours: integer('cooldown_duration_hours').default(12).notNull(),
   orderItemId: uuid('order_item_id'),
   reservedUntil: timestamp('reserved_until'),
+  /** Staff user holding a manual-sell cart reservation */
+  reservedBy: uuid('reserved_by').references(() => users.id, { onDelete: 'set null' }),
   purchasedAt: timestamp('purchased_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -227,6 +237,8 @@ export const inventoryItems = pgTable('inventory_items', {
   statusIdx: index('inventory_items_status_idx').on(table.status),
   orderItemIdx: index('inventory_items_order_item_idx').on(table.orderItemId),
   availableIdx: index('inventory_items_available_idx').on(table.productId, table.status),
+  templateStatusIdx: index('inventory_items_template_status_idx').on(table.templateId, table.status),
+  reservedByIdx: index('inventory_items_reserved_by_idx').on(table.reservedBy),
 }));
 
 // ============================================================================
@@ -757,6 +769,39 @@ export const dailyAnalytics = pgTable('daily_analytics', {
 }));
 
 // ============================================================================
+// COST ENTRIES (costs, debts, payments for inventory operations)
+// ============================================================================
+
+export const costEntries = pgTable(
+  'cost_entries',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    type: varchar('type', { length: 20 }).notNull(), // 'cost' | 'debt' | 'payment'
+    description: text('description').notNull(),
+    amount: decimal('amount', { precision: 12, scale: 2 }).notNull(),
+    templateId: uuid('template_id').references(() => inventoryTemplates.id, { onDelete: 'set null' }),
+    productId: uuid('product_id').references(() => products.id, { onDelete: 'set null' }),
+    creditorName: varchar('creditor_name', { length: 255 }),
+    dueDate: timestamp('due_date'),
+    isPaid: boolean('is_paid').default(false).notNull(),
+    paidAt: timestamp('paid_at'),
+    paidAmount: decimal('paid_amount', { precision: 12, scale: 2 }),
+    /** When type is payment, optional link to a debt entry */
+    relatedDebtId: uuid('related_debt_id').references((): any => costEntries.id, { onDelete: 'set null' }),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+    deletedAt: timestamp('deleted_at'),
+  },
+  (table) => ({
+    typeIdx: index('cost_entries_type_idx').on(table.type),
+    templateIdx: index('cost_entries_template_idx').on(table.templateId),
+    isPaidIdx: index('cost_entries_is_paid_idx').on(table.isPaid),
+    relatedDebtIdx: index('cost_entries_related_debt_idx').on(table.relatedDebtId),
+  })
+);
+
+// ============================================================================
 // TYPE EXPORTS
 // ============================================================================
 
@@ -841,6 +886,9 @@ export type NewActivityLog = typeof activityLogs.$inferInsert;
 
 export type DailyAnalytics = typeof dailyAnalytics.$inferSelect;
 export type NewDailyAnalytics = typeof dailyAnalytics.$inferInsert;
+
+export type CostEntry = typeof costEntries.$inferSelect;
+export type NewCostEntry = typeof costEntries.$inferInsert;
 
 export type Customer = typeof customers.$inferSelect;
 export type NewCustomer = typeof customers.$inferInsert;
