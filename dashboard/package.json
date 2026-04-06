@@ -9,7 +9,9 @@
     "lint": "eslint",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "db:seed-catalog-demo": "tsx scripts/seed-inventory-catalog-demo.ts",
     "db:ensure-staff-scope": "tsx scripts/ensure-staff-access-scope.ts",
+    "db:ensure-inventory-catalog": "tsx scripts/ensure-inventory-catalog-schema.ts",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio"
   },

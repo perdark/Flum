@@ -7,9 +7,13 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { inventoryItems, products, productVariants } from "@/db/schema";
+import { inventoryCatalogItems, inventoryItems, products, productVariants } from "@/db/schema";
 import { requirePermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
+import {
+  mergeCatalogIntoValues,
+  resolveCatalogInsertContext,
+} from "@/lib/inventoryCatalog";
 import { eq, sql } from "drizzle-orm";
 
 export async function POST(request: NextRequest) {
@@ -18,7 +22,8 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const {
-      templateId,
+      templateId: templateIdRaw,
+      catalogItemId,
       productId,
       items,
       cost,
@@ -27,6 +32,7 @@ export async function POST(request: NextRequest) {
       batchName,
     } = body as {
       templateId?: string | null;
+      catalogItemId?: string | null;
       productId?: string | null;
       items: unknown[];
       cost?: string | number | null;
@@ -62,6 +68,31 @@ export async function POST(request: NextRequest) {
 
     const db = getDb();
 
+    let templateId = templateIdRaw || null;
+    if (catalogItemId && !templateId) {
+      const [cat] = await db
+        .select({ templateId: inventoryCatalogItems.templateId })
+        .from(inventoryCatalogItems)
+        .where(eq(inventoryCatalogItems.id, catalogItemId))
+        .limit(1);
+      templateId = cat?.templateId ?? null;
+    }
+
+    if (catalogItemId && !templateId) {
+      return NextResponse.json(
+        { success: false, error: "Invalid catalogItemId or missing template" },
+        { status: 400 }
+      );
+    }
+
+    const catalogCtx = templateId
+      ? await resolveCatalogInsertContext(db, templateId, catalogItemId ?? null)
+      : { catalogItemId: null as string | null, definingValues: undefined, defaultValues: undefined };
+    if ("error" in catalogCtx) {
+      return NextResponse.json({ success: false, error: catalogCtx.error }, { status: 400 });
+    }
+    const ctxOk = catalogCtx;
+
     // Insert inventory items - templateId is now optional
     const itemsToInsert = (items as Array<Record<string, unknown>>).map((item) => {
       const {
@@ -71,17 +102,30 @@ export async function POST(request: NextRequest) {
         cooldownDurationHours,
         ...rest
       } = item as Record<string, unknown>;
+      const base: Record<string, string | number | boolean> = {};
+      for (const [k, v] of Object.entries(rest)) {
+        if (k === "_metadata") continue;
+        if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
+          base[k] = v;
+        }
+      }
+      const merged =
+        ctxOk.catalogItemId && (ctxOk.definingValues || ctxOk.defaultValues)
+          ? mergeCatalogIntoValues(base, ctxOk.definingValues, ctxOk.defaultValues)
+          : base;
       return {
         templateId: templateId || null,
+        catalogItemId: ctxOk.catalogItemId,
         productId: productId || null,
         variantId: variantId || null,
         cost: cost || null,
         values: {
-          ...rest,
+          ...merged,
           _metadata: {
             eachLineIsProduct,
             hasTemplate: !!templateId,
             ...(batchName ? { batchName } : {}),
+            ...(ctxOk.catalogItemId ? { catalogItemId: ctxOk.catalogItemId } : {}),
           },
         },
         status: "available" as const,

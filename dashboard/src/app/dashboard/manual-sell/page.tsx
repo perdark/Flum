@@ -1,8 +1,8 @@
 /**
  * Manual Sell Page — POS-style Interface
  *
- * Stock Templates: grid → field chip → one FIFO line added to cart (cost + field preview).
- * Checkout: stock-only → /api/manual-sell/template; mixed → /api/manual-sell with directItems.
+ * Inventory products (catalog SKUs): one card per SKU → add to cart → FIFO reserve per product.
+ * Checkout: stock-only → /api/manual-sell/template (requires catalogItemId when template has SKUs).
  */
 
 "use client";
@@ -143,6 +143,9 @@ interface StockPreviewRow {
 interface StockCartItem {
   templateId: string;
   templateName: string;
+  /** Internal catalog SKU when the template defines inventory products */
+  catalogItemId?: string | null;
+  catalogItemName?: string | null;
   quantity: number;
   fieldsSchema: Array<{
     name: string;
@@ -156,7 +159,11 @@ interface StockCartItem {
   reservedIds: string[];
 }
 
-/** Stock tab template card (matches /api/inventory/templates) */
+function stockCartLineKey(sc: Pick<StockCartItem, "templateId" | "catalogItemId">) {
+  return `${sc.templateId}\t${sc.catalogItemId ?? ""}`;
+}
+
+/** Built from /api/inventory/catalog-products row for cart + reserve APIs */
 interface TemplateSellField {
   name: string;
   label: string;
@@ -180,6 +187,63 @@ interface TemplateSellCard {
   cooldownEnabled: boolean;
   cooldownDurationHours: number;
   fieldsSchema: TemplateSellField[];
+  catalogItems?: Array<{
+    id: string;
+    name: string;
+    codesCount?: number;
+    stockCount?: number;
+    availableQty?: number;
+  }>;
+}
+
+/** GET /api/inventory/catalog-products — used by Stocks tab */
+interface InventoryProductSellRow {
+  id: string;
+  templateId: string;
+  templateName: string;
+  templateDescription: string | null;
+  templateColor: string | null;
+  templateIcon: string | null;
+  templateIsActive: boolean;
+  fieldsSchema: unknown;
+  multiSellEnabled: boolean;
+  multiSellMax: number;
+  cooldownEnabled: boolean;
+  cooldownDurationHours: number;
+  name: string;
+  sortOrder: number;
+  isActive: boolean;
+  codesCount: number;
+  stockCount: number;
+  /** Bundles sellable (one code per field), from catalog-products */
+  availableQty: number;
+}
+
+function inventoryProductToTemplateSellCard(row: InventoryProductSellRow): TemplateSellCard {
+  const raw = Array.isArray(row.fieldsSchema) ? row.fieldsSchema : [];
+  const fieldsSchema: TemplateSellField[] = raw.map((f: Record<string, unknown>) => ({
+    name: String(f.name ?? ""),
+    label: String(f.label ?? f.name ?? ""),
+    type: String(f.type ?? "string"),
+    required: Boolean(f.required),
+    displayOrder: typeof f.displayOrder === "number" ? f.displayOrder : 0,
+    wholeFieldIsOneItem: Boolean(f.wholeFieldIsOneItem),
+  }));
+  return {
+    id: row.templateId,
+    name: row.templateName,
+    description: row.templateDescription,
+    color: row.templateColor,
+    icon: row.templateIcon,
+    stockCount: row.stockCount,
+    codesCount: row.codesCount,
+    isActive: Boolean(row.templateIsActive && row.isActive),
+    multiSellEnabled: row.multiSellEnabled,
+    multiSellMax: row.multiSellMax,
+    cooldownEnabled: row.cooldownEnabled,
+    cooldownDurationHours: row.cooldownDurationHours,
+    fieldsSchema,
+  };
 }
 
 const PAGE_SIZE = 80;
@@ -317,7 +381,9 @@ export default function ManualSellPage() {
   /** Template stock shortage — rows and/or atomic codes vs pool */
   const [stockShortageDraft, setStockShortageDraft] = useState<{
     items: Array<{
+      lineKey: string;
       templateId: string;
+      catalogItemId: string | null;
       templateName: string;
       fieldsSchema: Array<{
         name: string;
@@ -791,9 +857,10 @@ export default function ManualSellPage() {
     async (
       templateId: string,
       quantity: number,
-      heldIds: string[]
+      heldIds: string[],
+      catalogItemId?: string | null
     ): Promise<StockPreviewRow[] | null> => {
-      setStockPreviewLoading(templateId);
+      setStockPreviewLoading(`${templateId}\t${catalogItemId ?? ""}`);
       try {
         const res = await fetch(`/api/inventory/templates/${templateId}/reserve-bundles`, {
           method: "POST",
@@ -801,6 +868,7 @@ export default function ManualSellPage() {
           body: JSON.stringify({
             bundleCount: quantity,
             previousReservedIds: heldIds,
+            catalogItemId: catalogItemId || undefined,
           }),
         });
         const data = await res.json();
@@ -832,8 +900,9 @@ export default function ManualSellPage() {
         setStockCart((prev) =>
           prev.map((sc) => {
             if (sc.templateId !== templateId) return sc;
+            if ((sc.catalogItemId ?? "") !== (catalogItemId ?? "")) return sc;
             if (sc.quantity !== quantity) return sc;
-            return { ...sc, previewRows: rows, quantity, reservedIds, available: rows.length };
+            return { ...sc, previewRows: rows, quantity, reservedIds };
           })
         );
         return rows;
@@ -849,10 +918,12 @@ export default function ManualSellPage() {
 
   /** Update stock cart quantity + re-reserve rows */
   const updateStockQuantity = useCallback(
-    (templateId: string, qty: number) => {
+    (templateId: string, qty: number, catalogItemId?: string | null) => {
       if (qty <= 0) {
         setStockCart((prev) => {
-          const target = prev.find((sc) => sc.templateId === templateId);
+          const target = prev.find(
+            (sc) => sc.templateId === templateId && (sc.catalogItemId ?? "") === (catalogItemId ?? "")
+          );
           if (target?.reservedIds?.length) {
             void fetch("/api/inventory/release-reservations", {
               method: "POST",
@@ -860,16 +931,36 @@ export default function ManualSellPage() {
               body: JSON.stringify({ inventoryIds: target.reservedIds }),
             }).catch(() => {});
           }
-          return prev.filter((sc) => sc.templateId !== templateId);
+          return prev.filter(
+            (sc) =>
+              !(sc.templateId === templateId && (sc.catalogItemId ?? "") === (catalogItemId ?? ""))
+          );
         });
         return;
       }
+
+      const capEntry = stockCartRef.current.find(
+        (sc) => sc.templateId === templateId && (sc.catalogItemId ?? "") === (catalogItemId ?? "")
+      );
+      const cap = capEntry?.available;
+      const wanted = Math.max(1, Math.floor(qty));
+      const useQty =
+        typeof cap === "number" && cap > 0 ? Math.min(wanted, cap) : wanted;
+
+      if (useQty < wanted) {
+        toast.info(`Quantity capped at ${useQty} (available in pool).`);
+      }
+
       setStockCart((prev) => {
-        const cur = prev.find((sc) => sc.templateId === templateId);
+        const cur = prev.find(
+          (sc) => sc.templateId === templateId && (sc.catalogItemId ?? "") === (catalogItemId ?? "")
+        );
         const held = cur?.reservedIds ?? [];
-        void reserveStockForTemplate(templateId, qty, held);
+        void reserveStockForTemplate(templateId, useQty, held, catalogItemId ?? null);
         return prev.map((sc) =>
-          sc.templateId === templateId ? { ...sc, quantity: qty } : sc
+          sc.templateId === templateId && (sc.catalogItemId ?? "") === (catalogItemId ?? "")
+            ? { ...sc, quantity: useQty }
+            : sc
         );
       });
     },
@@ -878,7 +969,20 @@ export default function ManualSellPage() {
 
   /** Add a template to stock cart with qty 1 and reserve preview rows. */
   const addTemplateToCart = useCallback(
-    (template: TemplateSellCard) => {
+    (
+      template: TemplateSellCard,
+      catalogItem: {
+        id: string;
+        name: string;
+        codesCount?: number;
+        stockCount?: number;
+        availableQty?: number;
+      }
+    ) => {
+      if (!catalogItem?.id) {
+        toast.error("An inventory product is required");
+        return;
+      }
       const fieldsSchema = template.fieldsSchema
         .filter((f) => f.type !== "group")
         .sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0))
@@ -889,27 +993,38 @@ export default function ManualSellPage() {
           wholeFieldIsOneItem: f.wholeFieldIsOneItem,
         }));
 
+      const cid = catalogItem.id;
+      const cname = catalogItem.name;
+
       setStockCart((prev) => {
-        const exists = prev.find((sc) => sc.templateId === template.id);
+        const exists = prev.find(
+          (sc) => sc.templateId === template.id && (sc.catalogItemId ?? "") === cid
+        );
         if (exists) {
-          toast.info(`${template.name} is already in the cart`);
+          toast.info(`${cname} is already in the cart`);
           return prev;
         }
         return [
           ...prev,
           {
             templateId: template.id,
-            templateName: template.name,
+            templateName: `${cname} · ${template.name}`,
+            catalogItemId: cid,
+            catalogItemName: cname,
             quantity: 1,
             fieldsSchema,
-            available: template.stockCount,
+            available:
+              catalogItem.availableQty ??
+              catalogItem.codesCount ??
+              template.codesCount ??
+              template.stockCount,
             previewRows: [],
             reservedIds: [],
           },
         ];
       });
       requestAnimationFrame(() => {
-        void reserveStockForTemplate(template.id, 1, []);
+        void reserveStockForTemplate(template.id, 1, [], cid);
       });
     },
     [reserveStockForTemplate]
@@ -949,6 +1064,8 @@ export default function ManualSellPage() {
             customerName: customerName.trim() || undefined,
             unitPrice,
             label: sc.templateName,
+            catalogItemId: sc.catalogItemId || undefined,
+            catalogItemName: sc.catalogItemName || undefined,
             fifoReplacement,
             shortageHandling,
             requestedLineCount: cap,
@@ -1014,7 +1131,11 @@ export default function ManualSellPage() {
       const statsResults = await Promise.all(
         stockCart.map(async (sc) => {
           try {
-            const r = await fetch(`/api/inventory/templates/${sc.templateId}/field-code-stats`);
+            const qs = new URLSearchParams();
+            if (sc.catalogItemId) qs.set("catalogItemId", sc.catalogItemId);
+            const r = await fetch(
+              `/api/inventory/templates/${sc.templateId}/field-code-stats${qs.toString() ? `?${qs}` : ""}`
+            );
             const j = await r.json();
             return j.success ? (j.data as { totalCodes: number; totalRows: number }) : null;
           } catch {
@@ -1024,7 +1145,9 @@ export default function ManualSellPage() {
       );
 
       const shortageItems: Array<{
+        lineKey: string;
         templateId: string;
+        catalogItemId: string | null;
         templateName: string;
         fieldsSchema: StockCartItem["fieldsSchema"];
         requested: number;
@@ -1044,7 +1167,9 @@ export default function ManualSellPage() {
         const codeShort = reqCodes > availCodes;
         if (rowShort || codeShort) {
           shortageItems.push({
+            lineKey: stockCartLineKey(sc),
             templateId: sc.templateId,
+            catalogItemId: sc.catalogItemId ?? null,
             templateName: sc.templateName,
             fieldsSchema: sc.fieldsSchema,
             requested: sc.quantity,
@@ -1175,7 +1300,7 @@ export default function ManualSellPage() {
   // ── Render: Main layout ───────────────────────────────────────────────────
 
   const tabs: { key: TabKey; label: string }[] = [
-    { key: "stocks", label: "Stock Templates" },
+    { key: "stocks", label: "Inventory products" },
     { key: "auto", label: "Products (Auto)" },
     { key: "manual", label: "Products (Manual)" },
   ];
@@ -1494,11 +1619,12 @@ export default function ManualSellPage() {
                     );
                   })}
 
-                  {/* Stock cart — same interaction as /dashboard/inventory/templates: template → fields → codes */}
+                  {/* Stock cart — lines are inventory products (catalog SKUs) */}
                   {stockCart.map((sc, idx) => {
+                    const lineKey = stockCartLineKey(sc);
                     const previewSlice = sc.previewRows.slice(0, sc.quantity);
                     const groupCost = totalStockCostForCartLine(sc);
-                    const isLoadingThis = stockPreviewLoading === sc.templateId;
+                    const isLoadingThis = stockPreviewLoading === lineKey;
                     const isShort = sc.quantity > sc.previewRows.length;
                     const fieldDefs = getTemplateFieldsForCodes(sc.fieldsSchema as FieldSchemaForCodes[]);
                     const codesReservedTotal = sc.previewRows.reduce(
@@ -1506,10 +1632,10 @@ export default function ManualSellPage() {
                       0
                     );
                     const codesRequestedForQty = requestedCodesForStockLine(sc, sc.quantity);
-                    const expanded = stockCartExpanded[sc.templateId] ?? true;
+                    const expanded = stockCartExpanded[lineKey] ?? true;
                     return (
                       <div
-                        key={sc.templateId}
+                        key={lineKey}
                         className="overflow-hidden rounded-2xl border border-primary/25 bg-card shadow-sm ring-1 ring-border/60"
                       >
                         <div className="flex items-stretch gap-1 border-b border-border/70 bg-muted/30 px-2 py-2 sm:px-3">
@@ -1519,7 +1645,7 @@ export default function ManualSellPage() {
                             onClick={() =>
                               setStockCartExpanded((p) => ({
                                 ...p,
-                                [sc.templateId]: !(p[sc.templateId] ?? true),
+                                [lineKey]: !(p[lineKey] ?? true),
                               }))
                             }
                             aria-expanded={expanded}
@@ -1563,7 +1689,7 @@ export default function ManualSellPage() {
                             <div className="inline-flex rounded-xl border border-border bg-muted/40 p-0.5">
                               <button
                                 type="button"
-                                onClick={() => updateStockQuantity(sc.templateId, 2)}
+                                onClick={() => updateStockQuantity(sc.templateId, 2, sc.catalogItemId ?? null)}
                                 className={cn(
                                   "rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
                                   sc.quantity === 2
@@ -1575,7 +1701,7 @@ export default function ManualSellPage() {
                               </button>
                               <button
                                 type="button"
-                                onClick={() => updateStockQuantity(sc.templateId, 4)}
+                                onClick={() => updateStockQuantity(sc.templateId, 4, sc.catalogItemId ?? null)}
                                 className={cn(
                                   "rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
                                   sc.quantity === 4
@@ -1589,7 +1715,9 @@ export default function ManualSellPage() {
                             <div className="ml-auto flex items-center overflow-hidden rounded-xl border border-border bg-background shadow-inner">
                               <button
                                 type="button"
-                                onClick={() => updateStockQuantity(sc.templateId, sc.quantity - 1)}
+                                onClick={() =>
+                                  updateStockQuantity(sc.templateId, sc.quantity - 1, sc.catalogItemId ?? null)
+                                }
                                 className="flex h-9 w-9 items-center justify-center text-lg leading-none text-foreground hover:bg-muted"
                               >
                                 −
@@ -1597,16 +1725,20 @@ export default function ManualSellPage() {
                               <input
                                 type="number"
                                 min={1}
+                                max={sc.available > 0 ? sc.available : undefined}
                                 value={sc.quantity}
                                 onChange={(e) => {
                                   const n = parseInt(e.target.value, 10);
-                                  if (n > 0) updateStockQuantity(sc.templateId, n);
+                                  if (n > 0)
+                                    updateStockQuantity(sc.templateId, n, sc.catalogItemId ?? null);
                                 }}
                                 className="h-9 w-12 border-x border-border bg-transparent text-center text-sm font-bold tabular-nums text-foreground focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
                               />
                               <button
                                 type="button"
-                                onClick={() => updateStockQuantity(sc.templateId, sc.quantity + 1)}
+                                onClick={() =>
+                                  updateStockQuantity(sc.templateId, sc.quantity + 1, sc.catalogItemId ?? null)
+                                }
                                 className="flex h-9 w-9 items-center justify-center text-lg leading-none text-foreground hover:bg-muted"
                               >
                                 +
@@ -1916,6 +2048,7 @@ export default function ManualSellPage() {
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                       templateId: entry.templateId,
+                      catalogItemId: entry.catalogItemId || undefined,
                       items: entry.itemsForSale.map((x) => x.values),
                     }),
                   });
@@ -1931,6 +2064,7 @@ export default function ManualSellPage() {
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                       templateId: entry.templateId,
+                      catalogItemId: entry.catalogItemId || undefined,
                       items: entry.itemsSurplus.map((x) => x.values),
                     }),
                   });
@@ -1944,7 +2078,12 @@ export default function ManualSellPage() {
               // 2. Re-reserve and build fresh cart lines for sale (state updates are async)
               const rebuilt: StockCartItem[] = [];
               for (const sc of stockCart) {
-                const nextRows = await reserveStockForTemplate(sc.templateId, sc.quantity, sc.reservedIds);
+                const nextRows = await reserveStockForTemplate(
+                  sc.templateId,
+                  sc.quantity,
+                  sc.reservedIds,
+                  sc.catalogItemId ?? null
+                );
                 if (!nextRows) return;
                 rebuilt.push({
                   ...sc,
@@ -1984,7 +2123,7 @@ export default function ManualSellPage() {
 }
 
 // ============================================================================
-// Stocks Tab — simple template card grid with "Add" button
+// Stocks Tab — one card per inventory product (catalog SKU)
 // ============================================================================
 
 function StocksTab({
@@ -1994,27 +2133,39 @@ function StocksTab({
 }: {
   onCountChange: (n: number) => void;
   stockCart: StockCartItem[];
-  onAddTemplate: (template: TemplateSellCard) => void;
+  onAddTemplate: (
+    template: TemplateSellCard,
+    catalogItem: {
+      id: string;
+      name: string;
+      codesCount?: number;
+      stockCount?: number;
+      availableQty?: number;
+    }
+  ) => void;
 }) {
-  const [templates, setTemplates] = useState<TemplateSellCard[]>([]);
+  const [products, setProducts] = useState<InventoryProductSellRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  // (no extra state needed — simple card grid)
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/inventory/templates");
+      const res = await fetch("/api/inventory/catalog-products");
       const data = await res.json();
       if (data.success) {
-        const list = data.data as TemplateSellCard[];
-        setTemplates(list);
-        onCountChange(list.reduce((sum, t) => sum + (t.codesCount ?? 0), 0));
+        const raw = (data.data ?? []) as InventoryProductSellRow[];
+        const list = raw.map((r) => ({
+          ...r,
+          availableQty: typeof r.availableQty === "number" ? r.availableQty : 0,
+        }));
+        setProducts(list);
+        onCountChange(list.length);
       } else {
-        toast.error("Failed to load templates");
+        toast.error(data.error || "Failed to load inventory products");
       }
     } catch {
-      toast.error("Failed to load templates");
+      toast.error("Failed to load inventory products");
     } finally {
       setLoading(false);
     }
@@ -2024,26 +2175,26 @@ function StocksTab({
     void load();
   }, [load]);
 
-  const filteredTemplates = search.trim()
-    ? templates.filter(
-        (t) =>
-          t.name.toLowerCase().includes(search.toLowerCase()) ||
-          (t.description || "").toLowerCase().includes(search.toLowerCase())
+  const filtered = search.trim()
+    ? products.filter(
+        (p) =>
+          p.name.toLowerCase().includes(search.toLowerCase()) ||
+          p.templateName.toLowerCase().includes(search.toLowerCase()) ||
+          (p.templateDescription || "").toLowerCase().includes(search.toLowerCase())
       )
-    : templates;
+    : products;
 
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-20 text-muted-foreground">
         <div className="h-7 w-7 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-        <span className="text-sm">Loading stock templates…</span>
+        <span className="text-sm">Loading inventory products…</span>
       </div>
     );
   }
 
   return (
     <div className="p-4">
-      {/* Search */}
       <div className="mb-4 max-w-md">
         <div className="relative">
           <svg
@@ -2058,99 +2209,121 @@ function StocksTab({
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search templates…"
+            placeholder="Search inventory products…"
             className="w-full pl-10 pr-3 py-2.5 bg-background border border-input rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           />
         </div>
       </div>
 
-      {filteredTemplates.length === 0 && !loading && (
-        <div className="flex items-center justify-center py-20">
-          <div className="text-center text-muted-foreground text-sm">
-            {search ? "No templates match your search" : "No stock templates available"}
-          </div>
+      {filtered.length === 0 && !loading && (
+        <div className="flex flex-col items-center justify-center gap-3 py-16 text-center text-muted-foreground text-sm px-4">
+          <p>
+            {search
+              ? "No products match your search"
+              : "No inventory products yet — create SKUs under Inventory → Inventory products."}
+          </p>
+          {!search && (
+            <Link
+              href="/dashboard/inventory/products"
+              className="text-sm font-semibold text-primary hover:underline"
+            >
+              Open inventory products
+            </Link>
+          )}
         </div>
       )}
 
-      {filteredTemplates.length > 0 && (
+      {filtered.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {filteredTemplates.map((template) => {
-            const inCart = stockCart.some((sc) => sc.templateId === template.id);
-            const fieldCount = template.fieldsSchema.filter((f) => f.type !== "group").length;
-
+          {filtered.map((row) => {
+            const card = inventoryProductToTemplateSellCard(row);
+            const fieldCount = card.fieldsSchema.filter((f) => f.type !== "group").length;
+            const inCart = stockCart.some(
+              (sc) => sc.templateId === row.templateId && (sc.catalogItemId ?? "") === row.id
+            );
             return (
               <div
-                key={template.id}
+                key={row.id}
                 className={cn(
                   "relative bg-card border rounded-xl p-4 transition-all hover:shadow-md",
                   inCart ? "border-primary ring-1 ring-primary/30" : "border-border hover:border-primary/40"
                 )}
                 style={{
-                  borderTopColor: template.color || undefined,
-                  borderTopWidth: template.color ? "4px" : "1px",
+                  borderTopColor: row.templateColor || undefined,
+                  borderTopWidth: row.templateColor ? "4px" : "1px",
                 }}
               >
-                <div className="flex items-start justify-between mb-2">
-                  <h3 className="font-semibold text-foreground truncate flex-1 min-w-0" title={template.name}>
-                    {template.icon && <span className="mr-1.5">{template.icon}</span>}
-                    {template.name}
+                <div className="flex items-start justify-between gap-2 mb-1">
+                  <h3 className="font-semibold text-foreground flex-1 min-w-0 leading-snug" title={row.name}>
+                    {row.templateIcon && <span className="mr-1.5">{row.templateIcon}</span>}
+                    {row.name}
                   </h3>
                   {inCart && (
-                    <span className="shrink-0 ml-2 flex h-5 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground px-2">
+                    <span className="shrink-0 flex h-5 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground px-2">
                       In cart
                     </span>
                   )}
                 </div>
-
-                <p className="text-xs text-muted-foreground line-clamp-1 mb-2">
-                  {template.description || "No description"}
+                <p className="text-[11px] text-muted-foreground mb-2 truncate" title={row.templateName}>
+                  Template: {row.templateName}
+                </p>
+                <p className="text-xs text-muted-foreground line-clamp-2 mb-3 min-h-[2.25rem]">
+                  {row.templateDescription || `${fieldCount} field${fieldCount !== 1 ? "s" : ""}`}
                 </p>
 
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground mb-3">
                   <span className="flex items-center gap-1">
                     <Package className="w-3.5 h-3.5" />
-                    <strong className="text-foreground">{template.stockCount}</strong> listed
+                    <strong className="text-foreground tabular-nums">{row.availableQty}</strong>
+                    <span>qty</span>
                   </span>
-                  <span className="text-muted-foreground/50">|</span>
-                  <span>{fieldCount} field{fieldCount !== 1 ? "s" : ""}</span>
-                  {(template.codesCount ?? 0) > 0 && (
-                    <>
-                      <span className="text-muted-foreground/50">|</span>
-                      <span className="tabular-nums">{template.codesCount} codes</span>
-                    </>
-                  )}
                 </div>
 
                 <div className="flex flex-wrap gap-1 mb-3">
-                  {template.multiSellEnabled && (
+                  {row.multiSellEnabled && (
                     <span className="px-2 py-0.5 bg-blue-500/10 text-blue-500 text-[10px] rounded-full inline-flex items-center font-medium">
                       <Eye className="w-3 h-3 mr-1" />
-                      Multi×{template.multiSellMax}
+                      Multi×{row.multiSellMax}
                     </span>
                   )}
-                  {template.cooldownEnabled && (
+                  {row.cooldownEnabled && (
                     <span className="px-2 py-0.5 bg-amber-500/10 text-amber-500 text-[10px] rounded-full inline-flex items-center font-medium">
                       <Clock className="w-3 h-3 mr-1" />
-                      {template.cooldownDurationHours}h
+                      {row.cooldownDurationHours}h
                     </span>
                   )}
                   <span
                     className={cn(
                       "px-2 py-0.5 text-[10px] rounded-full font-medium",
-                      template.isActive ? "bg-emerald-500/10 text-emerald-500" : "bg-red-500/10 text-red-500"
+                      row.isActive && row.templateIsActive
+                        ? "bg-emerald-500/10 text-emerald-500"
+                        : "bg-red-500/10 text-red-500"
                     )}
                   >
-                    {template.isActive ? "Active" : "Inactive"}
+                    {row.isActive && row.templateIsActive ? "Active" : "Inactive"}
                   </span>
                 </div>
 
                 <button
                   type="button"
-                  disabled={inCart}
-                  onClick={() => onAddTemplate(template)}
+                  disabled={inCart || !row.isActive || !row.templateIsActive}
+                  onClick={() =>
+                    onAddTemplate(card, {
+                      id: row.id,
+                      name: row.name,
+                      codesCount: row.codesCount,
+                      stockCount: row.stockCount,
+                      availableQty: row.availableQty,
+                    })
+                  }
+                  title={
+                    !row.isActive || !row.templateIsActive
+                      ? "Inactive product or template"
+                      : undefined
+                  }
                   className={cn(
                     "w-full inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold transition-colors",
-                    inCart
+                    inCart || !row.isActive || !row.templateIsActive
                       ? "bg-muted text-muted-foreground cursor-default"
                       : "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
                   )}
@@ -2620,7 +2793,9 @@ function StockTemplateShortageModal({
 }: {
   draft: {
     items: Array<{
+      lineKey: string;
       templateId: string;
+      catalogItemId: string | null;
       templateName: string;
       fieldsSchema: Array<{
         name: string;
@@ -2643,6 +2818,7 @@ function StockTemplateShortageModal({
   onFulfillAndSell: (
     entries: Array<{
       templateId: string;
+      catalogItemId?: string | null;
       templateName: string;
       itemsForSale: Array<{ values: Record<string, string> }>;
       itemsSurplus?: Array<{ values: Record<string, string> }>;
@@ -2663,13 +2839,14 @@ function StockTemplateShortageModal({
   const handleFulfillSubmit = () => {
     const entries: Array<{
       templateId: string;
+      catalogItemId?: string | null;
       templateName: string;
       itemsForSale: Array<{ values: Record<string, string> }>;
       itemsSurplus?: Array<{ values: Record<string, string> }>;
     }> = [];
 
     for (const item of shortageItems) {
-      const fieldVals = fulfillValues[item.templateId] || {};
+      const fieldVals = fulfillValues[item.lineKey] || {};
       const fieldNames = item.fieldsSchema.map((f) => f.name);
       const linesByField: Record<string, string[]> = {};
       let maxLines = 0;
@@ -2697,6 +2874,7 @@ function StockTemplateShortageModal({
 
       entries.push({
         templateId: item.templateId,
+        catalogItemId: item.catalogItemId,
         templateName: item.templateName,
         itemsForSale: rowsForSale,
         ...(rowsSurplus.length > 0 ? { itemsSurplus: rowsSurplus } : {}),
@@ -2747,7 +2925,7 @@ function StockTemplateShortageModal({
           {/* Shortage breakdown */}
           <div className="mt-3 space-y-1.5">
             {shortageItems.map((item) => (
-              <div key={item.templateId} className="flex flex-col gap-0.5 text-xs p-2 bg-warning/10 rounded-lg border border-warning/20">
+              <div key={item.lineKey} className="flex flex-col gap-0.5 text-xs p-2 bg-warning/10 rounded-lg border border-warning/20">
                 <div className="flex items-center justify-between">
                   <span className="font-medium text-foreground">{item.templateName}</span>
                   <span className="text-muted-foreground tabular-nums">
@@ -2814,7 +2992,7 @@ function StockTemplateShortageModal({
                 sale; any extra lines are added as available stock only.
               </p>
               {shortageItems.map((item) => (
-                <div key={item.templateId} className="space-y-2">
+                <div key={item.lineKey} className="space-y-2">
                   <h4 className="text-sm font-semibold text-foreground">{item.templateName}</h4>
                   <p className="text-[11px] text-muted-foreground">
                     Need {item.shortage} more unit{item.shortage !== 1 ? "s" : ""} and {item.shortageCodes} more code
@@ -2830,12 +3008,12 @@ function StockTemplateShortageModal({
                         <textarea
                           rows={Math.min(item.shortage, 6)}
                           placeholder={`Paste ${field.label} codes (one per line)…`}
-                          value={fulfillValues[item.templateId]?.[field.name] || ""}
+                          value={fulfillValues[item.lineKey]?.[field.name] || ""}
                           onChange={(e) =>
                             setFulfillValues((prev) => ({
                               ...prev,
-                              [item.templateId]: {
-                                ...(prev[item.templateId] || {}),
+                              [item.lineKey]: {
+                                ...(prev[item.lineKey] || {}),
                                 [field.name]: e.target.value,
                               },
                             }))
@@ -2952,8 +3130,8 @@ function ShortageModal({
               : "إنشاء مخزون تلقائياً (قيم مؤقتة) وإتمام البيع"}
           </button>
           <div className="text-center">
-            <Link href="/dashboard/inventory/add" className="text-xs font-medium text-primary hover:underline">
-              أو أضف مخزوناً يدوياً من «إضافة مخزون»
+            <Link href="/dashboard/products" className="text-xs font-medium text-primary hover:underline">
+              أو أدِر منتجات المتجر من «المنتجات»
             </Link>
             <span className="text-muted-foreground mx-1">·</span>
             <Link href="/dashboard/orders" className="text-xs text-muted-foreground hover:underline">

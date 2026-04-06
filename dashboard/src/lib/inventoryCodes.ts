@@ -91,6 +91,24 @@ export function countCodesInRowWithSchema(
   return n;
 }
 
+/**
+ * How many sell units (one atomic code per template field) can be peeled from this row.
+ * Matches reserve-bundles / manual-sell bundle logic.
+ */
+export function maxBundlesPeelableFromRow(
+  values: Record<string, unknown> | null | undefined,
+  fields: FieldSchemaForCodes[]
+): number {
+  if (!values || typeof values !== "object" || fields.length === 0) return 0;
+  let m = Number.POSITIVE_INFINITY;
+  for (const f of fields) {
+    const n = countCodesForFieldWithSchema(values, f);
+    m = Math.min(m, n);
+  }
+  if (!Number.isFinite(m)) return 0;
+  return Math.floor(m);
+}
+
 /** List atomic code strings for display (one entry per code). */
 export function listAtomicCodesForField(
   values: Record<string, unknown> | null | undefined,

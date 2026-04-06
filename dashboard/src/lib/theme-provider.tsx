@@ -72,25 +72,34 @@ export function ThemeProvider({
   );
   const [mounted, setMounted] = React.useState(false);
 
-  React.useEffect(() => {
+  /** Bootstrap theme before browser paint — avoids a <script> in root layout (React 19 dev warning). */
+  React.useLayoutEffect(() => {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const sys: "light" | "dark" = mq.matches ? "dark" : "light";
+    setSystemTheme(sys);
+
+    let nextTheme: ThemeName = defaultTheme;
     try {
       const stored = localStorage.getItem(STORAGE_KEY) as ThemeName | null;
-      if (stored && (stored === "light" || stored === "dark" || (stored === "system" && enableSystem))) {
-        setThemeState(stored);
+      if (
+        stored &&
+        (stored === "light" ||
+          stored === "dark" ||
+          (stored === "system" && enableSystem))
+      ) {
+        nextTheme = stored;
       }
     } catch {
       /* ignore */
     }
+    setThemeState(nextTheme);
+    applyThemeClass(resolve(nextTheme, sys), disableTransitionOnChange);
     setMounted(true);
-  }, [enableSystem]);
 
-  React.useEffect(() => {
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const onChange = () => setSystemTheme(mq.matches ? "dark" : "light");
-    onChange();
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
-  }, []);
+  }, [defaultTheme, enableSystem, disableTransitionOnChange]);
 
   React.useEffect(() => {
     const onStorage = (e: StorageEvent) => {

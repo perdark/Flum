@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -47,6 +48,16 @@ interface FieldSchema {
   eachLineIsProduct?: boolean;
 }
 
+interface CatalogItemSummary {
+  id: string;
+  name: string;
+  sortOrder: number;
+  stockCount: number;
+  codesCount: number;
+  definingValues?: Record<string, string | number | boolean> | null;
+  defaultValues?: Record<string, string | number | boolean> | null;
+}
+
 interface TemplateWithStock {
   id: string;
   name: string;
@@ -62,6 +73,11 @@ interface TemplateWithStock {
   stockCount: number;
   /** Sum of atomic values across template fields (multiline/array aware) */
   codesCount?: number;
+  /** Stock rows / codes not linked to an inventory product */
+  unassignedStockCount?: number;
+  unassignedCodesCount?: number;
+  /** Internal SKUs under this template (optional) */
+  catalogItems?: CatalogItemSummary[];
   createdAt: string;
 }
 
@@ -106,9 +122,9 @@ export default function InventoryPage() {
   const [showCreateTemplate, setShowCreateTemplate] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<TemplateWithStock | null>(null);
 
-  // Add stock modal
-  const [addStockOpen, setAddStockOpen] = useState(false);
-  const [addStockTemplate, setAddStockTemplate] = useState<TemplateWithStock | null>(null);
+  const [catalogFilterByTemplateId, setCatalogFilterByTemplateId] = useState<Record<string, string>>({});
+  const [catalogManageTemplate, setCatalogManageTemplate] = useState<TemplateWithStock | null>(null);
+  const [stockModalCatalogId, setStockModalCatalogId] = useState<string | null>(null);
 
   // ── Data loading ──────────────────────────────────────────────────────────
 
@@ -132,13 +148,19 @@ export default function InventoryPage() {
     fetchTemplates();
   }, [fetchTemplates]);
 
-  const fetchStock = async (templateId: string, fieldName?: string, status?: string) => {
+  const fetchStock = async (
+    templateId: string,
+    fieldName?: string,
+    status?: string,
+    catalogItemId?: string | null
+  ) => {
     setStockLoading(true);
     try {
       const params = new URLSearchParams();
       if (fieldName) params.set("field", fieldName);
       params.set("status", status || stockStatusFilter || "available");
       params.set("limit", "200");
+      if (catalogItemId) params.set("catalogItemId", catalogItemId);
       const res = await fetch(`/api/inventory/templates/${templateId}/stock?${params}`);
       const data = await res.json();
       if (data.success) {
@@ -160,20 +182,25 @@ export default function InventoryPage() {
       setExpandedTemplateId(null);
     } else {
       setExpandedTemplateId(template.id);
+      if (template.catalogItems?.length) {
+        setCatalogFilterByTemplateId((prev) => {
+          if (prev[template.id]) return prev;
+          return { ...prev, [template.id]: template.catalogItems![0].id };
+        });
+      }
     }
   };
 
   const openStockModal = (template: TemplateWithStock, field: FieldSchema) => {
+    const cid = template.catalogItems?.length
+      ? catalogFilterByTemplateId[template.id] ?? template.catalogItems[0]?.id ?? null
+      : null;
+    setStockModalCatalogId(cid);
     setStockModalTemplate(template);
     setStockModalField(field);
     setStockModalOpen(true);
     setStockStatusFilter("available");
-    fetchStock(template.id, field.name, "available");
-  };
-
-  const openAddStockModal = (template: TemplateWithStock) => {
-    setAddStockTemplate(template);
-    setAddStockOpen(true);
+    fetchStock(template.id, field.name, "available", cid);
   };
 
   // ── Filtering ─────────────────────────────────────────────────────────────
@@ -195,13 +222,17 @@ export default function InventoryPage() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Inventory</h1>
           <p className="text-sm text-muted-foreground">
-            Manage stock by template. {templates.length} template{templates.length !== 1 ? "s" : ""},{" "}
-            {templates.reduce((s, t) => s + (t.codesCount ?? 0), 0)} codes in stock.
+            Templates define fields; codes live on inventory products (or unassigned rows).{" "}
+            {templates.length} template{templates.length !== 1 ? "s" : ""},{" "}
+            {templates.reduce((s, t) => s + (t.codesCount ?? 0), 0)} codes in available stock.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={() => { setLoading(true); fetchTemplates(); }}>
             <RefreshCw className="w-4 h-4 mr-1" /> Refresh
+          </Button>
+          <Button variant="secondary" size="sm" asChild>
+            <Link href="/dashboard/inventory/products">Add SKU stock</Link>
           </Button>
           <Button
             size="sm"
@@ -288,15 +319,6 @@ export default function InventoryPage() {
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7"
-                        title="Add stock"
-                        onClick={() => openAddStockModal(template)}
-                      >
-                        <Plus className="w-4 h-4 text-muted-foreground" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
                         title="Edit template"
                         onClick={() => {
                           setEditingTemplate(template);
@@ -313,20 +335,56 @@ export default function InventoryPage() {
                     {template.description || "No description"}
                   </p>
 
-                  {/* Stats row */}
-                  <div className="flex items-center gap-3 text-xs text-muted-foreground mb-2">
-                    <span className="flex items-center gap-1">
-                      <Package className="w-3.5 h-3.5" />
-                      <strong className="text-foreground">{template.codesCount ?? 0}</strong> codes
-                    </span>
-                    <span className="text-muted-foreground/50">|</span>
-                    <span>
-                      {template.fieldsSchema.length} field{template.fieldsSchema.length !== 1 ? "s" : ""}
-                    </span>
-                    {template.stockCount > 0 && (template.codesCount ?? 0) !== template.stockCount && (
+                  {/* Stats row — template card does not imply it "owns" product codes */}
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground mb-2">
+                    {template.catalogItems && template.catalogItems.length > 0 ? (
                       <>
+                        <span className="flex items-center gap-1">
+                          <Package className="w-3.5 h-3.5" />
+                          <strong className="text-foreground">{template.catalogItems.length}</strong>{" "}
+                          product{template.catalogItems.length !== 1 ? "s" : ""}
+                        </span>
                         <span className="text-muted-foreground/50">|</span>
-                        <span className="tabular-nums">{template.stockCount} row{template.stockCount !== 1 ? "s" : ""}</span>
+                        <span>
+                          {template.fieldsSchema.length} field{template.fieldsSchema.length !== 1 ? "s" : ""}
+                        </span>
+                        {(template.unassignedCodesCount ?? 0) > 0 && (
+                          <>
+                            <span className="text-muted-foreground/50">|</span>
+                            <span className="text-amber-600 dark:text-amber-500/90 tabular-nums">
+                              {template.unassignedCodesCount} unassigned codes
+                            </span>
+                          </>
+                        )}
+                        {(template.unassignedCodesCount ?? 0) === 0 &&
+                          (template.unassignedStockCount ?? 0) > 0 && (
+                            <>
+                              <span className="text-muted-foreground/50">|</span>
+                              <span className="text-amber-600 dark:text-amber-500/90 tabular-nums">
+                                {template.unassignedStockCount} unassigned row
+                                {template.unassignedStockCount !== 1 ? "s" : ""}
+                              </span>
+                            </>
+                          )}
+                      </>
+                    ) : (
+                      <>
+                        <span className="flex items-center gap-1">
+                          <Package className="w-3.5 h-3.5" />
+                          <strong className="text-foreground">{template.codesCount ?? 0}</strong> codes
+                        </span>
+                        <span className="text-muted-foreground/50">|</span>
+                        <span>
+                          {template.fieldsSchema.length} field{template.fieldsSchema.length !== 1 ? "s" : ""}
+                        </span>
+                        {template.stockCount > 0 && (template.codesCount ?? 0) !== template.stockCount && (
+                          <>
+                            <span className="text-muted-foreground/50">|</span>
+                            <span className="tabular-nums">
+                              {template.stockCount} row{template.stockCount !== 1 ? "s" : ""}
+                            </span>
+                          </>
+                        )}
                       </>
                     )}
                   </div>
@@ -359,8 +417,47 @@ export default function InventoryPage() {
                 {/* Expanded Fields Panel (directly below card) */}
                 {isExpanded && (
                   <div className="border border-t-0 border-primary rounded-b-xl bg-muted/30 p-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                    {template.catalogItems && template.catalogItems.length > 0 && (
+                      <div
+                        className="mb-3 flex flex-wrap items-center gap-2"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <span className="text-xs font-medium text-muted-foreground">Inventory product</span>
+                        <select
+                          value={
+                            catalogFilterByTemplateId[template.id] ?? template.catalogItems[0]?.id ?? ""
+                          }
+                          onChange={(e) =>
+                            setCatalogFilterByTemplateId((p) => ({
+                              ...p,
+                              [template.id]: e.target.value,
+                            }))
+                          }
+                          className="px-2 py-1.5 text-sm bg-background border border-input rounded-lg max-w-[220px]"
+                        >
+                          {template.catalogItems.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name} ({c.codesCount} codes)
+                            </option>
+                          ))}
+                        </select>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCatalogManageTemplate(template)}
+                        >
+                          Manage products
+                        </Button>
+                      </div>
+                    )}
                     <p className="text-xs text-muted-foreground mb-3">
-                      Click a field to view &amp; manage stock entries.
+                      <strong className="text-foreground">Add stock</strong> in bulk from{" "}
+                      <Link href="/dashboard/inventory/products" className="text-primary font-medium hover:underline">
+                        Inventory products
+                      </Link>
+                      . Here, open a field to list or edit lines
+                      {template.catalogItems?.length ? " for the selected SKU." : " (template-wide pool if you have no SKUs yet)."}
                     </p>
                     <div className="flex flex-wrap gap-2">
                       {template.fieldsSchema
@@ -413,23 +510,14 @@ export default function InventoryPage() {
           stockItems={stockItems}
           loading={stockLoading}
           statusFilter={stockStatusFilter}
+          catalogItemId={stockModalCatalogId}
           onStatusFilterChange={(status) => {
             setStockStatusFilter(status);
-            fetchStock(stockModalTemplate.id, stockModalField.name, status);
+            fetchStock(stockModalTemplate.id, stockModalField.name, status, stockModalCatalogId);
           }}
-          onRefresh={() => fetchStock(stockModalTemplate.id, stockModalField.name, stockStatusFilter)}
-        />
-      )}
-
-      {/* Add Stock Modal */}
-      {addStockOpen && addStockTemplate && (
-        <AddStockModal
-          template={addStockTemplate}
-          isOpen={addStockOpen}
-          onClose={() => {
-            setAddStockOpen(false);
-            fetchTemplates();
-          }}
+          onRefresh={() =>
+            fetchStock(stockModalTemplate.id, stockModalField.name, stockStatusFilter, stockModalCatalogId)
+          }
         />
       )}
 
@@ -448,6 +536,17 @@ export default function InventoryPage() {
           }}
         />
       )}
+
+      {catalogManageTemplate && (
+        <CatalogItemsManageModal
+          template={catalogManageTemplate}
+          isOpen={Boolean(catalogManageTemplate)}
+          onClose={() => {
+            setCatalogManageTemplate(null);
+            fetchTemplates();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -455,6 +554,23 @@ export default function InventoryPage() {
 // ============================================================================
 // Stock Modal — view all stock entries for a template + field
 // ============================================================================
+
+function stockFormValuesFromCatalog(
+  template: TemplateWithStock,
+  catalogItemId: string | null | undefined
+): Record<string, string> {
+  const cat = catalogItemId
+    ? template.catalogItems?.find((c) => c.id === catalogItemId)
+    : undefined;
+  const merged: Record<string, string> = {};
+  for (const f of template.fieldsSchema) {
+    const dv = cat?.definingValues?.[f.name];
+    const def = cat?.defaultValues?.[f.name];
+    const v = dv !== undefined && dv !== null ? dv : def;
+    merged[f.name] = v !== undefined && v !== null ? String(v) : "";
+  }
+  return merged;
+}
 
 function StockModal({
   template,
@@ -464,6 +580,7 @@ function StockModal({
   stockItems,
   loading,
   statusFilter,
+  catalogItemId,
   onStatusFilterChange,
   onRefresh,
 }: {
@@ -474,6 +591,7 @@ function StockModal({
   stockItems: StockEntry[];
   loading: boolean;
   statusFilter: string;
+  catalogItemId: string | null;
   onStatusFilterChange: (status: string) => void;
   onRefresh: () => void;
 }) {
@@ -487,7 +605,10 @@ function StockModal({
       const res = await fetch(`/api/inventory/templates/${template.id}/stock`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: [newValues] }),
+        body: JSON.stringify({
+          items: [newValues],
+          catalogItemId: catalogItemId || undefined,
+        }),
       });
       const data = await res.json();
       if (data.success) {
@@ -542,13 +663,21 @@ function StockModal({
     }
   };
 
+  const activeCatalogName = catalogItemId
+    ? template.catalogItems?.find((c) => c.id === catalogItemId)?.name
+    : undefined;
+
   return (
     <Dialog open={isOpen} onOpenChange={(val) => !val && onClose()}>
       <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+          <DialogTitle className="flex items-center gap-2 flex-wrap">
             <Package className="w-5 h-5 text-primary" />
-            {template.name} &rsaquo; {field.label}
+            {template.name}
+            {activeCatalogName ? (
+              <span className="text-muted-foreground font-normal">&rsaquo; {activeCatalogName}</span>
+            ) : null}
+            &rsaquo; {field.label}
           </DialogTitle>
         </DialogHeader>
 
@@ -571,7 +700,13 @@ function StockModal({
             </Button>
             <div className="flex-1" />
             {!adding && (
-              <Button size="sm" onClick={() => setAdding(true)}>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setNewValues(stockFormValuesFromCatalog(template, catalogItemId));
+                  setAdding(true);
+                }}
+              >
                 <Plus className="w-4 h-4 mr-1" /> Add Stock
               </Button>
             )}
@@ -802,16 +937,56 @@ function StockModal({
 }
 
 // ============================================================================
-// Add Stock Modal — line-by-line per field (one column = one field, rows = entries)
+// Catalog items CRUD (per template)
 // ============================================================================
 
-function splitFieldLines(text: string): string[] {
-  const s = text.replace(/\r\n/g, "\n");
-  if (s === "") return [];
-  return s.split("\n");
+interface CatalogApiRow {
+  id: string;
+  name: string;
+  slug: string | null;
+  description: string | null;
+  definingValues: Record<string, string | number | boolean> | null;
+  defaultValues: Record<string, string | number | boolean> | null;
+  isActive: boolean;
+  sortOrder: number;
+  availableCount: number;
 }
 
-function AddStockModal({
+function catalogValuesToForm(
+  template: TemplateWithStock,
+  src: Record<string, string | number | boolean> | null | undefined
+): Record<string, string> {
+  const o: Record<string, string> = {};
+  for (const f of template.fieldsSchema) {
+    const v = src?.[f.name];
+    o[f.name] = v === undefined || v === null ? "" : String(v);
+  }
+  return o;
+}
+
+function formToCatalogValues(
+  template: TemplateWithStock,
+  fields: Record<string, string>
+): Record<string, string | number | boolean> | null {
+  const o: Record<string, string | number | boolean> = {};
+  for (const f of template.fieldsSchema) {
+    const raw = (fields[f.name] ?? "").trim();
+    if (raw === "") continue;
+    if (f.type === "number") {
+      const n = Number(raw);
+      o[f.name] = Number.isNaN(n) ? raw : n;
+    } else if (f.type === "boolean") {
+      if (raw === "true") o[f.name] = true;
+      else if (raw === "false") o[f.name] = false;
+      else o[f.name] = raw;
+    } else {
+      o[f.name] = raw;
+    }
+  }
+  return Object.keys(o).length ? o : null;
+}
+
+function CatalogItemsManageModal({
   template,
   isOpen,
   onClose,
@@ -820,152 +995,315 @@ function AddStockModal({
   isOpen: boolean;
   onClose: () => void;
 }) {
-  const [lineTexts, setLineTexts] = useState<Record<string, string>>({});
-  const [cost, setCost] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  const [rows, setRows] = useState<CatalogApiRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [formName, setFormName] = useState("");
+  const [formSlug, setFormSlug] = useState("");
+  const [formDescription, setFormDescription] = useState("");
+  const [formSort, setFormSort] = useState(0);
+  const [formActive, setFormActive] = useState(true);
+  const [formDefining, setFormDefining] = useState<Record<string, string>>({});
+  const [formDefault, setFormDefault] = useState<Record<string, string>>({});
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const init: Record<string, string> = {};
+  const resetForm = () => {
+    setEditingId(null);
+    setFormName("");
+    setFormSlug("");
+    setFormDescription("");
+    setFormSort(0);
+    setFormActive(true);
+    const emptyD: Record<string, string> = {};
+    const emptyDef: Record<string, string> = {};
     for (const f of template.fieldsSchema) {
-      init[f.name] = "";
+      emptyD[f.name] = "";
+      emptyDef[f.name] = "";
     }
-    setLineTexts(init);
-    setCost("");
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset only when opening or switching template id
-  }, [isOpen, template.id]);
-
-  const entryCount = useMemo(() => {
-    const lengths = template.fieldsSchema.map((f) =>
-      splitFieldLines(lineTexts[f.name] ?? "").length
-    );
-    return lengths.length ? Math.max(0, ...lengths) : 0;
-  }, [lineTexts, template.fieldsSchema]);
-
-  const parsedItems = useMemo(() => {
-    if (entryCount === 0) return [];
-    const out: Record<string, string>[] = [];
-    for (let i = 0; i < entryCount; i++) {
-      const row: Record<string, string> = {};
-      for (const f of template.fieldsSchema) {
-        const lines = splitFieldLines(lineTexts[f.name] ?? "");
-        row[f.name] = (lines[i] ?? "").trim();
-      }
-      if (Object.values(row).some((v) => v.length > 0)) {
-        out.push(row);
-      }
-    }
-    return out;
-  }, [entryCount, lineTexts, template.fieldsSchema]);
-
-  const setFieldText = (fieldName: string, value: string) => {
-    setLineTexts((prev) => ({ ...prev, [fieldName]: value }));
+    setFormDefining(emptyD);
+    setFormDefault(emptyDef);
   };
 
-  const handleSubmit = async () => {
-    if (parsedItems.length === 0) {
-      toast.error("No items to add");
-      return;
-    }
-
-    setSubmitting(true);
+  const load = useCallback(async () => {
+    setLoading(true);
     try {
-      const res = await fetch(`/api/inventory/templates/${template.id}/stock`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: parsedItems, cost: cost || null }),
-      });
+      const res = await fetch(`/api/inventory/templates/${template.id}/catalog-items`);
       const data = await res.json();
       if (data.success) {
-        toast.success(`Added ${data.data.count} stock entries`);
-        onClose();
+        setRows(data.data as CatalogApiRow[]);
       } else {
-        toast.error(data.error || "Failed to add stock");
+        toast.error(data.error || "Failed to load catalog items");
       }
     } catch {
       toast.error("Network error");
     } finally {
-      setSubmitting(false);
+      setLoading(false);
+    }
+  }, [template.id]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    resetForm();
+    load();
+  }, [isOpen, template.id, load]);
+
+  const startEdit = (row: CatalogApiRow) => {
+    setEditingId(row.id);
+    setFormName(row.name);
+    setFormSlug(row.slug ?? "");
+    setFormDescription(row.description ?? "");
+    setFormSort(row.sortOrder);
+    setFormActive(row.isActive);
+    setFormDefining(catalogValuesToForm(template, row.definingValues));
+    setFormDefault(catalogValuesToForm(template, row.defaultValues));
+  };
+
+  const submit = async () => {
+    if (!formName.trim()) {
+      toast.error("Name is required");
+      return;
+    }
+    const defining = formToCatalogValues(template, formDefining);
+    const defaults = formToCatalogValues(template, formDefault);
+    setSaving(true);
+    try {
+      const payload = {
+        name: formName.trim(),
+        slug: formSlug.trim() || null,
+        description: formDescription.trim() || null,
+        definingValues: defining,
+        defaultValues: defaults,
+        isActive: formActive,
+        sortOrder: formSort,
+      };
+      const url = editingId
+        ? `/api/inventory/templates/${template.id}/catalog-items/${editingId}`
+        : `/api/inventory/templates/${template.id}/catalog-items`;
+      const res = await fetch(url, {
+        method: editingId ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(editingId ? "Updated" : "Created");
+        resetForm();
+        load();
+      } else {
+        toast.error(data.error || "Save failed");
+      }
+    } catch {
+      toast.error("Network error");
+    } finally {
+      setSaving(false);
     }
   };
 
-  const fieldGridClass =
-    template.fieldsSchema.length === 1
-      ? "grid grid-cols-1 gap-4"
-      : template.fieldsSchema.length === 2
-        ? "grid grid-cols-1 sm:grid-cols-2 gap-4"
-        : "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4";
+  const remove = async (id: string) => {
+    if (!confirm("Delete this inventory product? Stock rows keep their link until you reassign.")) return;
+    try {
+      const res = await fetch(`/api/inventory/templates/${template.id}/catalog-items/${id}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success("Deleted");
+        if (editingId === id) resetForm();
+        load();
+      } else {
+        toast.error(data.error || "Delete failed");
+      }
+    } catch {
+      toast.error("Network error");
+    }
+  };
 
   return (
     <Dialog open={isOpen} onOpenChange={(val) => !val && onClose()}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Add Stock to {template.name}</DialogTitle>
+          <DialogTitle>Inventory products — {template.name}</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4 pt-2">
+        <div className="space-y-4 pt-2 text-sm">
           <p className="text-xs text-muted-foreground">
-            Each line in a column is one value for that field. Line 1 across columns = first stock entry, line 2 =
-            second entry, and so on. Shorter columns count as empty values for missing lines.
+            Each product is a SKU under this template (e.g. duration variants). When products exist here, new stock and
+            manual sell must pick one.
           </p>
 
-          {/* Cost */}
-          <div className="max-w-xs">
-            <label className="text-xs text-muted-foreground block mb-1">Cost per item (optional)</label>
-            <input
-              type="number"
-              step="0.01"
-              value={cost}
-              onChange={(e) => setCost(e.target.value)}
-              placeholder="0.00"
-              className="w-full px-3 py-2 bg-secondary border border-input rounded-lg text-sm"
-            />
-          </div>
+          {loading ? (
+            <div className="py-8 text-center text-muted-foreground">Loading…</div>
+          ) : (
+            <ul className="border border-border rounded-lg divide-y max-h-40 overflow-y-auto">
+              {rows.length === 0 ? (
+                <li className="p-3 text-muted-foreground text-xs">No products yet.</li>
+              ) : (
+                rows.map((r) => (
+                  <li key={r.id} className="p-3 flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <span className="font-medium">{r.name}</span>
+                      <span className="text-xs text-muted-foreground ml-2">
+                        {r.availableCount} available rows
+                      </span>
+                      {!r.isActive ? (
+                        <span className="text-xs text-amber-600 ml-2">inactive</span>
+                      ) : null}
+                    </div>
+                    <div className="flex gap-1">
+                      <Button type="button" size="sm" variant="outline" onClick={() => startEdit(r)}>
+                        <Edit className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="text-destructive"
+                        onClick={() => remove(r.id)}
+                      >
+                        <Trash className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  </li>
+                ))
+              )}
+            </ul>
+          )}
 
-          <div className={fieldGridClass}>
-            {template.fieldsSchema.map((f) => {
-              const lines = splitFieldLines(lineTexts[f.name] ?? "");
-              return (
-                <div key={f.name} className="flex flex-col gap-1.5 min-w-0">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <label className="text-sm font-medium text-foreground">
-                      {f.label}
-                      {f.required && <span className="text-destructive"> *</span>}
-                    </label>
-                    <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">
-                      {lines.length} lines
-                    </span>
-                  </div>
-                  <textarea
-                    rows={8}
-                    className="w-full min-h-[12rem] px-3 py-2 bg-background border border-input rounded-lg text-sm font-mono resize-y"
-                    value={lineTexts[f.name] ?? ""}
-                    onChange={(e) => setFieldText(f.name, e.target.value)}
-                    placeholder={`One value per line for ${f.label}…`}
-                    spellCheck={false}
+          <div className="border border-border rounded-lg p-4 space-y-3 bg-muted/30">
+            <h4 className="font-semibold text-sm">{editingId ? "Edit product" : "New product"}</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Name *</label>
+                <input
+                  className="w-full px-2 py-1.5 bg-background border border-input rounded text-sm"
+                  value={formName}
+                  onChange={(e) => setFormName(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Sort order</label>
+                <input
+                  type="number"
+                  className="w-full px-2 py-1.5 bg-background border border-input rounded text-sm"
+                  value={formSort}
+                  onChange={(e) => setFormSort(Number(e.target.value) || 0)}
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Slug (optional)</label>
+                <input
+                  className="w-full px-2 py-1.5 bg-background border border-input rounded text-sm"
+                  value={formSlug}
+                  onChange={(e) => setFormSlug(e.target.value)}
+                />
+              </div>
+              <div className="flex items-end gap-2">
+                <label className="flex items-center gap-2 text-xs cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formActive}
+                    onChange={(e) => setFormActive(e.target.checked)}
                   />
+                  Active
+                </label>
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Description</label>
+              <textarea
+                rows={2}
+                className="w-full px-2 py-1.5 bg-background border border-input rounded text-sm resize-y"
+                value={formDescription}
+                onChange={(e) => setFormDescription(e.target.value)}
+              />
+            </div>
+
+            <p className="text-xs text-muted-foreground font-medium">Defining values (fixed for this SKU)</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {template.fieldsSchema.map((f) => (
+                <div key={`d-${f.name}`}>
+                  <label className="text-[10px] text-muted-foreground block mb-0.5">{f.label}</label>
+                  {f.type === "boolean" ? (
+                    <select
+                      className="w-full px-2 py-1 bg-background border border-input rounded text-sm"
+                      value={formDefining[f.name] || ""}
+                      onChange={(e) =>
+                        setFormDefining((p) => ({ ...p, [f.name]: e.target.value }))
+                      }
+                    >
+                      <option value="">(none)</option>
+                      <option value="true">true</option>
+                      <option value="false">false</option>
+                    </select>
+                  ) : (
+                    <input
+                      type={f.type === "number" ? "number" : "text"}
+                      className="w-full px-2 py-1 bg-background border border-input rounded text-sm"
+                      value={formDefining[f.name] || ""}
+                      onChange={(e) =>
+                        setFormDefining((p) => ({ ...p, [f.name]: e.target.value }))
+                      }
+                    />
+                  )}
                 </div>
-              );
-            })}
+              ))}
+            </div>
+
+            <p className="text-xs text-muted-foreground font-medium">Default values (pre-fill add-stock)</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {template.fieldsSchema.map((f) => (
+                <div key={`def-${f.name}`}>
+                  <label className="text-[10px] text-muted-foreground block mb-0.5">{f.label}</label>
+                  {f.type === "boolean" ? (
+                    <select
+                      className="w-full px-2 py-1 bg-background border border-input rounded text-sm"
+                      value={formDefault[f.name] || ""}
+                      onChange={(e) =>
+                        setFormDefault((p) => ({ ...p, [f.name]: e.target.value }))
+                      }
+                    >
+                      <option value="">(none)</option>
+                      <option value="true">true</option>
+                      <option value="false">false</option>
+                    </select>
+                  ) : f.type === "multiline" ? (
+                    <textarea
+                      rows={2}
+                      className="w-full px-2 py-1 bg-background border border-input rounded text-sm font-mono"
+                      value={formDefault[f.name] || ""}
+                      onChange={(e) =>
+                        setFormDefault((p) => ({ ...p, [f.name]: e.target.value }))
+                      }
+                    />
+                  ) : (
+                    <input
+                      type={f.type === "number" ? "number" : "text"}
+                      className="w-full px-2 py-1 bg-background border border-input rounded text-sm"
+                      value={formDefault[f.name] || ""}
+                      onChange={(e) =>
+                        setFormDefault((p) => ({ ...p, [f.name]: e.target.value }))
+                      }
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap gap-2 pt-2">
+              <Button type="button" size="sm" onClick={submit} disabled={saving}>
+                {saving ? "Saving…" : editingId ? "Save changes" : "Create"}
+              </Button>
+              {editingId ? (
+                <Button type="button" size="sm" variant="ghost" onClick={resetForm} disabled={saving}>
+                  Cancel edit
+                </Button>
+              ) : null}
+            </div>
           </div>
 
-          <p className="text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">{entryCount}</span> entries detected (by max line count)
-            {parsedItems.length !== entryCount && entryCount > 0 ? (
-              <span className="block text-xs mt-1">
-                {parsedItems.length} non-empty row{parsedItems.length === 1 ? "" : "s"} will be submitted (all-blank
-                rows skipped).
-              </span>
-            ) : null}
-          </p>
-
-          {/* Submit */}
-          <div className="flex justify-end gap-2 pt-2 border-t border-border">
-            <Button variant="outline" onClick={onClose} disabled={submitting}>
-              Cancel
-            </Button>
-            <Button onClick={handleSubmit} disabled={submitting || parsedItems.length === 0}>
-              {submitting ? "Adding…" : `Add ${parsedItems.length} entries`}
+          <div className="flex justify-end">
+            <Button type="button" variant="outline" onClick={onClose}>
+              Close
             </Button>
           </div>
         </div>

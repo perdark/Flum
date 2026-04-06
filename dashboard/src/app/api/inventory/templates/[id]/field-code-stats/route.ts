@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { inventoryItems, inventoryTemplates } from "@/db/schema";
+import { inventoryCatalogItems, inventoryItems, inventoryTemplates } from "@/db/schema";
 import { requirePermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
 import { and, eq, sql } from "drizzle-orm";
@@ -22,8 +22,31 @@ export async function GET(
     const { id: templateId } = await params;
     const { searchParams } = new URL(request.url);
     const poolAvailableOnly = searchParams.get("pool") === "available";
+    const catalogItemIdRaw = searchParams.get("catalogItemId");
+    const catalogItemId =
+      catalogItemIdRaw && /^[0-9a-f-]{36}$/i.test(catalogItemIdRaw) ? catalogItemIdRaw : null;
 
     const db = getDb();
+
+    if (catalogItemId) {
+      const [cat] = await db
+        .select({ id: inventoryCatalogItems.id })
+        .from(inventoryCatalogItems)
+        .where(
+          and(
+            eq(inventoryCatalogItems.id, catalogItemId),
+            eq(inventoryCatalogItems.templateId, templateId),
+            sql`${inventoryCatalogItems.deletedAt} IS NULL`
+          )
+        )
+        .limit(1);
+      if (!cat) {
+        return NextResponse.json(
+          { success: false, error: "Catalog item not found for this template" },
+          { status: 404 }
+        );
+      }
+    }
 
     const [template] = await db
       .select({ fieldsSchema: inventoryTemplates.fieldsSchema })
@@ -48,6 +71,9 @@ export async function GET(
       baseConditions.push(eq(inventoryItems.status, "available"));
     } else {
       baseConditions.push(manualSellInventoryCondition(user.id));
+    }
+    if (catalogItemId) {
+      baseConditions.push(eq(inventoryItems.catalogItemId, catalogItemId));
     }
 
     const items = await db

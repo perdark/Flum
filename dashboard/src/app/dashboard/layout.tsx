@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser, getEffectivePermissions } from "@/lib/auth";
-import { Sidebar } from "@/components/dashboard/Sidebar";
+import { DashboardSidebarGate } from "@/components/dashboard/DashboardSidebarGate";
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 
 export default async function DashboardLayout({
@@ -18,13 +18,16 @@ export default async function DashboardLayout({
 
   return (
     <div className="flex min-h-screen bg-background font-sans">
-      <Sidebar
+      <DashboardSidebarGate
         userRole={user.role as "admin" | "staff"}
         permissions={permissions}
       />
 
       <div className="flex-1 flex flex-col min-w-0">
-        <DashboardHeader userName={user.name} userRole={user.role} />
+        <DashboardHeader
+          userName={user.name}
+          userRole={user.role ?? "staff"}
+        />
 
         <main className="flex-1 p-4 sm:p-6 dashboard-main">{children}</main>
       </div>

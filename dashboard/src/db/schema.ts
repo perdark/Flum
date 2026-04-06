@@ -206,10 +206,41 @@ export const inventoryTemplates = pgTable('inventory_templates', {
   nameIdx: index('inventory_templates_name_idx').on(table.name),
 }));
 
+/** Internal SKU under a template (e.g. "Steam 2 month") — not a storefront product */
+export const inventoryCatalogItems = pgTable(
+  'inventory_catalog_items',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    templateId: uuid('template_id')
+      .notNull()
+      .references(() => inventoryTemplates.id, { onDelete: 'cascade' }),
+    name: varchar('name', { length: 255 }).notNull(),
+    slug: varchar('slug', { length: 255 }),
+    description: text('description'),
+    definingValues: jsonb('defining_values').$type<Record<string, string | number | boolean>>(),
+    defaultValues: jsonb('default_values').$type<Record<string, string | number | boolean>>(),
+    isActive: boolean('is_active').default(true).notNull(),
+    sortOrder: integer('sort_order').default(0).notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+    deletedAt: timestamp('deleted_at'),
+  },
+  (table) => ({
+    templateIdx: index('inventory_catalog_items_template_idx').on(table.templateId),
+    templateNameUnique: uniqueIndex('inventory_catalog_items_template_name_unique').on(
+      table.templateId,
+      table.name
+    ),
+  })
+);
+
 // Inventory Items - actual inventory with dynamic values
 export const inventoryItems = pgTable('inventory_items', {
   id: uuid('id').defaultRandom().primaryKey(),
   templateId: uuid('template_id').references(() => inventoryTemplates.id, { onDelete: 'set null' }),
+  catalogItemId: uuid('catalog_item_id').references(() => inventoryCatalogItems.id, {
+    onDelete: 'set null',
+  }),
   productId: uuid('product_id').references(() => products.id, { onDelete: 'cascade' }),
   variantId: uuid('variant_id'),
   values: jsonb('values').notNull(),
@@ -238,6 +269,12 @@ export const inventoryItems = pgTable('inventory_items', {
   orderItemIdx: index('inventory_items_order_item_idx').on(table.orderItemId),
   availableIdx: index('inventory_items_available_idx').on(table.productId, table.status),
   templateStatusIdx: index('inventory_items_template_status_idx').on(table.templateId, table.status),
+  catalogItemIdx: index('inventory_items_catalog_item_idx').on(table.catalogItemId),
+  templateCatalogStatusIdx: index('inventory_items_template_catalog_status_idx').on(
+    table.templateId,
+    table.catalogItemId,
+    table.status
+  ),
   reservedByIdx: index('inventory_items_reserved_by_idx').on(table.reservedBy),
 }));
 
@@ -822,6 +859,8 @@ export type NewStoreSettings = typeof storeSettings.$inferInsert;
 
 export type InventoryTemplate = typeof inventoryTemplates.$inferSelect;
 export type NewInventoryTemplate = typeof inventoryTemplates.$inferInsert;
+export type InventoryCatalogItem = typeof inventoryCatalogItems.$inferSelect;
+export type NewInventoryCatalogItem = typeof inventoryCatalogItems.$inferInsert;
 
 
 export type InventoryItem = typeof inventoryItems.$inferSelect;

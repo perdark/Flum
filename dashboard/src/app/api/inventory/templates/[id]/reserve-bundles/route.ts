@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { inventoryItems, inventoryTemplates, products } from "@/db/schema";
+import { inventoryCatalogItems, inventoryItems, inventoryTemplates, products } from "@/db/schema";
 import { requirePermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
+import { templateRequiresCatalogItem } from "@/lib/inventoryCatalog";
 import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import {
   countCodesForFieldWithSchema,
@@ -27,6 +28,8 @@ type ReserveBundlesBody = {
   bundleCount?: number;
   /** Release these reserved lines (same user) before re-reserving */
   previousReservedIds?: string[];
+  /** Required when the template has inventory catalog items */
+  catalogItemId?: string | null;
 };
 
 /**
@@ -48,12 +51,44 @@ export async function POST(
     const previousReservedIds = prevRaw.filter(
       (s): s is string => typeof s === "string" && /^[0-9a-f-]{36}$/i.test(s)
     );
+    const catalogItemIdRaw = body.catalogItemId;
+    const catalogItemId =
+      typeof catalogItemIdRaw === "string" && /^[0-9a-f-]{36}$/i.test(catalogItemIdRaw)
+        ? catalogItemIdRaw
+        : null;
 
     if (bundleCount < 0) {
       return NextResponse.json({ success: false, error: "Invalid bundle count" }, { status: 400 });
     }
 
     const db = getDb();
+
+    const requiresCatalog = await templateRequiresCatalogItem(db, templateId);
+    if (requiresCatalog && !catalogItemId) {
+      return NextResponse.json(
+        { success: false, error: "catalogItemId is required for this template" },
+        { status: 400 }
+      );
+    }
+    if (catalogItemId) {
+      const [cat] = await db
+        .select({ id: inventoryCatalogItems.id })
+        .from(inventoryCatalogItems)
+        .where(
+          and(
+            eq(inventoryCatalogItems.id, catalogItemId),
+            eq(inventoryCatalogItems.templateId, templateId),
+            sql`${inventoryCatalogItems.deletedAt} IS NULL`
+          )
+        )
+        .limit(1);
+      if (!cat) {
+        return NextResponse.json(
+          { success: false, error: "Catalog item not found for this template" },
+          { status: 404 }
+        );
+      }
+    }
     const reservedUntil = new Date(Date.now() + RESERVE_TTL_MS);
 
     const [template] = await db
@@ -123,6 +158,9 @@ export async function POST(
           eq(inventoryItems.status, "available"),
           sql`${inventoryItems.deletedAt} IS NULL`,
         ];
+        if (catalogItemId) {
+          cond.push(eq(inventoryItems.catalogItemId, catalogItemId));
+        }
         if (excluded.size > 0) {
           cond.push(notInArray(inventoryItems.id, [...excluded]));
         }
@@ -177,6 +215,7 @@ export async function POST(
               templateId: row.templateId,
               productId: row.productId,
               variantId: row.variantId,
+              catalogItemId: row.catalogItemId ?? catalogItemId,
               values: newVals as Record<string, string | number | boolean>,
               cost: costStr,
               status: "reserved",

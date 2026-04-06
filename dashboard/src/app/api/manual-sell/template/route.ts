@@ -5,6 +5,7 @@ import { requirePermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
 import { eq, sql } from "drizzle-orm";
 import { logActivity } from "@/services/activityLog";
+import { templateRequiresCatalogItem } from "@/lib/inventoryCatalog";
 
 /** PostgreSQL uuid[] literal for ANY() / ALL() */
 function sqlUuidArray(ids: string[]) {
@@ -19,6 +20,9 @@ interface TemplateSellRequest {
   customerName?: string;
   unitPrice?: number;
   label?: string;
+  /** Template-backed internal SKU (inventory_catalog_items) */
+  catalogItemId?: string;
+  catalogItemName?: string;
   /** Read-only: availability vs cart ids (no sale) */
   dryRun?: boolean;
   /** When true (default), missing cart ids are replaced with FIFO rows from the same template */
@@ -46,6 +50,17 @@ export async function POST(request: NextRequest) {
       shortageHandling = "complete",
     } = body;
 
+    const catalogItemId =
+      typeof body.catalogItemId === "string" && body.catalogItemId.trim().length > 0
+        ? body.catalogItemId.trim()
+        : null;
+    const catalogItemName =
+      typeof body.catalogItemName === "string" && body.catalogItemName.trim().length > 0
+        ? body.catalogItemName.trim()
+        : null;
+
+    const catalogPoolFilter = catalogItemId ? sql`AND catalog_item_id = ${catalogItemId}` : sql``;
+
     const idList = Array.isArray(inventoryIds)
       ? inventoryIds.filter((x): x is string => typeof x === "string" && x.length > 0)
       : [];
@@ -69,6 +84,18 @@ export async function POST(request: NextRequest) {
 
     if (!template) {
       return NextResponse.json({ success: false, error: "Template not found" }, { status: 404 });
+    }
+
+    const catalogRequired = await templateRequiresCatalogItem(db, templateId);
+    if (catalogRequired && !catalogItemId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "This template uses inventory products — select a catalog SKU (catalogItemId) to sell stock.",
+        },
+        { status: 400 }
+      );
     }
 
     if (dryRun) {
@@ -96,6 +123,7 @@ export async function POST(request: NextRequest) {
         FROM inventory_items
         WHERE template_id = ${templateId}
           AND deleted_at IS NULL
+          ${catalogPoolFilter}
           AND (
             status = 'available'
             OR (status = 'reserved' AND reserved_by = ${user.id})
@@ -146,7 +174,7 @@ export async function POST(request: NextRequest) {
       const lockedResult =
         idList.length > 0
           ? await tx.execute(sql`
-        SELECT id, values, status, template_id, product_id
+        SELECT id, values, status, template_id, product_id, catalog_item_id
         FROM inventory_items
         WHERE id = ANY(${sqlUuidArray(idList)})
           AND template_id = ${templateId}
@@ -166,9 +194,17 @@ export async function POST(request: NextRequest) {
         status: string;
         template_id: string;
         product_id: string | null;
+        catalog_item_id: string | null;
       };
 
       let lockedRowsRaw = lockedResult.rows as RawRow[];
+
+      if (catalogItemId) {
+        const bad = lockedRowsRaw.filter((r) => r.catalog_item_id !== catalogItemId);
+        if (bad.length > 0) {
+          throw new Error("Some stock entries do not match the selected inventory product");
+        }
+      }
       const lockedIds = new Set(lockedRowsRaw.map((r) => r.id));
 
       let stockRowsRaw = [...lockedRowsRaw];
@@ -177,11 +213,12 @@ export async function POST(request: NextRequest) {
         const excludeIds = [...new Set([...lockedIds])];
         const need = target - stockRowsRaw.length;
         const repResult = await tx.execute(sql`
-          SELECT id, values, status, template_id, product_id
+          SELECT id, values, status, template_id, product_id, catalog_item_id
           FROM inventory_items
           WHERE template_id = ${templateId}
             AND status = 'available'
             AND deleted_at IS NULL
+            ${catalogPoolFilter}
             AND id <> ALL(${sqlUuidArray(excludeIds)})
           ORDER BY created_at ASC
           LIMIT ${need}
@@ -247,6 +284,12 @@ export async function POST(request: NextRequest) {
             templateName: template.name,
             requestedTemplateLines: target,
             fulfilledTemplateLines: soldCount,
+            ...(catalogItemId
+              ? {
+                  catalogItemId,
+                  ...(catalogItemName ? { catalogItemName } : {}),
+                }
+              : {}),
             ...(hadReplacements
               ? {
                   replacedItems: missingFromCart,
@@ -312,6 +355,7 @@ export async function POST(request: NextRequest) {
         templateName: template.name,
         soldCount: result.soldCount,
         pendingRemainder: result.isPendingRemainder,
+        ...(catalogItemId ? { catalogItemId, ...(catalogItemName ? { catalogItemName } : {}) } : {}),
       },
     });
 

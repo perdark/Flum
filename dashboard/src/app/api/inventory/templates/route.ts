@@ -7,9 +7,9 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { inventoryTemplates, inventoryItems } from "@/db/schema";
+import { inventoryTemplates, inventoryItems, inventoryCatalogItems } from "@/db/schema";
 import { requireAdmin } from "@/lib/auth";
-import { eq, sql, and } from "drizzle-orm";
+import { eq, sql, and, inArray, isNull } from "drizzle-orm";
 import { countCodesInRowWithSchema, getTemplateFieldsForCodes, type FieldSchemaForCodes } from "@/lib/inventoryCodes";
 
 // ============================================================================
@@ -49,6 +49,7 @@ export async function GET() {
     const invRows = await db
       .select({
         templateId: inventoryItems.templateId,
+        catalogItemId: inventoryItems.catalogItemId,
         values: inventoryItems.values,
       })
       .from(inventoryItems)
@@ -60,6 +61,31 @@ export async function GET() {
         )
       );
 
+    const templateIds = templates.map((t) => t.id);
+    const catalogList =
+      templateIds.length > 0
+        ? await db
+            .select({
+              id: inventoryCatalogItems.id,
+              templateId: inventoryCatalogItems.templateId,
+              name: inventoryCatalogItems.name,
+              sortOrder: inventoryCatalogItems.sortOrder,
+              definingValues: inventoryCatalogItems.definingValues,
+              defaultValues: inventoryCatalogItems.defaultValues,
+            })
+            .from(inventoryCatalogItems)
+            .where(
+              and(inArray(inventoryCatalogItems.templateId, templateIds), isNull(inventoryCatalogItems.deletedAt))
+            )
+            .orderBy(inventoryCatalogItems.sortOrder, inventoryCatalogItems.name)
+        : [];
+
+    const catalogByTemplate = new Map<string, typeof catalogList>();
+    for (const c of catalogList) {
+      if (!catalogByTemplate.has(c.templateId)) catalogByTemplate.set(c.templateId, []);
+      catalogByTemplate.get(c.templateId)!.push(c);
+    }
+
     const fieldsByTemplate = new Map<string, FieldSchemaForCodes[]>();
     for (const t of templates) {
       fieldsByTemplate.set(
@@ -69,6 +95,11 @@ export async function GET() {
     }
 
     const codesByTemplate = new Map<string, number>();
+    const codesByCatalogItem = new Map<string, number>();
+    const stockRowsByCatalogItem = new Map<string, number>();
+    /** Rows / codes not tied to an inventory product (catalog_item_id null) */
+    const unassignedCodesByTemplate = new Map<string, number>();
+    const unassignedRowsByTemplate = new Map<string, number>();
     for (const row of invRows) {
       const tid = row.templateId;
       if (!tid) continue;
@@ -76,14 +107,41 @@ export async function GET() {
       if (!fieldDefs?.length) continue;
       const vals = row.values as Record<string, unknown>;
       const add = countCodesInRowWithSchema(vals, fieldDefs);
-      if (add === 0) continue;
-      codesByTemplate.set(tid, (codesByTemplate.get(tid) ?? 0) + add);
+
+      if (row.catalogItemId) {
+        if (add > 0) {
+          codesByTemplate.set(tid, (codesByTemplate.get(tid) ?? 0) + add);
+          const cid = row.catalogItemId;
+          codesByCatalogItem.set(cid, (codesByCatalogItem.get(cid) ?? 0) + add);
+          stockRowsByCatalogItem.set(cid, (stockRowsByCatalogItem.get(cid) ?? 0) + 1);
+        }
+      } else {
+        unassignedRowsByTemplate.set(tid, (unassignedRowsByTemplate.get(tid) ?? 0) + 1);
+        if (add > 0) {
+          codesByTemplate.set(tid, (codesByTemplate.get(tid) ?? 0) + add);
+          unassignedCodesByTemplate.set(tid, (unassignedCodesByTemplate.get(tid) ?? 0) + add);
+        }
+      }
     }
 
-    const data = templates.map((t) => ({
-      ...t,
-      codesCount: codesByTemplate.get(t.id) ?? 0,
-    }));
+    const data = templates.map((t) => {
+      const items = (catalogByTemplate.get(t.id) ?? []).map((c) => ({
+        id: c.id,
+        name: c.name,
+        sortOrder: c.sortOrder,
+        definingValues: c.definingValues,
+        defaultValues: c.defaultValues,
+        stockCount: stockRowsByCatalogItem.get(c.id) ?? 0,
+        codesCount: codesByCatalogItem.get(c.id) ?? 0,
+      }));
+      return {
+        ...t,
+        codesCount: codesByTemplate.get(t.id) ?? 0,
+        unassignedCodesCount: unassignedCodesByTemplate.get(t.id) ?? 0,
+        unassignedStockCount: unassignedRowsByTemplate.get(t.id) ?? 0,
+        catalogItems: items,
+      };
+    });
 
     return NextResponse.json({
       success: true,

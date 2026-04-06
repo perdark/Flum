@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,11 +11,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { Eye, Edit, Trash, Plus, Package, Clock, Box, Check, X } from "lucide-react";
+import { Eye, Edit, Trash, Plus, Package, Clock, Box } from "lucide-react";
 
 interface FieldSchema {
   name: string;
-  type: "string" | "number" | "boolean";
+  type: "string" | "number" | "boolean" | "group" | "multiline";
   required: boolean;
   label: string;
   isVisibleToAdmin: boolean;
@@ -32,6 +33,11 @@ interface FieldSchema {
   wholeFieldIsOneItem?: boolean;
 }
 
+interface CatalogItemBrief {
+  id: string;
+  name: string;
+}
+
 interface TemplateWithStock {
   id: string;
   name: string;
@@ -46,19 +52,9 @@ interface TemplateWithStock {
   icon: string | null;
   stockCount: number;
   codesCount?: number;
+  unassignedCodesCount?: number;
+  catalogItems?: CatalogItemBrief[];
   createdAt: string;
-}
-
-interface StockEntry {
-  id: string;
-  values: Record<string, any>;
-  status: string;
-  cost: string | null;
-  productId: string | null;
-  createdAt: string;
-  multiSellSaleCount: number;
-  cooldownUntil: string | null;
-  productName: string | null;
 }
 
 export default function InventoryTemplatesPage() {
@@ -67,14 +63,9 @@ export default function InventoryTemplatesPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateWithStock | null>(null);
-  const [selectedField, setSelectedField] = useState<FieldSchema | null>(null);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<TemplateWithStock | null>(null);
-
-  const [stockModalOpen, setStockModalOpen] = useState(false);
-  const [stockItems, setStockItems] = useState<StockEntry[]>([]);
-  const [stockLoading, setStockLoading] = useState(false);
 
   useEffect(() => {
     fetchTemplates();
@@ -95,23 +86,6 @@ export default function InventoryTemplatesPage() {
       toast.error("Network error loading templates");
     } finally {
       setLoading(false);
-    }
-  };
-
-  const fetchStock = async (templateId: string, fieldName: string) => {
-    setStockLoading(true);
-    try {
-      const response = await fetch(`/api/inventory/templates/${templateId}/stock?field=${fieldName}`);
-      const result = await response.json();
-      if (result.success) {
-        setStockItems(result.data);
-      } else {
-        toast.error(result.error || "Failed to load stock");
-      }
-    } catch (error) {
-      toast.error("Network error loading stock");
-    } finally {
-      setStockLoading(false);
     }
   };
 
@@ -161,7 +135,9 @@ export default function InventoryTemplatesPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Inventory Templates</h1>
-          <p className="text-muted-foreground">Define and manage inventory structures</p>
+          <p className="text-muted-foreground">
+            Field schemas only — codes and SKUs live under inventory products and stock batches.
+          </p>
         </div>
         <Button onClick={() => setShowCreateModal(true)}>
           <Plus className="w-4 h-4 mr-2" />
@@ -206,13 +182,28 @@ export default function InventoryTemplatesPage() {
               {template.description || "No description"}
             </p>
 
-            <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
-              <Package className="w-4 h-4" />
-              <span>
-                <strong className="text-foreground">{template.codesCount ?? 0}</strong> codes
-              </span>
-              {template.stockCount > 0 && (template.codesCount ?? 0) !== template.stockCount && (
-                <span className="text-xs tabular-nums">({template.stockCount} rows)</span>
+            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground mb-3">
+              <Package className="w-4 h-4 shrink-0" />
+              {template.catalogItems && template.catalogItems.length > 0 ? (
+                <span>
+                  <strong className="text-foreground">{template.catalogItems.length}</strong> inventory
+                  product{template.catalogItems.length !== 1 ? "s" : ""}
+                  <span className="text-xs ml-1">
+                    · {template.fieldsSchema.length} field{template.fieldsSchema.length !== 1 ? "s" : ""}
+                  </span>
+                  {(template.unassignedCodesCount ?? 0) > 0 && (
+                    <span className="text-xs text-amber-600 dark:text-amber-500 ml-1">
+                      · {template.unassignedCodesCount} unassigned codes
+                    </span>
+                  )}
+                </span>
+              ) : (
+                <span>
+                  <strong className="text-foreground">{template.codesCount ?? 0}</strong> codes
+                  {template.stockCount > 0 && (template.codesCount ?? 0) !== template.stockCount && (
+                    <span className="text-xs tabular-nums ml-1">({template.stockCount} rows)</span>
+                  )}
+                </span>
               )}
             </div>
 
@@ -247,38 +238,47 @@ export default function InventoryTemplatesPage() {
         </div>
       )}
 
-      {/* Fields Panel */}
+      {/* Fields Panel — schema preview only; values & stock live on inventory products */}
       {selectedTemplate && (
         <div className="border border-border bg-background rounded-lg p-6 shadow-sm animate-in fade-in slide-in-from-bottom-4 duration-300">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
             <div>
               <h2 className="text-xl font-semibold">Fields for {selectedTemplate.name}</h2>
-              <p className="text-sm text-muted-foreground">Select a field to view or manage its stock entries.</p>
+              <p className="text-sm text-muted-foreground">
+                This template does not store field values. Define SKUs and codes under{" "}
+                <Link href="/dashboard/inventory/products" className="text-primary underline-offset-2 hover:underline">
+                  Inventory products
+                </Link>
+                .
+              </p>
             </div>
-            <Button variant="outline" size="sm" onClick={() => setSelectedTemplate(null)}>
-              Close Panel
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="primary" size="sm" asChild>
+                <Link href="/dashboard/inventory/products">Open inventory products</Link>
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setSelectedTemplate(null)}>
+                Close panel
+              </Button>
+            </div>
           </div>
 
           <div className="flex flex-wrap gap-3">
-            {selectedTemplate.fieldsSchema.map((field) => (
-              <button
-                key={field.name}
-                onClick={() => {
-                  setSelectedField(field);
-                  setStockModalOpen(true);
-                  fetchStock(selectedTemplate.id, field.name);
-                }}
-                className="flex items-center gap-3 px-4 py-3 bg-secondary hover:bg-secondary/80 border border-input rounded-lg transition-colors text-left"
-              >
-                <div className="flex flex-col">
-                  <span className="font-medium text-foreground">{field.label}</span>
-                  <span className="font-mono text-xs text-muted-foreground">
-                    {field.type} {field.required && "*"}
-                  </span>
+            {[...selectedTemplate.fieldsSchema]
+              .sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0))
+              .map((field) => (
+                <div
+                  key={field.name}
+                  className="flex items-center gap-3 px-4 py-3 bg-secondary/60 border border-input rounded-lg text-left"
+                >
+                  <div className="flex flex-col">
+                    <span className="font-medium text-foreground">{field.label}</span>
+                    <span className="font-mono text-xs text-muted-foreground">
+                      {field.type}
+                      {field.required ? " · required" : ""}
+                    </span>
+                  </div>
                 </div>
-              </button>
-            ))}
+              ))}
           </div>
         </div>
       )}
@@ -295,213 +295,7 @@ export default function InventoryTemplatesPage() {
         />
       )}
 
-      {stockModalOpen && selectedTemplate && selectedField && (
-        <StockModal
-          template={selectedTemplate}
-          field={selectedField}
-          isOpen={stockModalOpen}
-          onClose={() => setStockModalOpen(false)}
-          stockItems={stockItems}
-          loading={stockLoading}
-          onRefresh={() => fetchStock(selectedTemplate.id, selectedField.name)}
-        />
-      )}
     </div>
-  );
-}
-
-// ------------------------------------------------------------------------------------
-// Stock Modal Component
-// ------------------------------------------------------------------------------------
-function StockModal({ template, field, isOpen, onClose, stockItems, loading, onRefresh }: any) {
-  const [newValues, setNewValues] = useState<Record<string, string>>({});
-  const [adding, setAdding] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-
-  const handleAddStock = async () => {
-    try {
-      const res = await fetch(`/api/inventory/templates/${template.id}/stock`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          items: [newValues], // Add exactly one item with the form values
-        }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        toast.success("Stock added");
-        setNewValues({});
-        setAdding(false);
-        onRefresh();
-      } else {
-        toast.error(data.error || "Failed to add stock");
-      }
-    } catch (err) {
-      toast.error("Network error");
-    }
-  };
-
-  const handleDelete = async (itemId: string) => {
-    if (!confirm("Delete this stock entry?")) return;
-    try {
-      const res = await fetch(`/api/inventory/templates/${template.id}/stock/${itemId}`, {
-        method: "DELETE",
-      });
-      const data = await res.json();
-      if (data.success) {
-        toast.success("Stock deleted");
-        onRefresh();
-      } else {
-        toast.error(data.error || "Failed to delete");
-      }
-    } catch {
-      toast.error("Network error");
-    }
-  };
-
-  const handleUpdate = async (itemId: string) => {
-    try {
-      const res = await fetch(`/api/inventory/templates/${template.id}/stock/${itemId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ values: newValues }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        toast.success("Stock updated");
-        setEditingId(null);
-        setNewValues({});
-        onRefresh();
-      } else {
-        toast.error(data.error || "Failed to update stock");
-      }
-    } catch {
-      toast.error("Network error");
-    }
-  };
-
-  return (
-    <Dialog open={isOpen} onOpenChange={(val) => !val && onClose()}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>
-            Stock for {template.name} &rsaquo; {field.label}
-          </DialogTitle>
-        </DialogHeader>
-
-        <div className="space-y-4 py-4">
-          {/* Add Form */}
-          <div className="bg-secondary p-4 rounded-lg border border-border">
-            <h4 className="font-semibold text-sm mb-3">
-              {adding ? "Add New Stock Entry" : "Actions"}
-            </h4>
-            {!adding ? (
-              <Button onClick={() => setAdding(true)}>
-                <Plus className="w-4 h-4 mr-2" /> Add Stock
-              </Button>
-            ) : (
-              <div className="space-y-3">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {template.fieldsSchema.map((f: FieldSchema) => (
-                    <div key={f.name}>
-                      <label className="text-xs text-muted-foreground block mb-1">
-                        {f.label} {f.required && "*"}
-                      </label>
-                      <input
-                        type={f.type === "number" ? "number" : "text"}
-                        className="w-full px-3 py-1.5 text-sm bg-background border border-input rounded"
-                        value={newValues[f.name] || ""}
-                        onChange={(e) => setNewValues({ ...newValues, [f.name]: e.target.value })}
-                        required={f.required}
-                      />
-                    </div>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <Button size="sm" onClick={handleAddStock}>Save</Button>
-                  <Button size="sm" variant="ghost" onClick={() => setAdding(false)}>Cancel</Button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* List */}
-          {loading ? (
-            <div className="text-center py-8 text-muted-foreground">Loading...</div>
-          ) : stockItems.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground border border-dashed rounded-lg">
-              No stock found.
-            </div>
-          ) : (
-            <div className="border border-border rounded-lg overflow-x-auto">
-              <table className="w-full text-sm text-left">
-                <thead className="bg-secondary text-muted-foreground text-xs uppercase">
-                  <tr>
-                    <th className="px-4 py-3">Value ({field.label})</th>
-                    <th className="px-4 py-3">Status</th>
-                    <th className="px-4 py-3">Created At</th>
-                    <th className="px-4 py-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {stockItems.map((item: any) => {
-                    const isEditing = editingId === item.id;
-                    return (
-                      <tr key={item.id} className="hover:bg-muted/50">
-                        <td className="px-4 py-3 font-mono text-xs break-all max-w-xs">
-                          {isEditing ? (
-                            <input
-                              type="text"
-                              className="w-full px-2 py-1 bg-background border"
-                              value={newValues[field.name] || ""}
-                              onChange={(e) => setNewValues({ ...newValues, [field.name]: e.target.value })}
-                            />
-                          ) : (
-                            item.values?.[field.name] || <em className="text-muted-foreground">empty</em>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={cn(
-                            "px-2 py-1 rounded-full text-xs",
-                            item.status === 'available' ? 'bg-success/10 text-success' : 'bg-muted text-muted-foreground'
-                          )}>
-                            {item.status}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-muted-foreground">
-                          {new Date(item.createdAt).toLocaleString()}
-                        </td>
-                        <td className="px-4 py-3 text-right flex justify-end gap-2">
-                          {isEditing ? (
-                            <>
-                              <Button size="icon" variant="ghost" className="text-success h-7 w-7" onClick={() => handleUpdate(item.id)}>
-                                <Check className="w-4 h-4" />
-                              </Button>
-                              <Button size="icon" variant="ghost" className="text-muted-foreground h-7 w-7" onClick={() => { setEditingId(null); setNewValues({}); }}>
-                                <X className="w-4 h-4" />
-                              </Button>
-                            </>
-                          ) : (
-                            <>
-                              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setEditingId(item.id); setNewValues({ ...item.values }); }}>
-                                <Edit className="w-4 h-4" />
-                              </Button>
-                              <Button size="icon" variant="ghost" className="text-destructive hover:bg-destructive/10 h-7 w-7" onClick={() => handleDelete(item.id)}>
-                                <Trash className="w-4 h-4" />
-                              </Button>
-                            </>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
   );
 }
 

@@ -3,6 +3,10 @@ import { getDb } from "@/db";
 import { inventoryItems, products } from "@/db/schema";
 import { requirePermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
+import {
+  mergeCatalogIntoValues,
+  resolveCatalogInsertContext,
+} from "@/lib/inventoryCatalog";
 import { eq, and, sql, desc, asc, notInArray } from "drizzle-orm";
 
 // GET /api/inventory/templates/[id]/stock
@@ -29,6 +33,7 @@ export async function GET(
       8000,
       Math.max(1, parseInt(searchParams.get("poolLimit") || "3000", 10) || 3000)
     );
+    const catalogItemIdParam = searchParams.get("catalogItemId");
 
     const db = getDb();
 
@@ -36,6 +41,9 @@ export async function GET(
       eq(inventoryItems.templateId, templateId),
       sql`${inventoryItems.deletedAt} IS NULL`,
     ];
+    if (catalogItemIdParam && /^[0-9a-f-]{36}$/i.test(catalogItemIdParam)) {
+      conditions.push(eq(inventoryItems.catalogItemId, catalogItemIdParam));
+    }
 
     if (status !== "all") {
       conditions.push(eq(inventoryItems.status, status));
@@ -125,10 +133,11 @@ export async function POST(
     await requirePermission(PERMISSIONS.MANAGE_INVENTORY);
     const { id: templateId } = await params;
     const body = await request.json();
-    const { items, cost, productId } = body as {
-      items: Array<Record<string, any>>;
+    const { items, cost, productId, catalogItemId } = body as {
+      items: Array<Record<string, unknown>>;
       cost?: string | number | null;
       productId?: string | null;
+      catalogItemId?: string | null;
     };
 
     if (!items || !Array.isArray(items) || items.length === 0) {
@@ -140,16 +149,39 @@ export async function POST(
 
     const db = getDb();
 
+    const ctx = await resolveCatalogInsertContext(db, templateId, catalogItemId ?? null);
+    if ("error" in ctx) {
+      return NextResponse.json({ success: false, error: ctx.error }, { status: 400 });
+    }
+
     const inserted = await db
       .insert(inventoryItems)
       .values(
-        items.map((vals) => ({
-          templateId,
-          productId: productId || null,
-          values: vals,
-          cost: cost ? String(cost) : null,
-          status: "available" as const,
-        }))
+        items.map((vals) => {
+          const base: Record<string, string | number | boolean> = {};
+          for (const [k, v] of Object.entries(vals)) {
+            if (k === "_metadata") continue;
+            if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
+              base[k] = v;
+            }
+          }
+          const merged =
+            ctx.catalogItemId && (ctx.definingValues || ctx.defaultValues)
+              ? mergeCatalogIntoValues(base, ctx.definingValues, ctx.defaultValues)
+              : base;
+          const fullValues = {
+            ...(vals as Record<string, unknown>),
+            ...merged,
+          } as Record<string, string | number | boolean>;
+          return {
+            templateId,
+            catalogItemId: ctx.catalogItemId,
+            productId: productId || null,
+            values: fullValues,
+            cost: cost ? String(cost) : null,
+            status: "available" as const,
+          };
+        })
       )
       .returning();
 

@@ -8,8 +8,44 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { inventoryTemplates } from "@/db/schema";
-import { requireAdmin } from "@/lib/auth";
-import { eq } from "drizzle-orm";
+import { requireAdmin, requirePermission } from "@/lib/auth";
+import { PERMISSIONS } from "@/types";
+import { and, eq, isNull } from "drizzle-orm";
+
+// ============================================================================
+// GET /api/inventory/templates/[id] - Single template (schema only)
+// ============================================================================
+
+export async function GET(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    await requirePermission(PERMISSIONS.VIEW_PRODUCTS);
+    const { id } = await params;
+    const db = getDb();
+    const [row] = await db
+      .select()
+      .from(inventoryTemplates)
+      .where(and(eq(inventoryTemplates.id, id), isNull(inventoryTemplates.deletedAt)))
+      .limit(1);
+    if (!row) {
+      return NextResponse.json({ success: false, error: "Template not found" }, { status: 404 });
+    }
+    return NextResponse.json({ success: true, data: row });
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === "UNAUTHORIZED") {
+        return NextResponse.json({ success: false, error: "Authentication required" }, { status: 401 });
+      }
+      if (error.message === "FORBIDDEN") {
+        return NextResponse.json({ success: false, error: "Insufficient permissions" }, { status: 403 });
+      }
+    }
+    console.error("Get template error:", error);
+    return NextResponse.json({ success: false, error: "Internal server error" }, { status: 500 });
+  }
+}
 
 // ============================================================================
 // PUT /api/inventory/templates/[id] - Update template

@@ -9,12 +9,25 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { orders, orderItems, inventoryItems, products, users, productPricing } from "@/db/schema";
+import {
+  orders,
+  orderItems,
+  inventoryItems,
+  products,
+  users,
+  productPricing,
+  orderDeliverySnapshots,
+} from "@/db/schema";
 import { requirePermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
 import { eq, and, sql, inArray } from "drizzle-orm";
 import { logActivity } from "@/services/activityLog";
 import { getOrderDeliveryData } from "@/services/autoDelivery";
+import {
+  mergeCatalogIntoValues,
+  resolveCatalogInsertContext,
+  type CatalogInsertContext,
+} from "@/lib/inventoryCatalog";
 
 interface InventoryItemRequest {
   /** Set for product-linked orders */
@@ -75,10 +88,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
       .where(and(eq(orders.id, orderId), sql`deleted_at IS NULL`))
       .limit(1);
 
+    const orderMeta = order?.metadata as Record<string, unknown> | null | undefined;
     const templateIdFromOrder =
-      order?.metadata &&
-      typeof (order.metadata as Record<string, unknown>).templateId === "string"
-        ? ((order.metadata as Record<string, unknown>).templateId as string)
+      orderMeta && typeof orderMeta.templateId === "string" ? orderMeta.templateId : undefined;
+    const catalogItemIdFromOrder =
+      orderMeta && typeof orderMeta.catalogItemId === "string" && orderMeta.catalogItemId.length > 0
+        ? orderMeta.catalogItemId
         : undefined;
 
     if (!order) {
@@ -189,13 +204,16 @@ export async function POST(request: NextRequest, context: RouteContext) {
       }
     }
 
+    /** Per order line: catalog context for inserts (manual-template orders carry catalogItemId in metadata). */
+    const catalogCtxByOrderItemId = new Map<string, CatalogInsertContext>();
+
     for (const orderItem of orderItemsData) {
       const itemsToAdd =
         inventoryByOrderItemId.get(orderItem.id) ||
         (orderItem.productId ? inventoryByProduct.get(orderItem.productId) || [] : []);
       if (itemsToAdd.length === 0) continue;
-      const tid = orderItem.inventoryTemplateId ?? templateIdFromOrder;
-      if (!tid) {
+      const templateIdForLine = orderItem.inventoryTemplateId ?? templateIdFromOrder ?? null;
+      if (!templateIdForLine) {
         return NextResponse.json(
           {
             success: false,
@@ -205,6 +223,17 @@ export async function POST(request: NextRequest, context: RouteContext) {
           { status: 400 }
         );
       }
+      const catalogPayloadId =
+        templateIdFromOrder &&
+        catalogItemIdFromOrder &&
+        templateIdForLine === templateIdFromOrder
+          ? catalogItemIdFromOrder
+          : null;
+      const resolved = await resolveCatalogInsertContext(db, templateIdForLine, catalogPayloadId);
+      if ("error" in resolved) {
+        return NextResponse.json({ success: false, error: resolved.error }, { status: 400 });
+      }
+      catalogCtxByOrderItemId.set(orderItem.id, resolved);
     }
 
     // Process fulfillment
@@ -240,19 +269,28 @@ export async function POST(request: NextRequest, context: RouteContext) {
           orderItem.inventoryTemplateId ?? templateIdFromOrder ?? null;
         if (!templateIdForLine) continue;
 
+        const catalogCtx = catalogCtxByOrderItemId.get(orderItem.id);
+        if (!catalogCtx) continue;
+
         const toFulfillCount = Math.min(stillNeeded, itemsToAdd.length);
         const extraCount = Math.max(0, itemsToAdd.length - toFulfillCount);
 
         const newSoldIds: string[] = [];
         for (let i = 0; i < toFulfillCount; i++) {
           const itemRequest = itemsToAdd[i];
+          const values = mergeCatalogIntoValues(
+            { ...(itemRequest.values || {}) },
+            catalogCtx.definingValues,
+            catalogCtx.defaultValues
+          );
 
           const [inserted] = await tx
             .insert(inventoryItems)
             .values({
               productId: lineProductId,
               templateId: templateIdForLine,
-              values: itemRequest.values || {},
+              catalogItemId: catalogCtx.catalogItemId,
+              values,
               status: "sold",
               purchasedAt: new Date(),
               orderItemId: orderItem.id,
@@ -274,11 +312,17 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
         for (let i = toFulfillCount; i < itemsToAdd.length; i++) {
           const itemRequest = itemsToAdd[i];
+          const values = mergeCatalogIntoValues(
+            { ...(itemRequest.values || {}) },
+            catalogCtx.definingValues,
+            catalogCtx.defaultValues
+          );
 
           await tx.insert(inventoryItems).values({
             productId: lineProductId,
             templateId: templateIdForLine,
-            values: itemRequest.values || {},
+            catalogItemId: catalogCtx.catalogItemId,
+            values,
             status: "available",
             orderItemId: null,
           });
@@ -340,16 +384,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
           })
           .where(eq(orders.id, orderId))
           .returning();
-
-        // Update delivery snapshot
-        const deliveryData = await getOrderDeliveryData(orderId);
-        await tx.execute(
-          sql`
-            UPDATE order_delivery_snapshots
-            SET payload = ${JSON.stringify(deliveryData)}::jsonb
-            WHERE order_id = ${orderId}
-          `
-        );
+        // Delivery snapshot is refreshed after commit — see below (avoid getDb() inside Neon tx).
       }
 
       return {
@@ -358,6 +393,29 @@ export async function POST(request: NextRequest, context: RouteContext) {
         allFulfilled,
       };
     });
+
+    if (result.allFulfilled) {
+      try {
+        const deliveryRows = await getOrderDeliveryData(orderId);
+        const payload: (typeof orderDeliverySnapshots.$inferInsert)["payload"] = {
+          items: deliveryRows.map((row) => ({
+            productId: row.productId,
+            productName: row.productName,
+            quantity: row.quantity,
+            items: row.items.map((it) => ({
+              inventoryId: it.inventoryId,
+              values: it.data,
+            })),
+          })),
+        };
+        await db
+          .update(orderDeliverySnapshots)
+          .set({ payload })
+          .where(eq(orderDeliverySnapshots.orderId, orderId));
+      } catch (e) {
+        console.error("Fulfill pending: delivery snapshot refresh failed (order still completed):", e);
+      }
+    }
 
     // Log activity
     await logActivity({

@@ -16,11 +16,12 @@ npm run db:generate  # Generate Drizzle migration files from schema changes
 npm run db:migrate   # Apply migrations to database
 npm run db:push      # Push schema directly (skip migration files)
 npm run db:studio    # Open Drizzle Studio browser UI
+npm run db:ensure-staff-scope  # Backfill staff_access_scope column for existing staff users
 ```
 
 No test framework is configured.
 
-One-off scripts can be run with `npx tsx <script>.ts` (tsx is a devDependency).
+One-off scripts live in `scripts/` and can be run with `npx tsx <script>.ts` (tsx is a devDependency).
 
 ## Environment Variables
 
@@ -42,6 +43,7 @@ One-off scripts can be run with `npx tsx <script>.ts` (tsx is a devDependency).
   - `admin` — all permissions including staff management, settings, analytics, coupons, offers
   - `staff` — view products, manage inventory, view and process orders
   - `merchant` — read-only access to products and orders
+- **Staff access scopes**: staff users have a `staffAccessScope` (`full`, `inventory`, `inventory_orders`) that further restricts which dashboard areas they can access, checked via `STAFF_SCOPE_PERMISSIONS` in `src/types/index.ts`.
 - API routes protect themselves by calling `requirePermission(PERMISSIONS.X)` or `requireAuth()` at the top of the handler. These throw on failure. No `middleware.ts` — all auth is per-route.
 
 ### API Routes (`src/app/api/`)
@@ -87,3 +89,8 @@ Business logic extracted from routes — use these instead of duplicating logic 
 - **Product variants**: `productOptionGroups` → `productOptionValues` define option axes; `productVariants` store SKU/price per combination.
 - **Offers & coupons**: `offers` drive promotional banners/hero/modal display on the storefront; `coupons` are discount codes with usage tracking.
 - **Activity logs**: all mutations should call `logActivity()` — this is the audit trail visible at `/activity-logs`.
+
+### Conventions
+- Path alias: `@/*` maps to `./src/*` (configured in `tsconfig.json`).
+- ESLint relaxes `no-explicit-any`, `prefer-const`, and `ban-ts-comment` — the codebase uses `any` freely.
+- TypeScript build errors are ignored in `next.config.ts` (`ignoreBuildErrors: true`), so `npm run build` won't catch type errors — use your editor or `npx tsc --noEmit` to type-check.

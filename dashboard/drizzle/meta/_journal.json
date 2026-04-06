@@ -50,6 +50,13 @@
       "when": 1775400000000,
       "tag": "0013_inventory_reserved_by",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1775500000000,
+      "tag": "0014_inventory_catalog_items",
+      "breakpoints": true
     }
   ]
 }
