@@ -8,7 +8,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { orders, orderItems, products, couponUsage, coupons, users } from "@/db/schema";
+import { orders, orderItems, products, couponUsage, coupons, users, deliveries } from "@/db/schema";
 import { requirePermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
 import { eq, and, sql } from "drizzle-orm";
@@ -52,6 +52,7 @@ export async function GET(
         claimExpiresAt: orders.claimExpiresAt,
         createdAt: orders.createdAt,
         updatedAt: orders.updatedAt,
+        holdUntil: orders.holdUntil,
       })
       .from(orders)
       .where(and(eq(orders.id, id), sql`deleted_at IS NULL`))
@@ -100,6 +101,36 @@ export async function GET(
       deliveryData = await getOrderDeliveryData(id);
     }
 
+    const deliveryRows = await db
+      .select({
+        id: deliveries.id,
+        orderItemId: deliveries.orderItemId,
+        type: deliveries.type,
+        content: deliveries.content,
+        sentAt: deliveries.sentAt,
+      })
+      .from(deliveries)
+      .innerJoin(orderItems, eq(deliveries.orderItemId, orderItems.id))
+      .where(eq(orderItems.orderId, id));
+
+    const deliveriesPayload = deliveryRows.map((d) => {
+      let content: Record<string, unknown> = {};
+      try {
+        content = JSON.parse(d.content) as Record<string, unknown>;
+      } catch {
+        content = { text: d.content };
+      }
+      const invRaw = content.inventoryItemId ?? content.inventory_item_id;
+      const inventoryItemId = typeof invRaw === "string" ? invRaw : null;
+      return {
+        id: d.id,
+        type: d.type,
+        sentAt: d.sentAt ? d.sentAt.toISOString() : null,
+        content,
+        inventoryItemId,
+      };
+    });
+
     return NextResponse.json({
       success: true,
       data: {
@@ -120,6 +151,7 @@ export async function GET(
           };
         }),
         deliveryData,
+        deliveries: deliveriesPayload,
       },
     });
   } catch (error) {

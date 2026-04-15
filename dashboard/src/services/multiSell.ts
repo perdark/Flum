@@ -29,6 +29,12 @@ export interface AvailableUnit {
  */
 export async function getVirtualStock(productId: string): Promise<number> {
   const db = getDb();
+  const [p] = await db
+    .select({ inventoryCatalogItemId: products.inventoryCatalogItemId })
+    .from(products)
+    .where(eq(products.id, productId))
+    .limit(1);
+  const cid = p?.inventoryCatalogItemId ?? null;
   const r = await db.execute(sql`
     SELECT COALESCE(SUM(
       CASE
@@ -43,7 +49,7 @@ export async function getVirtualStock(productId: string): Promise<number> {
       END
     ), 0)::int AS n
     FROM inventory_items
-    WHERE ${sqlInventoryRowsForProduct(productId)}
+    WHERE ${sqlInventoryRowsForProduct(productId, cid)}
       AND deleted_at IS NULL
   `);
   const row = r.rows[0] as { n: number } | undefined;

@@ -38,10 +38,19 @@ interface OrderMeta {
   deliveredAt: string | null;
 }
 
+interface DeliveryRecord {
+  id: string;
+  type: string;
+  sentAt: string | null;
+  content: Record<string, unknown>;
+  inventoryItemId: string | null;
+}
+
 interface DeliveryData {
   order: OrderMeta | null;
   deliveryItems: DeliveryItem[];
   fromSnapshot: boolean;
+  deliveries?: DeliveryRecord[];
 }
 
 const INTERNAL_VALUE_KEYS = new Set(["_metadata", "values"]);
@@ -317,6 +326,56 @@ export default function ManualSellDeliveryPage() {
               onCopy={() => copyText(new Date(order.createdAt).toLocaleString(), "meta-date")}
             />
           </div>
+        </div>
+      )}
+
+      {data.deliveries && data.deliveries.length > 0 && (
+        <div className="mb-6 p-4 bg-card rounded-lg border border-border overflow-x-auto">
+          <h3 className="text-sm font-medium text-foreground mb-3">Delivered Items</h3>
+          <table className="w-full text-sm">
+            <thead className="bg-muted">
+              <tr>
+                <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase">Type</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase">Fields</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase">Delivered at</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase w-24">Copy</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {data.deliveries.map((d) => {
+                const lines = Object.entries(d.content)
+                  .map(([k, v]) => `${k}: ${formatCellValue(v)}`)
+                  .join("\n");
+                const badge =
+                  d.sentAt == null ? (
+                    <span className="text-xs px-2 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400">
+                      Pending delivery
+                    </span>
+                  ) : (
+                    new Date(d.sentAt).toLocaleString()
+                  );
+                return (
+                  <tr key={d.id}>
+                    <td className="px-3 py-2 font-medium">{d.type}</td>
+                    <td className="px-3 py-2 font-mono text-xs whitespace-pre-wrap max-w-xl">{lines || "—"}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{badge}</td>
+                    <td className="px-3 py-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          copyText(lines || d.type, `del-${d.id}`);
+                          toast.success("Copied row");
+                        }}
+                        className="text-xs px-2 py-1 rounded bg-secondary hover:bg-secondary/80"
+                      >
+                        Copy
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
 

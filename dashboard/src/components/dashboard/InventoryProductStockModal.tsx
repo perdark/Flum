@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,6 +26,7 @@ type StockEntry = {
   status: string;
   productName: string | null;
   createdAt: string;
+  cost?: string | null;
   multiSellEnabled?: boolean;
   multiSellMax?: number;
   multiSellSaleCount?: number;
@@ -87,6 +88,15 @@ export function InventoryProductStockModal({
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const [adding, setAdding] = useState(false);
   const [newValues, setNewValues] = useState<Record<string, string>>({});
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [bulkCost, setBulkCost] = useState("");
+
+  useEffect(() => {
+    if (!isOpen) {
+      setSelectedIds(new Set());
+      setBulkCost("");
+    }
+  }, [isOpen]);
 
   const handleAddStock = async () => {
     try {
@@ -133,6 +143,50 @@ export function InventoryProductStockModal({
     }
   };
 
+  const toggleSelect = (itemId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  };
+
+  const selectFirstAvailable = (n: number) => {
+    const ids = stockItems.filter((i) => i.status === "available").slice(0, n).map((i) => i.id);
+    setSelectedIds(new Set(ids));
+    if (ids.length === 0) toast.info("No available rows to select");
+  };
+
+  const handleBulkApplyCost = async () => {
+    const ids = [...selectedIds];
+    if (ids.length === 0) {
+      toast.error("Select at least one row");
+      return;
+    }
+    try {
+      const res = await fetch(`/api/inventory/templates/${templateId}/stock/bulk-cost`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          itemIds: ids,
+          cost: bulkCost.trim() === "" ? null : bulkCost.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(`Updated cost on ${data.data?.count ?? ids.length} row(s)`);
+        setSelectedIds(new Set());
+        setBulkCost("");
+        onRefresh();
+      } else {
+        toast.error(data.error || "Failed");
+      }
+    } catch {
+      toast.error("Network error");
+    }
+  };
+
   const handleDelete = async (itemId: string) => {
     if (!confirm("Delete this stock entry?")) return;
     try {
@@ -164,6 +218,37 @@ export function InventoryProductStockModal({
         </DialogHeader>
 
         <div className="space-y-4 pt-2">
+          {statusFilter === "available" &&
+            stockItems.some((s) => s.cost == null || String(s.cost).trim() === "") && (
+              <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-950 dark:text-amber-100">
+                Some available rows have no cost. Cost is optional — use bulk apply below when you want COGS
+                tracking.
+              </div>
+            )}
+
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/30 p-3">
+            <span className="text-xs font-medium text-muted-foreground shrink-0">Bulk cost</span>
+            <input
+              type="number"
+              step="0.01"
+              placeholder="0.00"
+              value={bulkCost}
+              onChange={(e) => setBulkCost(e.target.value)}
+              className="w-28 px-2 py-1.5 text-sm bg-background border border-input rounded"
+            />
+            <Button type="button" size="sm" variant="secondary" onClick={() => selectFirstAvailable(12)}>
+              Select first 12 available
+            </Button>
+            <Button type="button" size="sm" onClick={() => void handleBulkApplyCost()} disabled={selectedIds.size === 0}>
+              Apply to {selectedIds.size} selected
+            </Button>
+            {selectedIds.size > 0 && (
+              <Button type="button" size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
+                Clear selection
+              </Button>
+            )}
+          </div>
+
           <div className="flex flex-wrap items-center gap-3">
             <select
               value={statusFilter}
@@ -258,6 +343,24 @@ export function InventoryProductStockModal({
               <table className="w-full text-sm text-left">
                 <thead className="bg-muted text-muted-foreground text-xs uppercase">
                   <tr>
+                    <th className="px-2 py-3 w-10">
+                      <input
+                        type="checkbox"
+                        title="Select all on page"
+                        checked={
+                          stockItems.length > 0 &&
+                          stockItems.every((i) => selectedIds.has(i.id))
+                        }
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedIds(new Set(stockItems.map((i) => i.id)));
+                          } else {
+                            setSelectedIds(new Set());
+                          }
+                        }}
+                        className="rounded border-input"
+                      />
+                    </th>
                     <th className="px-4 py-3">Value ({field.label})</th>
                     {fieldsSchema
                       .filter((f) => f.name !== field.name)
@@ -267,6 +370,7 @@ export function InventoryProductStockModal({
                           {f.label}
                         </th>
                       ))}
+                    <th className="px-4 py-3 hidden sm:table-cell">Cost</th>
                     <th className="px-4 py-3">Status</th>
                     <th className="px-4 py-3 hidden sm:table-cell">Product</th>
                     <th className="px-4 py-3 hidden md:table-cell">Created</th>
@@ -282,6 +386,15 @@ export function InventoryProductStockModal({
 
                     return (
                       <tr key={item.id} className="hover:bg-muted/50">
+                        <td className="px-2 py-3">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(item.id)}
+                            onChange={() => toggleSelect(item.id)}
+                            className="rounded border-input"
+                            aria-label={`Select row ${item.id}`}
+                          />
+                        </td>
                         <td className="px-4 py-3 font-mono text-xs break-all max-w-[200px]">
                           {isEditing ? (
                             <input
@@ -329,6 +442,13 @@ export function InventoryProductStockModal({
                               )}
                             </td>
                           ))}
+                        <td className="px-4 py-3 text-xs tabular-nums hidden sm:table-cell">
+                          {item.cost != null && String(item.cost).trim() !== "" ? (
+                            item.cost
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
                         <td className="px-4 py-3">
                           <span
                             className={cn(

@@ -709,12 +709,15 @@ export default function ManualSellPage() {
     try {
       const res = await fetch(`/api/products/${product.id}/variants`);
       const data = await res.json();
-      if (data.success && data.data.length > 1) {
+      const variantList: Variant[] = Array.isArray(data.data)
+        ? data.data
+        : data.data?.variants ?? [];
+      if (data.success && variantList.length > 1) {
         setVariantPickMode("add");
-        setPickingVariantFor({ ...product, variants: data.data.filter((v: Variant) => v.isActive) });
+        setPickingVariantFor({ ...product, variants: variantList.filter((v: Variant) => v.isActive) });
         return;
       }
-      const defaultVariant = data.data?.[0] || null;
+      const defaultVariant = variantList[0] || null;
       addToCart(product, defaultVariant, qty);
     } catch {
       addToCart(product, null, qty);
@@ -725,12 +728,15 @@ export default function ManualSellPage() {
     try {
       const res = await fetch(`/api/products/${product.id}/variants`);
       const data = await res.json();
-      if (data.success && data.data.length > 1) {
+      const variantList: Variant[] = Array.isArray(data.data)
+        ? data.data
+        : data.data?.variants ?? [];
+      if (data.success && variantList.length > 1) {
         setVariantPickMode("pick");
-        setPickingVariantFor({ ...product, variants: data.data.filter((v: Variant) => v.isActive) });
+        setPickingVariantFor({ ...product, variants: variantList.filter((v: Variant) => v.isActive) });
         return;
       }
-      const defaultVariant = data.data?.[0] || null;
+      const defaultVariant = variantList[0] || null;
       setPickInventoryFor({ product, variant: defaultVariant });
     } catch {
       setPickInventoryFor({ product, variant: null });
@@ -1214,6 +1220,11 @@ export default function ManualSellPage() {
               .filter((d) => d.inventoryIds.length > 0)
           : undefined;
 
+      const usePosCart =
+        cart.length > 0 &&
+        stockCart.length === 0 &&
+        cart.every((ci) => ci.variantId != null && ci.variantId !== "");
+
       const res = await fetch("/api/manual-sell", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1222,15 +1233,26 @@ export default function ManualSellPage() {
             productId: ci.productId,
             quantity: ci.quantity,
             variantId: ci.variantId,
-            ...(ci.trackInventory && ci.inventoryIds && ci.inventoryIds.length > 0
-              ? { inventoryIds: ci.inventoryIds }
-              : {}),
+            ...(usePosCart
+              ? {
+                  unitPrice: ci.price,
+                  fulfillmentMode:
+                    ci.trackInventory && ci.inventoryIds && ci.inventoryIds.length > 0
+                      ? "manual"
+                      : "auto",
+                  ...(ci.trackInventory && ci.inventoryIds && ci.inventoryIds.length > 0
+                    ? { manualInventoryIds: ci.inventoryIds }
+                    : {}),
+                }
+              : ci.trackInventory && ci.inventoryIds && ci.inventoryIds.length > 0
+                ? { inventoryIds: ci.inventoryIds }
+                : {}),
           })),
           directItems,
           customerEmail,
           customerName: customerName || undefined,
           customerType,
-          shortageAction,
+          ...(usePosCart ? {} : { shortageAction }),
           ...(options?.inventoryItemsToAdd && options.inventoryItemsToAdd.length > 0
             ? { inventoryItemsToAdd: options.inventoryItemsToAdd }
             : {}),
@@ -1240,7 +1262,13 @@ export default function ManualSellPage() {
       const data = await res.json();
 
       if (!data.success) {
-        toast.error(data.error || "Sale failed");
+        if (data.code === "INSUFFICIENT_STOCK") {
+          toast.error(
+            `Stock insufficient: ${data.requested} requested, ${data.available} available (variant)`
+          );
+        } else {
+          toast.error(data.error || "Sale failed");
+        }
         return;
       }
 
@@ -1307,30 +1335,6 @@ export default function ManualSellPage() {
 
   return (
     <div className="mx-auto max-w-[1920px] space-y-4">
-      {/* Header */}
-      <div className="relative overflow-hidden rounded-2xl border border-border bg-gradient-to-br from-slate-900 via-slate-900 to-primary/30 p-5 text-white shadow-xl sm:p-6">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(59,130,246,0.25),transparent_50%)] pointer-events-none" aria-hidden />
-        <div className="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-white/60">Point of sale</p>
-            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Manual Sell</h1>
-            <p className="mt-1 max-w-xl text-sm text-white/80">
-              Stocks &amp; products &mdash; built for large catalogs.{" "}
-              <kbd className="rounded border border-white/20 bg-white/10 px-1.5 py-0.5 font-mono text-[10px]">/</kbd>{" "}
-              focuses search.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <span className="rounded-lg border border-white/15 bg-white/10 px-3 py-2 text-xs font-medium tabular-nums">
-              {allProducts.length} loaded
-            </span>
-            <span className="rounded-lg border border-white/15 bg-white/10 px-3 py-2 text-xs font-medium tabular-nums">
-              {totalItems} in cart
-            </span>
-          </div>
-        </div>
-      </div>
-
       <div className="flex flex-col-reverse gap-4 xl:grid xl:grid-cols-[1fr_min(380px,100%)] xl:items-start">
         {/* Catalog Panel — DOM first; flex-col-reverse shows cart above on small screens */}
         <div className="min-w-0">

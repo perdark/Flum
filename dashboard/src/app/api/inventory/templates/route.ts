@@ -7,9 +7,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { inventoryTemplates, inventoryItems, inventoryCatalogItems } from "@/db/schema";
-import { requireAdmin } from "@/lib/auth";
-import { eq, sql, and, inArray, isNull } from "drizzle-orm";
+import { inventoryTemplates, inventoryItems, inventoryCatalogItems, products } from "@/db/schema";
+import { requireAdmin, requireAuth, hasPermission } from "@/lib/auth";
+import { PERMISSIONS } from "@/types";
+import { eq, sql, and, inArray, isNull, isNotNull } from "drizzle-orm";
 import { countCodesInRowWithSchema, getTemplateFieldsForCodes, type FieldSchemaForCodes } from "@/lib/inventoryCodes";
 
 // ============================================================================
@@ -18,6 +19,14 @@ import { countCodesInRowWithSchema, getTemplateFieldsForCodes, type FieldSchemaF
 
 export async function GET() {
   try {
+    const user = await requireAuth();
+    if (
+      !hasPermission(user, PERMISSIONS.MANAGE_INVENTORY) &&
+      !hasPermission(user, PERMISSIONS.MANAGE_PRODUCTS)
+    ) {
+      return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
+    }
+
     const db = getDb();
 
     const templates = await db
@@ -86,6 +95,43 @@ export async function GET() {
       catalogByTemplate.get(c.templateId)!.push(c);
     }
 
+    const storefrontList =
+      templateIds.length > 0
+        ? await db
+            .select({
+              templateId: products.inventoryTemplateId,
+              id: products.id,
+              name: products.name,
+              slug: products.slug,
+              isActive: products.isActive,
+            })
+            .from(products)
+            .where(
+              and(
+                isNotNull(products.inventoryTemplateId),
+                inArray(products.inventoryTemplateId, templateIds),
+                isNull(products.deletedAt)
+              )
+            )
+            .orderBy(products.name)
+        : [];
+
+    const storefrontByTemplate = new Map<
+      string,
+      Array<{ id: string; name: string; slug: string; isActive: boolean }>
+    >();
+    for (const p of storefrontList) {
+      const tid = p.templateId;
+      if (!tid) continue;
+      if (!storefrontByTemplate.has(tid)) storefrontByTemplate.set(tid, []);
+      storefrontByTemplate.get(tid)!.push({
+        id: p.id,
+        name: p.name,
+        slug: p.slug,
+        isActive: p.isActive,
+      });
+    }
+
     const fieldsByTemplate = new Map<string, FieldSchemaForCodes[]>();
     for (const t of templates) {
       fieldsByTemplate.set(
@@ -140,6 +186,7 @@ export async function GET() {
         unassignedCodesCount: unassignedCodesByTemplate.get(t.id) ?? 0,
         unassignedStockCount: unassignedRowsByTemplate.get(t.id) ?? 0,
         catalogItems: items,
+        storefrontProducts: storefrontByTemplate.get(t.id) ?? [],
       };
     });
 
@@ -148,6 +195,14 @@ export async function GET() {
       data,
     });
   } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === "UNAUTHORIZED") {
+        return NextResponse.json(
+          { success: false, error: "Authentication required" },
+          { status: 401 }
+        );
+      }
+    }
     console.error("Get templates error:", error);
     return NextResponse.json(
       { success: false, error: "Internal server error" },

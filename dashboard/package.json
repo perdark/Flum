@@ -9,9 +9,13 @@
     "lint": "eslint",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "db:reset": "tsx src/seed.ts reset",
     "db:seed-catalog-demo": "tsx scripts/seed-inventory-catalog-demo.ts",
     "db:ensure-staff-scope": "tsx scripts/ensure-staff-access-scope.ts",
     "db:ensure-inventory-catalog": "tsx scripts/ensure-inventory-catalog-schema.ts",
+    "db:ensure-store-customer-auth": "tsx scripts/ensure-store-customer-auth-schema.ts",
+    "db:ensure-order-hold-bundle-variant": "tsx scripts/ensure-order-hold-bundle-variant.ts",
+    "db:ensure-order-schema": "tsx scripts/ensure-orders-hold-and-bundle-variant.ts",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio"
   },

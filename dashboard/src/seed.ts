@@ -3,6 +3,7 @@
  *
  * Run with: npx tsx src/seed.ts
  * Run with database reset: npx tsx src/seed.ts reset
+ * Or: npm run db:reset
  *
  * This script seeds the database with:
  * 1. Store Settings
@@ -442,39 +443,79 @@ const COUPON = {
 // ============================================================================
 
 /**
- * Reset database - delete all existing data
+ * Reset database — wipe storefront / catalog / orders data.
+ * Keeps `users` (dashboard admins) and `__drizzle_migrations`.
+ * Clears `sessions` so staff must sign in again.
  */
 async function resetDatabase(db: any) {
-  console.log("🗑️  Resetting database...");
+  console.log("🗑️  Resetting database (DELETE order, FK-safe)...");
 
-  // Helper to safely delete using raw SQL
   const safeDelete = async (tableName: string) => {
     try {
-      await db.execute(sql`DELETE FROM ${sql.identifier(tableName)}`);
-    } catch (err: any) {
-      // Table doesn't exist or other error - ignore
+      await db.execute(sql.raw(`DELETE FROM ${tableName}`));
+    } catch (err: unknown) {
+      console.warn(`  (skip ${tableName}: ${err instanceof Error ? err.message : String(err)})`);
     }
   };
 
-  // Delete in order of dependencies (only tables that exist)
-  await safeDelete("bundle_items");
-  await safeDelete("product_pricing");
-  await safeDelete("order_items");
-  await safeDelete("orders");
-  await safeDelete("inventory_items");
-  await safeDelete("product_images");
-  await safeDelete("product_categories");
-  await safeDelete("product_offers");
-  await safeDelete("products");
-  await safeDelete("inventory_templates");
-  await safeDelete("categories");
-  await safeDelete("coupons");
-  await safeDelete("offers");
-  await safeDelete("store_settings");
-  await safeDelete("currencies");
-  // Don't delete users table - keep admin accounts
+  const tables = [
+    "deliveries",
+    "order_delivery_snapshots",
+    "coupon_usage",
+    "order_items",
+    "orders",
+    "points_transactions",
+    "cart_items",
+    "carts",
+    "customer_sessions",
+    "customers",
+    "price_alert_subscriptions",
+    "store_newsletter_signups",
+    "wishlists",
+    "reviews",
+    "recently_viewed",
+    "product_relations",
+    "bundle_items",
+    "product_variants",
+    "product_option_values",
+    "product_option_groups",
+    "product_pricing",
+    "product_tags",
+    "product_offers",
+    "product_images",
+    "product_categories",
+    "inventory_items",
+    "cost_entries",
+    "products",
+    "inventory_catalog_items",
+    "coupons",
+    "offers",
+    "inventory_templates",
+    "store_settings",
+    "currencies",
+    "activity_logs",
+    "daily_analytics",
+    "sessions",
+  ];
 
-  console.log("  ✓ Database cleared.\n");
+  for (const t of tables) {
+    await safeDelete(t);
+  }
+
+  // Categories may be a self-referring tree: remove leaves until empty.
+  for (let i = 0; i < 30; i++) {
+    try {
+      await db.execute(sql.raw(`
+        DELETE FROM categories c
+        WHERE NOT EXISTS (SELECT 1 FROM categories ch WHERE ch.parent_id = c.id)
+      `));
+    } catch {
+      break;
+    }
+  }
+  await safeDelete("categories");
+
+  console.log("  ✓ Data cleared (users + migration history kept).\n");
 }
 
 async function seedCurrencies(db: any) {

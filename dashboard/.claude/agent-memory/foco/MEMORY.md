@@ -1,0 +1,2 @@
+- [Store Design Patterns](store_design_patterns.md) — UI conventions, CSS variables, component patterns for the storefront
+- [User Profile](user_profile.md) — Solo dev, digital goods business in Iraq, B2B+B2C audience

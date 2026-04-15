@@ -1,6 +1,7 @@
 /**
  * Applies inventory catalog schema if missing (when `npm run db:migrate` did not run or failed).
- * Fixes: column "catalog_item_id" does not exist / missing inventory_catalog_items table.
+ * Fixes: column "catalog_item_id" does not exist / missing inventory_catalog_items table;
+ *   missing products.inventory_catalog_item_id (migration 0019).
  *
  * From dashboard directory:
  *   npx tsx scripts/ensure-inventory-catalog-schema.ts
@@ -82,8 +83,28 @@ CREATE INDEX IF NOT EXISTS "inventory_items_template_catalog_status_idx"
   ON "inventory_items" USING btree ("template_id","catalog_item_id","status");
 `);
 
+  // products ↔ catalog SKU (migration 0019) when migrate did not apply
+  await sql.unsafe(`
+ALTER TABLE "products" ADD COLUMN IF NOT EXISTS "inventory_catalog_item_id" uuid;
+`);
+  await sql.unsafe(`
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'products_inventory_catalog_item_id_inventory_catalog_items_id_fk'
+  ) THEN
+    ALTER TABLE "products"
+      ADD CONSTRAINT "products_inventory_catalog_item_id_inventory_catalog_items_id_fk"
+      FOREIGN KEY ("inventory_catalog_item_id") REFERENCES "inventory_catalog_items"("id") ON DELETE SET NULL ON UPDATE NO ACTION;
+  END IF;
+END $$;
+`);
+  await sql.unsafe(`
+CREATE INDEX IF NOT EXISTS "products_inventory_catalog_item_idx" ON "products" ("inventory_catalog_item_id");
+`);
+
   console.log(
-    'Done: "inventory_catalog_items" table and "inventory_items.catalog_item_id" are present.'
+    'Done: inventory catalog + inventory_items.catalog_item_id + products.inventory_catalog_item_id.'
   );
   await sql.end();
 }

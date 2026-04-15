@@ -14,6 +14,8 @@ import {
   productImages,
   categories,
   inventoryTemplates,
+  inventoryCatalogItems,
+  inventoryItems,
   bundleItems,
   productVariants,
   productOptionGroups,
@@ -21,7 +23,7 @@ import {
 } from "@/db/schema";
 import { requirePermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
-import { eq, and, sql, inArray } from "drizzle-orm";
+import { eq, and, sql, inArray, asc, isNull } from "drizzle-orm";
 import { logProductUpdated, logProductDeleted } from "@/services/activityLog";
 import { generateSlug } from "@/lib/utils";
 
@@ -55,6 +57,7 @@ export async function GET(
         compareAtPrice: products.compareAtPrice,
         deliveryType: products.deliveryType,
         inventoryTemplateId: products.inventoryTemplateId,
+        inventoryCatalogItemId: products.inventoryCatalogItemId,
         isActive: products.isActive,
         isFeatured: products.isFeatured,
         isNew: products.isNew,
@@ -131,6 +134,60 @@ export async function GET(
       values: optionValues.filter(v => v.optionGroupId === g.id),
     }));
 
+    let bundleSubProducts: Array<{
+      bundleItemId: string;
+      productId: string | null;
+      productName: string;
+      quantity: number;
+      variantId: string | null;
+      stockCount: number | null;
+      imageUrl: string | null;
+    }> = [];
+
+    if (product.isBundle) {
+      const rows = await db
+        .select({
+          bundleItemId: bundleItems.id,
+          productId: bundleItems.productId,
+          productName: bundleItems.productName,
+          quantity: bundleItems.quantity,
+          variantId: bundleItems.variantId,
+          stockCount: products.stockCount,
+        })
+        .from(bundleItems)
+        .leftJoin(products, eq(bundleItems.productId, products.id))
+        .where(eq(bundleItems.bundleProductId, id));
+
+      const pids = [...new Set(rows.map((r) => r.productId).filter(Boolean))] as string[];
+      const imgRows =
+        pids.length > 0
+          ? await db
+              .select({
+                productId: productImages.productId,
+                url: productImages.url,
+                sortOrder: productImages.sortOrder,
+              })
+              .from(productImages)
+              .where(inArray(productImages.productId, pids))
+              .orderBy(asc(productImages.sortOrder), asc(productImages.id))
+          : [];
+
+      const firstImg = new Map<string, string>();
+      for (const im of imgRows) {
+        if (!firstImg.has(im.productId)) firstImg.set(im.productId, im.url);
+      }
+
+      bundleSubProducts = rows.map((r) => ({
+        bundleItemId: r.bundleItemId,
+        productId: r.productId,
+        productName: r.productName,
+        quantity: r.quantity,
+        variantId: r.variantId ?? null,
+        stockCount: r.stockCount != null ? Number(r.stockCount) : null,
+        imageUrl: r.productId ? firstImg.get(r.productId) ?? null : null,
+      }));
+    }
+
     return NextResponse.json({
       success: true,
       data: {
@@ -139,6 +196,7 @@ export async function GET(
         images,
         variants,
         optionGroups: optionGroupsWithValues,
+        ...(product.isBundle ? { bundleSubProducts } : {}),
       },
     });
   } catch (error) {
@@ -187,6 +245,8 @@ export async function PUT(
       isBundle,
       bundleTemplateId,
       bundleItems,
+      inventoryCatalogItemId,
+      attachStockToRows,
     } = body;
 
     const db = getDb();
@@ -292,12 +352,91 @@ export async function PUT(
       updateData.bundleTemplateId = bundleTemplateId || null;
     }
 
+    const effectiveTemplateId =
+      inventoryTemplateId !== undefined
+        ? inventoryTemplateId || null
+        : existing.inventoryTemplateId;
+
+    if (inventoryCatalogItemId !== undefined) {
+      if (inventoryCatalogItemId === null || inventoryCatalogItemId === "") {
+        changes.inventoryCatalogItemId = { from: existing.inventoryCatalogItemId, to: null };
+        updateData.inventoryCatalogItemId = null;
+      } else {
+        if (!effectiveTemplateId) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: "Set an inventory template on the product before linking a catalog SKU",
+            },
+            { status: 400 }
+          );
+        }
+        const [cat] = await db
+          .select({
+            id: inventoryCatalogItems.id,
+            templateId: inventoryCatalogItems.templateId,
+          })
+          .from(inventoryCatalogItems)
+          .where(
+            and(eq(inventoryCatalogItems.id, inventoryCatalogItemId), isNull(inventoryCatalogItems.deletedAt))
+          )
+          .limit(1);
+        if (!cat) {
+          return NextResponse.json({ success: false, error: "Catalog item not found" }, { status: 404 });
+        }
+        if (cat.templateId !== effectiveTemplateId) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: "Catalog SKU must use the same inventory template as the product",
+            },
+            { status: 400 }
+          );
+        }
+        changes.inventoryCatalogItemId = {
+          from: existing.inventoryCatalogItemId,
+          to: inventoryCatalogItemId,
+        };
+        updateData.inventoryCatalogItemId = inventoryCatalogItemId;
+      }
+    }
+
+    if (
+      inventoryTemplateId !== undefined &&
+      inventoryCatalogItemId === undefined &&
+      existing.inventoryCatalogItemId
+    ) {
+      const newTpl = inventoryTemplateId || null;
+      const [catRow] = await db
+        .select({ templateId: inventoryCatalogItems.templateId })
+        .from(inventoryCatalogItems)
+        .where(eq(inventoryCatalogItems.id, existing.inventoryCatalogItemId))
+        .limit(1);
+      if (catRow && newTpl !== catRow.templateId) {
+        updateData.inventoryCatalogItemId = null;
+        changes.inventoryCatalogItemId = { cleared: true, reason: "template_changed" };
+      }
+    }
+
     // Update product
     const [updated] = await db
       .update(products)
       .set(updateData)
       .where(eq(products.id, id))
       .returning();
+
+    if (attachStockToRows === true && updated?.inventoryCatalogItemId) {
+      await db
+        .update(inventoryItems)
+        .set({ productId: id, updatedAt: new Date() })
+        .where(
+          and(
+            eq(inventoryItems.catalogItemId, updated.inventoryCatalogItemId),
+            isNull(inventoryItems.productId),
+            isNull(inventoryItems.deletedAt)
+          )
+        );
+    }
 
     // Update category links if provided
     if (categoryIds !== undefined) {

@@ -36,6 +36,8 @@ interface Order {
   isClaimExpired: boolean;
   items: OrderItem[];
   createdAt: string;
+  /** True when enough inventory rows exist to cover all lines (use Approve path, not manual fulfill modal). */
+  canDeliverFromStock?: boolean;
 }
 
 interface TemplateField {
@@ -83,6 +85,20 @@ export function OrdersTable() {
   const [deletingOrders, setDeletingOrders] = useState<Record<string, boolean>>({});
   const [userRole, setUserRole] = useState<"admin" | "staff" | "unknown">("unknown");
 
+  interface PendingApprovalOrder {
+    id: string;
+    orderNumber: string;
+    customerEmail: string;
+    customerName: string | null;
+    total: string;
+    itemsSummary: string;
+    elapsedMinutes: number;
+    createdAt: string;
+    canDeliverFromStock?: boolean;
+  }
+
+  const [pendingApprovalOrders, setPendingApprovalOrders] = useState<PendingApprovalOrder[]>([]);
+
   const fetchOrders = useCallback(async () => {
     setLoading(true);
     try {
@@ -126,9 +142,34 @@ export function OrdersTable() {
     }
   }, [page, pageSize, statusFilter, claimStatus, dateFrom, dateTo, debouncedCustomerSearch, debouncedOrderNumberSearch, sortBy, sortOrder]);
 
+  const fetchPendingApproval = useCallback(async () => {
+    try {
+      const res = await fetch("/api/orders/pending-approval");
+      const j = await res.json();
+      if (j.success && Array.isArray(j.data)) {
+        setPendingApprovalOrders(j.data);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   useEffect(() => {
     fetchOrders();
   }, [fetchOrders]);
+
+  useEffect(() => {
+    void fetchPendingApproval();
+    const runAuto = () => {
+      void fetch("/api/orders/auto-fulfill-due", { method: "POST" }).catch(() => {});
+    };
+    runAuto();
+    const id = setInterval(() => {
+      void fetchPendingApproval();
+      runAuto();
+    }, 60000);
+    return () => clearInterval(id);
+  }, [fetchPendingApproval]);
 
   useEffect(() => {
     const fetchCurrentUser = async () => {
@@ -424,6 +465,37 @@ export function OrdersTable() {
     }
   };
 
+  const approvePendingOrder = async (orderId: string) => {
+    try {
+      const res = await fetch(`/api/orders/${orderId}/approve`, { method: "POST" });
+      const j = await res.json();
+      if (res.ok && j.success) {
+        toast.success("Delivered from inventory");
+        void fetchPendingApproval();
+        void fetchOrders();
+      } else {
+        toast.error(j.error || "Approve failed");
+      }
+    } catch {
+      toast.error("Approve failed");
+    }
+  };
+
+  const holdPendingOrder = async (orderId: string) => {
+    try {
+      const res = await fetch(`/api/orders/${orderId}/hold`, { method: "POST" });
+      const j = await res.json();
+      if (j.success) {
+        toast.success("Hold applied");
+        void fetchPendingApproval();
+      } else {
+        toast.error(j.error || "Hold failed");
+      }
+    } catch {
+      toast.error("Hold failed");
+    }
+  };
+
   const getPageNumbers = () => {
     const pages: (number | "ellipsis")[] = [];
     if (totalPages <= 7) {
@@ -450,6 +522,56 @@ export function OrdersTable() {
 
   return (
     <>
+      {pendingApprovalOrders.length > 0 && (
+        <div className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/5 p-4">
+          <h2 className="text-sm font-semibold text-foreground mb-3">Pending approval</h2>
+          <ul className="space-y-2">
+            {pendingApprovalOrders.map((o) => (
+              <li
+                key={o.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm"
+              >
+                <div className="min-w-0">
+                  <div>
+                    <span className="font-medium text-foreground">{o.orderNumber}</span>
+                    <span className="text-muted-foreground">
+                      {" "}
+                      · {o.customerName || o.customerEmail}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground truncate max-w-xl">{o.itemsSummary}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Waiting ~{o.elapsedMinutes} min
+                    {o.canDeliverFromStock === true && (
+                      <span className="ml-2 text-primary">· Stock covers line — Approve allocates from inventory</span>
+                    )}
+                    {o.canDeliverFromStock === false && (
+                      <span className="ml-2 text-warning">· Not enough inventory — use Fulfill after adding stock</span>
+                    )}
+                  </p>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => approvePendingOrder(o.id)}
+                    className="px-3 py-1.5 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:opacity-90"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => holdPendingOrder(o.id)}
+                    className="px-3 py-1.5 text-xs font-medium rounded-md bg-secondary text-foreground hover:bg-secondary/80"
+                  >
+                    Hold
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="bg-card rounded-lg shadow-sm overflow-hidden border border-border">
         {/* Filters */}
         <div className="p-4 border-b border-border space-y-3">
@@ -655,7 +777,16 @@ export function OrdersTable() {
                             </span>
                           )}
 
-                          {hasPendingItems && (
+                          {hasPendingItems && order.canDeliverFromStock && (
+                            <button
+                              type="button"
+                              onClick={() => approvePendingOrder(order.id)}
+                              className="text-primary hover:text-primary/80 text-sm font-medium"
+                            >
+                              Approve & deliver
+                            </button>
+                          )}
+                          {hasPendingItems && !order.canDeliverFromStock && (
                             <button
                               onClick={() => handleProcessingClick(order)}
                               disabled={claimingOrderId === order.id || Boolean(order.claimedBy && !isClaimedByMe && !order.isClaimExpired)}

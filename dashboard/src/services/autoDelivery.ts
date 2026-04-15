@@ -19,7 +19,12 @@ import { sqlInventoryRowsForProduct } from "@/lib/inventoryProductScope";
 import { logInventorySold, logOrderCompleted } from "./activityLog";
 
 /** Reset multi-sell lines whose cooldown has ended */
-export async function resetExpiredMultisellCooldowns(tx: any, productId: string, variantId?: string | null) {
+export async function resetExpiredMultisellCooldowns(
+  tx: any,
+  productId: string,
+  variantId?: string | null,
+  inventoryCatalogItemId?: string | null
+) {
   const variantFilter = variantId ? sql` AND variant_id = ${variantId}` : sql``;
   await tx.execute(sql`
     UPDATE inventory_items SET
@@ -27,7 +32,7 @@ export async function resetExpiredMultisellCooldowns(tx: any, productId: string,
       multi_sell_sale_count = 0,
       cooldown_until = NULL,
       updated_at = NOW()
-    WHERE ${sqlInventoryRowsForProduct(productId)}
+    WHERE ${sqlInventoryRowsForProduct(productId, inventoryCatalogItemId)}
       AND status = 'in_cooldown'
       AND cooldown_until IS NOT NULL
       AND cooldown_until <= NOW()
@@ -51,7 +56,12 @@ export type InventoryRowPick = {
  * Lock and return one allocatable inventory row for a product (supports multi-sell per line).
  * Uses FOR UPDATE SKIP LOCKED so concurrent sellers do not block each other or double-sell the same row.
  */
-export async function pickOneInventoryLine(tx: any, productId: string, variantId?: string | null): Promise<InventoryRowPick | null> {
+export async function pickOneInventoryLine(
+  tx: any,
+  productId: string,
+  variantId?: string | null,
+  inventoryCatalogItemId?: string | null
+): Promise<InventoryRowPick | null> {
   const variantFilter = variantId ? sql` AND variant_id = ${variantId}` : sql``;
   const res = await tx.execute(sql`
     SELECT id, product_id, values,
@@ -61,7 +71,7 @@ export async function pickOneInventoryLine(tx: any, productId: string, variantId
       COALESCE(cooldown_enabled, false) AS cooldown_enabled,
       COALESCE(cooldown_duration_hours, 12) AS cooldown_duration_hours
     FROM inventory_items
-    WHERE ${sqlInventoryRowsForProduct(productId)}
+    WHERE ${sqlInventoryRowsForProduct(productId, inventoryCatalogItemId)}
       AND deleted_at IS NULL
       ${variantFilter}
       AND (
@@ -86,7 +96,8 @@ export async function lockInventoryRowById(
   tx: any,
   productId: string,
   rowId: string,
-  variantId?: string | null
+  variantId?: string | null,
+  inventoryCatalogItemId?: string | null
 ): Promise<InventoryRowPick | null> {
   const variantFilter = variantId ? sql` AND variant_id = ${variantId}` : sql``;
   const res = await tx.execute(sql`
@@ -98,7 +109,7 @@ export async function lockInventoryRowById(
       COALESCE(cooldown_duration_hours, 12) AS cooldown_duration_hours
     FROM inventory_items
     WHERE id = ${rowId}
-      AND ${sqlInventoryRowsForProduct(productId)}
+      AND ${sqlInventoryRowsForProduct(productId, inventoryCatalogItemId)}
       AND deleted_at IS NULL
       ${variantFilter}
       AND (
@@ -288,6 +299,7 @@ export async function fulfillOrder(
           quantity: orderItems.quantity,
           productName: products.name,
           isBundle: products.isBundle,
+          inventoryCatalogItemId: products.inventoryCatalogItemId,
         })
         .from(orderItems)
         .innerJoin(products, eq(orderItems.productId, products.id))
@@ -328,6 +340,20 @@ export async function fulfillOrder(
             .from(bundleItems)
             .where(eq(bundleItems.bundleProductId, productId));
           const withPid = subs.filter((s) => s.productId);
+          const subProductIds = [...new Set(withPid.map((s) => s.productId).filter(Boolean))] as string[];
+          const subCatalogRows =
+            subProductIds.length > 0
+              ? await tx
+                  .select({
+                    id: products.id,
+                    inventoryCatalogItemId: products.inventoryCatalogItemId,
+                  })
+                  .from(products)
+                  .where(inArray(products.id, subProductIds))
+              : [];
+          const catalogBySubId = new Map(
+            subCatalogRows.map((r) => [r.id, r.inventoryCatalogItemId as string | null])
+          );
 
           if (withPid.length === 0) {
             result.errors.push(
@@ -351,10 +377,16 @@ export async function fulfillOrder(
             try {
               const batch: Array<{ row: InventoryRowPick; subPid: string }> = [];
               for (const sub of withPid) {
-                await resetExpiredMultisellCooldowns(tx, sub.productId!);
+                const subCid = catalogBySubId.get(sub.productId!) ?? null;
+                await resetExpiredMultisellCooldowns(tx, sub.productId!, sub.variantId ?? undefined, subCid);
                 const need = sub.quantity || 1;
                 for (let n = 0; n < need; n++) {
-                  const row = await pickOneInventoryLine(tx, sub.productId!);
+                  const row = await pickOneInventoryLine(
+                    tx,
+                    sub.productId!,
+                    sub.variantId ?? undefined,
+                    subCid
+                  );
                   if (!row) throw new Error("shortage");
                   batch.push({ row, subPid: sub.productId! });
                 }
@@ -424,13 +456,14 @@ export async function fulfillOrder(
         // -----------------------------------------------------------------
         // Normal product: inventory on this product
         // -----------------------------------------------------------------
-        await resetExpiredMultisellCooldowns(tx, productId, item.variantId);
+        const lineCatalogId = item.inventoryCatalogItemId ?? null;
+        await resetExpiredMultisellCooldowns(tx, productId, item.variantId, lineCatalogId);
 
         const soldIds: string[] = [];
         const multiSellIds: string[] = [];
 
         for (let q = 0; q < item.quantity; q++) {
-          const row = await pickOneInventoryLine(tx, productId, item.variantId);
+          const row = await pickOneInventoryLine(tx, productId, item.variantId, lineCatalogId);
           if (!row) break;
 
           const { decrementStock } = await applySaleToInventoryLine(
@@ -535,8 +568,21 @@ export async function fulfillOrder(
 /**
  * Count of fulfillable units (each line counts once; multi-sell lines count remaining slots)
  */
-export async function countFulfillableUnits(productId: string, variantId?: string | null): Promise<number> {
+export async function countFulfillableUnits(
+  productId: string,
+  variantId?: string | null,
+  inventoryCatalogItemId?: string | null
+): Promise<number> {
   const db = getDb();
+  let cid = inventoryCatalogItemId;
+  if (cid === undefined) {
+    const [p] = await db
+      .select({ inventoryCatalogItemId: products.inventoryCatalogItemId })
+      .from(products)
+      .where(eq(products.id, productId))
+      .limit(1);
+    cid = p?.inventoryCatalogItemId ?? null;
+  }
   const variantFilter = variantId ? sql` AND variant_id = ${variantId}` : sql``;
   const r = await db.execute(sql`
     SELECT COALESCE(SUM(
@@ -552,7 +598,7 @@ export async function countFulfillableUnits(productId: string, variantId?: strin
       END
     ), 0)::int AS n
     FROM inventory_items
-    WHERE ${sqlInventoryRowsForProduct(productId)}
+    WHERE ${sqlInventoryRowsForProduct(productId, cid)}
       AND deleted_at IS NULL
       ${variantFilter}
   `);
@@ -567,7 +613,9 @@ export async function canFulfillOrder(orderId: string): Promise<boolean> {
     .select({
       productId: orderItems.productId,
       quantity: orderItems.quantity,
+      variantId: orderItems.variantId,
       isBundle: products.isBundle,
+      inventoryCatalogItemId: products.inventoryCatalogItemId,
     })
     .from(orderItems)
     .innerJoin(products, eq(orderItems.productId, products.id))
@@ -584,9 +632,25 @@ export async function canFulfillOrder(orderId: string): Promise<boolean> {
       const withPid = subs.filter((s) => s.productId);
       if (withPid.length === 0) return false;
 
+      const subProductIds = [...new Set(withPid.map((s) => s.productId).filter(Boolean))] as string[];
+      const subRows =
+        subProductIds.length > 0
+          ? await db
+              .select({
+                id: products.id,
+                inventoryCatalogItemId: products.inventoryCatalogItemId,
+              })
+              .from(products)
+              .where(inArray(products.id, subProductIds))
+          : [];
+      const catalogBySub = new Map(
+        subRows.map((r) => [r.id, r.inventoryCatalogItemId as string | null])
+      );
+
       let maxBundles = Infinity;
       for (const sub of withPid) {
-        const n = await countFulfillableUnits(sub.productId!);
+        const subCid = sub.productId ? catalogBySub.get(sub.productId) ?? null : null;
+        const n = await countFulfillableUnits(sub.productId!, sub.variantId, subCid);
         const need = sub.quantity || 1;
         const possible = Math.floor(n / need);
         maxBundles = Math.min(maxBundles, possible);
@@ -594,7 +658,11 @@ export async function canFulfillOrder(orderId: string): Promise<boolean> {
       if (!Number.isFinite(maxBundles)) maxBundles = 0;
       if (maxBundles < item.quantity) return false;
     } else {
-      const n = await countFulfillableUnits(item.productId);
+      const n = await countFulfillableUnits(
+        item.productId,
+        item.variantId,
+        item.inventoryCatalogItemId ?? null
+      );
       if (n < item.quantity) {
         return false;
       }
@@ -628,6 +696,13 @@ export async function reserveInventory(
 ): Promise<string[]> {
   const db = getDb();
 
+  const [p] = await db
+    .select({ inventoryCatalogItemId: products.inventoryCatalogItemId })
+    .from(products)
+    .where(eq(products.id, productId))
+    .limit(1);
+  const lineCatalogId = p?.inventoryCatalogItemId ?? null;
+
   const reservedUntil = new Date(
     Date.now() + durationMinutes * 60 * 1000
   );
@@ -644,7 +719,7 @@ export async function reserveInventory(
         WHERE id IN (
           SELECT id
           FROM inventory_items
-          WHERE ${sqlInventoryRowsForProduct(productId)}
+          WHERE ${sqlInventoryRowsForProduct(productId, lineCatalogId)}
             AND status = 'available'
             AND deleted_at IS NULL
             ${variantFilter}

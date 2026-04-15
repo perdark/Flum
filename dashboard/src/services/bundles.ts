@@ -6,7 +6,7 @@
 
 import { getDb } from "@/db";
 import { bundleItems, products, inventoryTemplates } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, asc } from "drizzle-orm";
 import type { BundleItem, TemplateField } from "@/types";
 
 /**
@@ -50,48 +50,34 @@ export function isFieldPerProduct(
 }
 
 /**
- * Flatten bundle for order items based on template config
+ * Flatten bundle into one line per sub-product (no template-field grouping).
  */
 export async function flattenBundleForOrder(
   bundleProductId: string,
-  templateFields: TemplateField[]
+  _templateFields: TemplateField[]
 ): Promise<
-  Array<{ productId: string; quantity: number; bundlePath: string }>
-> {
-  const composition = await getBundleComposition(bundleProductId);
-  const orderItems: Array<{
+  Array<{
     productId: string;
     quantity: number;
     bundlePath: string;
-  }> = [];
+    variantId?: string | null;
+  }>
+> {
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(bundleItems)
+    .where(eq(bundleItems.bundleProductId, bundleProductId))
+    .orderBy(asc(bundleItems.lineIndex));
 
-  for (const [fieldId, items] of Object.entries(composition)) {
-    const isPerProduct = isFieldPerProduct(templateFields, fieldId);
-
-    if (isPerProduct) {
-      // Each line is a separate product
-      for (const item of items) {
-        if (!item.productId) continue; // Skip lines without a linked product
-        orderItems.push({
-          productId: item.productId,
-          quantity: item.quantity,
-          bundlePath: `${fieldId}[${item.lineIndex}]`,
-        });
-      }
-    } else {
-      // Whole field — expand each item as its own product
-      for (const item of items) {
-        if (!item.productId) continue;
-        orderItems.push({
-          productId: item.productId,
-          quantity: item.quantity,
-          bundlePath: `${fieldId}[${item.lineIndex}]`,
-        });
-      }
-    }
-  }
-
-  return orderItems;
+  return rows
+    .filter((row) => row.productId)
+    .map((row) => ({
+      productId: row.productId!,
+      quantity: row.quantity,
+      bundlePath: `line[${row.lineIndex}]`,
+      variantId: row.variantId ?? null,
+    }));
 }
 
 /**
@@ -102,6 +88,7 @@ export async function addBundleItem(data: {
   templateFieldId: string;
   lineIndex: number;
   productId?: string;
+  variantId?: string | null;
   productName: string;
   quantity: number;
   priceOverride?: string;
@@ -125,6 +112,7 @@ export async function updateBundleItem(
     templateFieldId: string;
     lineIndex: number;
     productId: string;
+    variantId: string | null;
     productName: string;
     quantity: number;
     priceOverride: string;

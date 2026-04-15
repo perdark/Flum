@@ -7,37 +7,12 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { inventoryItems, products, orders, orderItems, productVariants } from "@/db/schema";
+import { inventoryItems, products } from "@/db/schema";
 import { requirePermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
 import { eq, and, sql, desc, asc, like, or, isNull, notInArray } from "drizzle-orm";
 import { manualSellInventoryCondition } from "@/lib/inventoryManualSellFilters";
-import { logInventoryAdded, logActivity } from "@/services/activityLog";
-
-function extractMultisell(row: Record<string, unknown>): {
-  values: Record<string, unknown>;
-  multiSellEnabled: boolean;
-  multiSellMax: number;
-  cooldownEnabled: boolean;
-  cooldownDurationHours: number;
-} {
-  const v = { ...row };
-  const multiSellEnabled = Boolean(v.multiSellEnabled);
-  const multiSellMax = Math.max(1, parseInt(String(v.multiSellMax ?? 5), 10) || 5);
-  const cooldownEnabled = Boolean(v.cooldownEnabled);
-  const cooldownDurationHours = Math.max(1, parseInt(String(v.cooldownDurationHours ?? 12), 10) || 12);
-  delete v.multiSellEnabled;
-  delete v.multiSellMax;
-  delete v.cooldownEnabled;
-  delete v.cooldownDurationHours;
-  return {
-    values: v,
-    multiSellEnabled,
-    multiSellMax,
-    cooldownEnabled,
-    cooldownDurationHours,
-  };
-}
+import { runBulkInventoryAdd } from "@/services/inventoryBulkAdd";
 
 // ============================================================================
 // GET /api/inventory - List inventory
@@ -202,213 +177,31 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const db = getDb();
-
-    // Verify product exists and get template ID
-    const [product] = await db
-      .select({
-        id: products.id,
-        name: products.name,
-        inventoryTemplateId: products.inventoryTemplateId,
-      })
-      .from(products)
-      .where(eq(products.id, productId))
-      .limit(1);
-
-    if (!product) {
-      return NextResponse.json(
-        { success: false, error: "Product not found" },
-        { status: 404 }
-      );
+    let result;
+    try {
+      result = await runBulkInventoryAdd({
+        userId: user.id,
+        productId,
+        items,
+        cost,
+        eachLineIsProduct,
+        sellPendingFirst,
+        variantId,
+      });
+    } catch (e) {
+      if (e instanceof Error && e.message === "PRODUCT_NOT_FOUND") {
+        return NextResponse.json({ success: false, error: "Product not found" }, { status: 404 });
+      }
+      if (e instanceof Error && e.message === "VARIANT_INVALID") {
+        return NextResponse.json(
+          { success: false, error: "variantId does not belong to this product" },
+          { status: 400 }
+        );
+      }
+      throw e;
     }
 
-    // If sellPendingFirst is true, handle pending orders first in one atomic transaction
-    let fulfilledOrders: string[] = [];
-    let itemsConsumed = 0;
-    let insertedItems: Array<any> = [];
-
-    await db.transaction(async (tx) => {
-      if (sellPendingFirst) {
-        // Get pending orders for this product
-        const pendingOrderItems = await tx
-          .select({
-            orderId: orderItems.orderId,
-            orderItemId: orderItems.id,
-            quantity: orderItems.quantity,
-            deliveredIds: orderItems.deliveredInventoryIds,
-          })
-          .from(orderItems)
-          .innerJoin(orders, eq(orderItems.orderId, orders.id))
-          .where(
-            and(
-              eq(orderItems.productId, productId),
-              sql`${orders.deletedAt} IS NULL`,
-              sql`(${orders.status} = 'pending' OR ${orders.fulfillmentStatus} = 'processing')`
-            )
-          );
-
-        // Fulfill pending orders with the new inventory
-        for (const pendingItem of pendingOrderItems) {
-          const delivered = (pendingItem.deliveredIds as string[] || []).length;
-          const stillNeeded = pendingItem.quantity - delivered;
-          const toFulfill = Math.min(stillNeeded, items.length - itemsConsumed);
-
-          if (toFulfill <= 0) {
-            continue;
-          }
-
-          const soldItemIds: string[] = [];
-          for (let j = 0; j < toFulfill; j++) {
-            const raw = items[itemsConsumed + j] as Record<string, unknown>;
-            const { values: baseVals, multiSellEnabled, multiSellMax, cooldownEnabled, cooldownDurationHours } =
-              extractMultisell(raw);
-            const valuesWithMetadata = {
-              ...baseVals,
-              _metadata: {
-                eachLineIsProduct,
-              },
-            };
-            const [inserted] = await tx
-              .insert(inventoryItems)
-              .values({
-                productId,
-                templateId: product.inventoryTemplateId || null,
-                cost: cost || null,
-                values: valuesWithMetadata,
-                status: "sold",
-                purchasedAt: new Date(),
-                orderItemId: pendingItem.orderItemId,
-                multiSellEnabled,
-                multiSellMax,
-                cooldownEnabled,
-                cooldownDurationHours,
-                variantId: variantId || null,
-              })
-              .returning();
-            soldItemIds.push(inserted.id);
-          }
-
-          itemsConsumed += toFulfill;
-
-          // Update order item with new inventory IDs
-          const updatedIds = [...(pendingItem.deliveredIds as string[] || []), ...soldItemIds];
-          await tx
-            .update(orderItems)
-            .set({
-              deliveredInventoryIds: sql`${JSON.stringify(updatedIds)}::jsonb`,
-            })
-            .where(eq(orderItems.id, pendingItem.orderItemId));
-
-          // Update product totalSold
-          await tx
-            .update(products)
-            .set({
-              totalSold: sql`${products.totalSold} + ${toFulfill}`,
-              updatedAt: new Date(),
-            })
-            .where(eq(products.id, productId));
-
-          fulfilledOrders.push(pendingItem.orderId);
-
-          // Check if order is now fully fulfilled
-          const orderItemsForOrder = await tx
-            .select({ quantity: orderItems.quantity, deliveredIds: orderItems.deliveredInventoryIds })
-            .from(orderItems)
-            .where(eq(orderItems.orderId, pendingItem.orderId));
-
-          const allFulfilled = orderItemsForOrder.every(oi => {
-            const delivered = (oi.deliveredIds as string[] || []).length;
-            return delivered >= oi.quantity;
-          });
-
-          if (allFulfilled) {
-            await tx
-              .update(orders)
-              .set({
-                status: "completed",
-                fulfillmentStatus: "delivered",
-                deliveredAt: new Date(),
-                claimedBy: null,
-                claimedAt: null,
-                claimExpiresAt: null,
-                updatedAt: new Date(),
-              })
-              .where(eq(orders.id, pendingItem.orderId));
-          }
-
-          if (itemsConsumed >= items.length) {
-            break;
-          }
-        }
-      }
-
-      // Calculate how many items are left after fulfilling pending orders
-      const itemsToCreate = sellPendingFirst ? items.slice(itemsConsumed) : items;
-
-      if (itemsToCreate.length > 0) {
-        insertedItems = await tx
-          .insert(inventoryItems)
-          .values(
-            itemsToCreate.map((row: Record<string, unknown>) => {
-              const { values: baseVals, multiSellEnabled, multiSellMax, cooldownEnabled, cooldownDurationHours } =
-                extractMultisell(row);
-              const valuesWithMetadata = {
-                ...baseVals,
-                _metadata: {
-                  eachLineIsProduct,
-                },
-              };
-              return {
-                productId,
-                templateId: product.inventoryTemplateId || null,
-                cost: cost || null,
-                values: valuesWithMetadata,
-                status: "available" as const,
-                multiSellEnabled,
-                multiSellMax,
-                cooldownEnabled,
-                cooldownDurationHours,
-                variantId: variantId || null,
-              };
-            })
-          )
-          .returning();
-
-        await tx
-          .update(products)
-          .set({
-            stockCount: sql`${products.stockCount} + ${itemsToCreate.length}`,
-            updatedAt: new Date(),
-          })
-          .where(eq(products.id, productId));
-
-        // Also update variant stockCount if variant specified
-        if (variantId) {
-          await tx
-            .update(productVariants)
-            .set({
-              stockCount: sql`${productVariants.stockCount} + ${itemsToCreate.length}`,
-              updatedAt: new Date(),
-            })
-            .where(eq(productVariants.id, variantId));
-        }
-      }
-    });
-
-    // Log activity (log once per batch)
-    await logActivity({
-      userId: user.id,
-      action: "inventory_added",
-      entity: "inventory",
-      entityId: insertedItems[0]?.id || productId,
-      metadata: {
-        productId,
-        productName: product.name,
-        quantity: items.length,
-        cost: cost || undefined,
-        fulfilledOrders: fulfilledOrders.length > 0 ? fulfilledOrders : undefined,
-      },
-    });
+    const { fulfilledOrders, insertedItems } = result;
 
     return NextResponse.json({
       success: true,

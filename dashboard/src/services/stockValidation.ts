@@ -6,10 +6,16 @@
  */
 
 import { getDb } from "@/db";
-import { inventoryItems, inventoryTemplates, products } from "@/db/schema";
+import { inventoryItems, inventoryTemplates, products, productVariants } from "@/db/schema";
 import { eq, and, sql, isNull } from "drizzle-orm";
 import { sqlInventoryRowsForProduct } from "@/lib/inventoryProductScope";
-import type { StockAvailability, StockMismatchField, StockMismatchAlert, InventoryFieldDefinition } from "@/types";
+import type {
+  StockAvailability,
+  StockMismatchField,
+  StockMismatchAlert,
+  InventoryFieldDefinition,
+  StockVariantAvailabilitySlice,
+} from "@/types";
 
 /**
  * Get field counts for available inventory items of a product/template
@@ -17,9 +23,19 @@ import type { StockAvailability, StockMismatchField, StockMismatchAlert, Invento
 async function getFieldCounts(
   productId?: string,
   templateId?: string,
-  variantId?: string
+  variantId?: string | null
 ): Promise<Record<string, number>> {
   const db = getDb();
+
+  let catalogItemId: string | null = null;
+  if (productId) {
+    const [p] = await db
+      .select({ inventoryCatalogItemId: products.inventoryCatalogItemId })
+      .from(products)
+      .where(eq(products.id, productId))
+      .limit(1);
+    catalogItemId = p?.inventoryCatalogItemId ?? null;
+  }
 
   const conditions = [
     sql`${inventoryItems.status} = 'available'`,
@@ -27,13 +43,17 @@ async function getFieldCounts(
   ];
 
   if (productId) {
-    conditions.push(sqlInventoryRowsForProduct(productId));
+    conditions.push(sqlInventoryRowsForProduct(productId, catalogItemId));
   }
   if (templateId) {
     conditions.push(eq(inventoryItems.templateId, templateId));
   }
-  if (variantId) {
-    conditions.push(eq(inventoryItems.variantId, variantId));
+  if (variantId !== undefined) {
+    if (variantId === null) {
+      conditions.push(isNull(inventoryItems.variantId));
+    } else {
+      conditions.push(eq(inventoryItems.variantId, variantId));
+    }
   }
 
   const items = await db
@@ -57,6 +77,73 @@ async function getFieldCounts(
   }
 
   return fieldCounts;
+}
+
+function buildAvailabilitySlice(
+  fields: InventoryFieldDefinition[],
+  fieldCounts: Record<string, number>,
+  variantId: string | null
+): StockVariantAvailabilitySlice {
+  const linkGroups: Record<string, { fields: string[]; minCount: number }> = {};
+  const mismatches: StockMismatchField[] = [];
+
+  for (const field of fields) {
+    if (field.linkGroup) {
+      if (!linkGroups[field.linkGroup]) {
+        linkGroups[field.linkGroup] = { fields: [], minCount: Infinity };
+      }
+      linkGroups[field.linkGroup].fields.push(field.name);
+      const count = fieldCounts[field.name] || 0;
+      linkGroups[field.linkGroup].minCount = Math.min(
+        linkGroups[field.linkGroup].minCount,
+        count
+      );
+    }
+  }
+
+  for (const group of Object.values(linkGroups)) {
+    for (const fieldName of group.fields) {
+      const count = fieldCounts[fieldName] || 0;
+      if (count !== group.minCount) {
+        const field = fields.find((f) => f.name === fieldName);
+        mismatches.push({
+          fieldName,
+          fieldLabel: field?.label || fieldName,
+          totalCount: count,
+          linkedFieldName: field?.linkedTo || null,
+          linkedFieldTotalCount: field?.linkedTo
+            ? fieldCounts[field.linkedTo] || 0
+            : null,
+          unmatchedCount: count - group.minCount,
+        });
+      }
+    }
+  }
+
+  let sellableQuantity = Infinity;
+  for (const group of Object.values(linkGroups)) {
+    sellableQuantity = Math.min(sellableQuantity, group.minCount);
+  }
+
+  const unlinkedFields = fields.filter((f) => !f.linkGroup && !f.linkedTo);
+  if (unlinkedFields.length > 0) {
+    const totalAvailable =
+      Object.values(fieldCounts).length > 0 ? Math.min(...Object.values(fieldCounts)) : 0;
+    sellableQuantity = Math.min(sellableQuantity, totalAvailable);
+  }
+
+  if (sellableQuantity === Infinity) {
+    sellableQuantity = 0;
+  }
+
+  return {
+    variantId,
+    sellableQuantity,
+    fieldCounts,
+    linkedGroups: linkGroups,
+    hasMismatch: mismatches.length > 0,
+    mismatches,
+  };
 }
 
 /**
@@ -99,87 +186,41 @@ export async function analyzeStockAvailability(
   }
 
   const fields = template.fieldsSchema as InventoryFieldDefinition[];
+
+  let variantBreakdown: StockVariantAvailabilitySlice[] | undefined;
+
+  if (productId && variantId === undefined) {
+    const vrows = await db
+      .select({ id: productVariants.id })
+      .from(productVariants)
+      .where(eq(productVariants.productId, productId));
+
+    if (vrows.length > 1) {
+      variantBreakdown = [];
+      for (const row of vrows) {
+        const fc = await getFieldCounts(productId, template.id, row.id);
+        variantBreakdown.push(buildAvailabilitySlice(fields, fc, row.id));
+      }
+      const fcUnassigned = await getFieldCounts(productId, template.id, null);
+      const hasUnassigned = Object.values(fcUnassigned).some((n) => n > 0);
+      if (hasUnassigned) {
+        variantBreakdown.push(buildAvailabilitySlice(fields, fcUnassigned, null));
+      }
+    }
+  }
+
   const fieldCounts = await getFieldCounts(productId, template.id, variantId);
-
-  // Identify linked groups
-  const linkGroups: Record<string, { fields: string[]; minCount: number }> = {};
-  const mismatches: StockMismatchField[] = [];
-
-  for (const field of fields) {
-    if (field.linkGroup) {
-      if (!linkGroups[field.linkGroup]) {
-        linkGroups[field.linkGroup] = { fields: [], minCount: Infinity };
-      }
-      linkGroups[field.linkGroup].fields.push(field.name);
-      const count = fieldCounts[field.name] || 0;
-      linkGroups[field.linkGroup].minCount = Math.min(
-        linkGroups[field.linkGroup].minCount,
-        count
-      );
-    }
-  }
-
-  // Detect mismatches within linked groups
-  for (const [groupName, group] of Object.entries(linkGroups)) {
-    for (const fieldName of group.fields) {
-      const count = fieldCounts[fieldName] || 0;
-      if (count !== group.minCount) {
-        const field = fields.find((f) => f.name === fieldName);
-        const linkedField = fields.find(
-          (f) => f.linkedTo === fieldName
-        );
-        mismatches.push({
-          fieldName,
-          fieldLabel: field?.label || fieldName,
-          totalCount: count,
-          linkedFieldName: field?.linkedTo || null,
-          linkedFieldTotalCount: field?.linkedTo
-            ? fieldCounts[field.linkedTo] || 0
-            : null,
-          unmatchedCount: count - group.minCount,
-        });
-      }
-    }
-  }
-
-  // Calculate sellable quantity (minimum across all linked groups + unlinked fields)
-  let sellableQuantity = Infinity;
-
-  // For linked groups, the sellable quantity is the min count
-  for (const group of Object.values(linkGroups)) {
-    sellableQuantity = Math.min(sellableQuantity, group.minCount);
-  }
-
-  // For unlinked fields, count is based on total available items
-  const unlinkedFields = fields.filter(
-    (f) => !f.linkGroup && !f.linkedTo
-  );
-  if (unlinkedFields.length > 0) {
-    const totalAvailable = Object.values(fieldCounts).length > 0
-      ? Math.min(...Object.values(fieldCounts))
-      : 0;
-    sellableQuantity = Math.min(sellableQuantity, totalAvailable);
-  }
-
-  if (sellableQuantity === Infinity) {
-    sellableQuantity = 0;
-  }
-
-  const totalAvailable = Object.values(fieldCounts).reduce(
-    (sum, count) => sum + count,
-    0
-  ) / Math.max(fields.length, 1);
-
-  const hasMismatch = mismatches.length > 0;
+  const slice = buildAvailabilitySlice(fields, fieldCounts, variantId ?? null);
 
   return {
     templateId: template.id,
     productId: productId || null,
-    fieldCounts,
-    linkedGroups: linkGroups,
-    sellableQuantity,
-    hasMismatch,
-    mismatches,
+    fieldCounts: slice.fieldCounts,
+    linkedGroups: slice.linkedGroups,
+    sellableQuantity: slice.sellableQuantity,
+    hasMismatch: slice.hasMismatch,
+    mismatches: slice.mismatches,
+    variantBreakdown,
   };
 }
 

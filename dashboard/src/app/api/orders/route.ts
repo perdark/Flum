@@ -7,11 +7,11 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { orders, orderItems, products, coupons, users, inventoryTemplates } from "@/db/schema";
+import { orders, orderItems, products, coupons, users, inventoryTemplates, storeSettings } from "@/db/schema";
 import { requirePermission, getCurrentUser } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
 import { eq, and, sql, desc, asc, like, or, inArray, isNull } from "drizzle-orm";
-import { fulfillOrder } from "@/services/autoDelivery";
+import { fulfillOrder, canFulfillOrder } from "@/services/autoDelivery";
 
 // ============================================================================
 // GET /api/orders - List orders
@@ -36,11 +36,28 @@ export async function GET(request: NextRequest) {
     const page = parseInt(searchParams.get("page") || "1");
     const limit = parseInt(searchParams.get("limit") || "20");
     const offset = (page - 1) * limit;
+    const pendingApproval = searchParams.get("pendingApproval") === "true";
 
     const db = getDb();
 
     // Build conditions
     const conditions = [sql`orders.deleted_at IS NULL`];
+
+    if (pendingApproval) {
+      const [settings] = await db
+        .select({ minutes: storeSettings.autoApproveTimeoutMinutes })
+        .from(storeSettings)
+        .limit(1);
+      const mins = settings?.minutes ?? 30;
+      if (mins > 0) {
+        const cutoff = new Date(Date.now() - mins * 60 * 1000);
+        conditions.push(eq(orders.fulfillmentStatus, "pending"));
+        conditions.push(sql`${orders.createdAt} <= ${cutoff}`);
+        conditions.push(or(isNull(orders.holdUntil), sql`${orders.holdUntil} <= NOW()`)!);
+      } else {
+        conditions.push(sql`1 = 0`);
+      }
+    }
 
     if (search) {
       conditions.push(
@@ -206,9 +223,23 @@ export async function GET(request: NextRequest) {
       items: itemsList.filter((item) => item.orderId === order.id),
     }));
 
+    const ordersWithStockHint = await Promise.all(
+      ordersWithItems.map(async (order) => {
+        const hasUndelivered = order.items.some((item) => {
+          const delivered = (item.deliveredInventoryIds || []).length;
+          return delivered < item.quantity;
+        });
+        let canDeliverFromStock = false;
+        if (order.fulfillmentStatus === "pending" && hasUndelivered) {
+          canDeliverFromStock = await canFulfillOrder(order.id);
+        }
+        return { ...order, canDeliverFromStock };
+      })
+    );
+
     return NextResponse.json({
       success: true,
-      data: ordersWithItems,
+      data: ordersWithStockHint,
       pagination: {
         page,
         limit,

@@ -205,6 +205,15 @@ export interface StockMismatchAlert {
   severity: "info" | "warning" | "error";
 }
 
+export interface StockVariantAvailabilitySlice {
+  variantId: string | null;
+  sellableQuantity: number;
+  fieldCounts: Record<string, number>;
+  linkedGroups: Record<string, { fields: string[]; minCount: number }>;
+  hasMismatch: boolean;
+  mismatches: StockMismatchField[];
+}
+
 export interface StockAvailability {
   templateId: string;
   productId: string | null;
@@ -213,6 +222,8 @@ export interface StockAvailability {
   sellableQuantity: number;
   hasMismatch: boolean;
   mismatches: StockMismatchField[];
+  /** Present when the product has multiple variants — stock analysed per variant pool. */
+  variantBreakdown?: StockVariantAvailabilitySlice[];
 }
 
 // ============================================================================
@@ -275,6 +286,7 @@ export interface BundleItem {
   templateFieldId: string;
   lineIndex: number;
   productId?: string;
+  variantId?: string | null;
   productName: string;
   quantity: number;
   priceOverride?: string;

@@ -74,6 +74,8 @@ export const customers = pgTable('customers', {
   type: varchar('type', { length: 20 }).default('retail').notNull(),
   businessName: varchar('business_name', { length: 255 }),
   taxId: varchar('tax_id', { length: 100 }),
+  /** Storefront password login (nullable for admin-created B2B leads). */
+  passwordHash: varchar('password_hash', { length: 255 }),
   status: varchar('status', { length: 20 }).default('active').notNull(),
   metadata: jsonb('metadata').$type<Record<string, unknown>>(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -294,6 +296,10 @@ export const products = pgTable('products', {
   compareAtPrice: decimal('compare_at_price', { precision: 10, scale: 2 }),
   deliveryType: varchar('delivery_type', { length: 50 }).notNull(),
   inventoryTemplateId: uuid('inventory_template_id').references(() => inventoryTemplates.id),
+  /** When set, auto-fulfillment only allocates rows for this catalog SKU (must match template). */
+  inventoryCatalogItemId: uuid('inventory_catalog_item_id').references(() => inventoryCatalogItems.id, {
+    onDelete: 'set null',
+  }),
   isActive: boolean('is_active').default(true).notNull(),
   isFeatured: boolean('is_featured').default(false).notNull(),
   isNew: boolean('is_new').default(false).notNull(),
@@ -326,6 +332,7 @@ export const products = pgTable('products', {
   featuredIdx: index('products_featured_idx').on(table.isFeatured),
   ratingIdx: index('products_rating_idx').on(table.averageRating),
   templateIdx: index('products_template_idx').on(table.inventoryTemplateId),
+  inventoryCatalogItemIdx: index('products_inventory_catalog_item_idx').on(table.inventoryCatalogItemId),
   bundleTemplateIdx: index('products_bundle_template_idx').on(table.bundleTemplateId),
 }));
 
@@ -355,6 +362,18 @@ export const productImages = pgTable('product_images', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (table) => ({
   productIdx: index('product_images_product_idx').on(table.productId),
+}));
+
+/** Granular storefront facets: platform, region, genre, etc. */
+export const productTags = pgTable('product_tags', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  productId: uuid('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+  tag: varchar('tag', { length: 100 }).notNull(),
+  tagGroup: varchar('tag_group', { length: 50 }).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  productIdx: index('product_tags_product_idx').on(table.productId),
+  tagGroupIdx: index('product_tags_tag_group_idx').on(table.tagGroup),
 }));
 
 // Product Pricing - Tiered pricing per product (B2B/B2C)
@@ -431,6 +450,8 @@ export const bundleItems = pgTable('bundle_items', {
   templateFieldId: varchar('template_field_id', { length: 255 }).notNull(),
   lineIndex: integer('line_index').default(0).notNull(),
   productId: uuid('product_id').references(() => products.id),
+  /** When set, bundle fulfillment allocates stock from this sub-product variant. */
+  variantId: uuid('variant_id').references(() => productVariants.id, { onDelete: 'set null' }),
   productName: varchar('product_name', { length: 255 }).notNull(),
   quantity: integer('quantity').default(1).notNull(),
   priceOverride: decimal('price_override', { precision: 10, scale: 2 }),
@@ -465,6 +486,43 @@ export const cartItems = pgTable('cart_items', {
 }, (table) => ({
   cartIdx: index('cart_items_cart_idx').on(table.cartId),
   productIdx: index('cart_items_product_idx').on(table.productId),
+}));
+
+/** Storefront customer sessions (cookie `customer_session`). */
+export const customerSessions = pgTable('customer_sessions', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  customerId: uuid('customer_id').notNull().references(() => customers.id, { onDelete: 'cascade' }),
+  token: varchar('token', { length: 255 }).unique().notNull(),
+  expiresAt: timestamp('expires_at').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  tokenIdx: index('customer_sessions_token_idx').on(table.token),
+  customerIdx: index('customer_sessions_customer_idx').on(table.customerId),
+}));
+
+/** Price drop alerts: customers subscribe to notifications when a product's price drops. */
+export const priceAlertSubscriptions = pgTable('price_alert_subscriptions', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  customerId: uuid('customer_id').notNull().references(() => customers.id, { onDelete: 'cascade' }),
+  productId: uuid('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+  priceAtSubscribe: decimal('price_at_subscribe', { precision: 10, scale: 2 }).notNull(),
+  source: varchar('source', { length: 32 }).default('product').notNull(),
+  notifiedAt: timestamp('notified_at'),
+  lastNotifiedPrice: decimal('last_notified_price', { precision: 10, scale: 2 }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  customerIdx: index('price_alert_customer_idx').on(table.customerId),
+  productIdx: index('price_alert_product_idx').on(table.productId),
+  uniqCustomerProduct: uniqueIndex('price_alert_customer_product_idx').on(table.customerId, table.productId),
+}));
+
+/** Homepage / marketing newsletter signups. */
+export const storeNewsletterSignups = pgTable('store_newsletter_signups', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  email: varchar('email', { length: 255 }).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  emailUniq: uniqueIndex('store_newsletter_signups_email_idx').on(table.email),
 }));
 
 // ============================================================================
@@ -503,6 +561,8 @@ export const orders = pgTable('orders', {
   originalTotal: decimal('original_total', { precision: 10, scale: 2 }),
   approvedBy: uuid('approved_by').references(() => users.id),
   approvedAt: timestamp('approved_at'),
+  /** When set, auto-approval cron/UI should wait until this time (semi-auto delivery hold). */
+  holdUntil: timestamp('hold_until'),
   metadata: jsonb('metadata').$type<Record<string, unknown>>(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

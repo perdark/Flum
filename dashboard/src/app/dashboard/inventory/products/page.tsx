@@ -9,6 +9,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import {
@@ -47,6 +48,7 @@ type StockEntry = {
   status: string;
   productName: string | null;
   createdAt: string;
+  cost?: string | null;
   multiSellEnabled?: boolean;
   multiSellMax?: number;
   multiSellSaleCount?: number;
@@ -76,6 +78,7 @@ export default function InventoryProductsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
 
   const [templateDetail, setTemplateDetail] = useState<TemplateDetail | null>(null);
   const [tplLoading, setTplLoading] = useState(false);
@@ -94,6 +97,8 @@ export default function InventoryProductsPage() {
   const [newTemplateId, setNewTemplateId] = useState("");
   const [newName, setNewName] = useState("");
   const [saving, setSaving] = useState(false);
+  /** True when any available row for this catalog SKU has null/empty cost (COGS hint). */
+  const [availableCostWarning, setAvailableCostWarning] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -150,6 +155,30 @@ export default function InventoryProductsPage() {
       })
       .finally(() => setTplLoading(false));
   }, [selected?.templateId, selected?.id]);
+
+  useEffect(() => {
+    if (!detailOpen || !selected) {
+      setAvailableCostWarning(false);
+      return;
+    }
+    const params = new URLSearchParams();
+    params.set("status", "available");
+    params.set("limit", "200");
+    params.set("catalogItemId", selected.id);
+    fetch(`/api/inventory/templates/${selected.templateId}/stock?${params.toString()}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.success && Array.isArray(d.data)) {
+          const list = d.data as Array<{ cost?: string | null }>;
+          setAvailableCostWarning(
+            list.some((row) => row.cost == null || String(row.cost ?? "").trim() === ""),
+          );
+        } else {
+          setAvailableCostWarning(false);
+        }
+      })
+      .catch(() => setAvailableCostWarning(false));
+  }, [detailOpen, selected?.id, selected?.templateId]);
 
   const fetchStock = useCallback(
     async (fieldName: string) => {
@@ -287,6 +316,7 @@ export default function InventoryProductsPage() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search by product or template…"
+          aria-label="Search inventory products"
           className="w-full pl-10 pr-3 py-2.5 bg-background border border-input rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-ring"
         />
       </div>
@@ -327,10 +357,23 @@ export default function InventoryProductsPage() {
               {filtered.map((r) => (
                 <tr
                   key={r.id}
-                  onClick={() => setSelectedId(r.id)}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`View details for ${r.name}`}
+                  onClick={() => {
+                    setSelectedId(r.id);
+                    setDetailOpen(true);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setSelectedId(r.id);
+                      setDetailOpen(true);
+                    }
+                  }}
                   className={cn(
-                    "border-t border-border cursor-pointer transition-colors",
-                    selectedId === r.id ? "bg-primary/10" : "hover:bg-muted/20"
+                    "border-t border-border cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+                    selectedId === r.id && detailOpen ? "bg-primary/10" : "hover:bg-muted/20"
                   )}
                 >
                   <td className="px-4 py-3 font-medium text-foreground">{r.name}</td>
@@ -354,79 +397,114 @@ export default function InventoryProductsPage() {
         </div>
       )}
 
-      {selected && (
-        <div className="border border-border bg-background rounded-lg p-6 shadow-sm space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-200">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <h2 className="text-xl font-semibold text-foreground">{selected.name}</h2>
-              <p className="text-sm text-muted-foreground">
-                Template: <span className="text-foreground font-medium">{selected.templateName}</span>
-                {" · "}
-                <span className="tabular-nums">{selected.codesCount} codes</span>,{" "}
-                <span className="tabular-nums">{selected.stockCount} rows</span>
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                size="sm"
-                disabled={!selected.isActive || tplLoading || !templateDetail}
-                title={!selected.isActive ? "Activate this product first" : undefined}
-                onClick={() => setAddBatchOpen(true)}
-              >
-                <Plus className="w-4 h-4 mr-1" />
-                Add stock batch
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => setSelectedId(null)}>
-                Clear selection
-              </Button>
-            </div>
-          </div>
-
-          {tplLoading || !templateDetail ? (
-            <div className="text-sm text-muted-foreground py-6">Loading template fields…</div>
-          ) : (
+      <Dialog
+        open={detailOpen}
+        onOpenChange={(open) => {
+          setDetailOpen(open);
+          if (!open) {
+            setSelectedId(null);
+            setStockModalOpen(false);
+            setStockField(null);
+            setAddBatchOpen(false);
+          }
+        }}
+      >
+        <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col gap-0 p-0 overflow-hidden border-border sm:rounded-xl">
+          {selected && (
             <>
-              <div>
-                <h3 className="text-sm font-semibold text-foreground mb-1">Fields &amp; stock</h3>
-                <p className="text-xs text-muted-foreground mb-3">
-                  Use <strong className="text-foreground">Add stock batch</strong> above for many lines at once. Pick a
-                  field below to list or edit rows one at a time.
-                </p>
-                <div className="flex flex-wrap gap-3">
-                  {sortedFields.map((field) =>
-                    field.type === "group" ? (
-                      <div
-                        key={field.name}
-                        className="flex items-center gap-3 px-4 py-3 bg-muted/40 border border-dashed border-input rounded-lg text-left text-xs text-muted-foreground"
-                      >
-                        {field.label} (group)
-                      </div>
-                    ) : (
-                      <button
-                        key={field.name}
-                        type="button"
-                        onClick={() => {
-                          setStockField(field);
-                          setStockModalOpen(true);
-                        }}
-                        className="flex items-center gap-3 px-4 py-3 bg-secondary hover:bg-secondary/80 border border-input rounded-lg transition-colors text-left"
-                      >
-                        <div className="flex flex-col">
-                          <span className="font-medium text-foreground">{field.label}</span>
-                          <span className="font-mono text-xs text-muted-foreground">
-                            {field.type}
-                            {field.required ? " · required" : ""}
-                          </span>
-                        </div>
-                      </button>
-                    )
-                  )}
+              <DialogHeader className="px-6 pt-6 pb-4 border-b border-border shrink-0 text-left space-y-1">
+                <DialogTitle className="text-xl font-semibold tracking-tight">{selected.name}</DialogTitle>
+                <DialogDescription asChild>
+                  <p className="text-sm text-muted-foreground">
+                    Template: <span className="text-foreground font-medium">{selected.templateName}</span>
+                    {" · "}
+                    <span className="tabular-nums">{selected.codesCount} codes</span>,{" "}
+                    <span className="tabular-nums">{selected.stockCount} rows</span>
+                  </p>
+                </DialogDescription>
+              </DialogHeader>
+              {availableCostWarning && (
+                <div className="mx-6 mt-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-950 dark:text-amber-100">
+                  Some available stock rows have no cost. Cost is optional — open a field below and use{" "}
+                  <strong className="text-foreground">bulk cost</strong> in the stock list when you want COGS
+                  tracking.
                 </div>
+              )}
+              <div className="px-6 py-4 overflow-y-auto min-h-0 flex-1 space-y-6">
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    disabled={!selected.isActive || tplLoading || !templateDetail}
+                    title={!selected.isActive ? "Activate this product first" : undefined}
+                    onClick={() => setAddBatchOpen(true)}
+                  >
+                    <Plus className="w-4 h-4 mr-1" />
+                    Add stock batch
+                  </Button>
+                </div>
+
+                {mergedSkuStored(selected) && Object.keys(mergedSkuStored(selected)!).length > 0 && (
+                  <div>
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                      SKU / defining values
+                    </h3>
+                    <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                      {Object.entries(mergedSkuStored(selected)!).map(([k, v]) => (
+                        <div key={k} className="flex justify-between gap-2 rounded-lg bg-muted/40 px-3 py-2 border border-border/60">
+                          <dt className="text-muted-foreground font-mono text-xs">{k}</dt>
+                          <dd className="text-foreground font-medium truncate">{String(v)}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+                )}
+
+                {tplLoading || !templateDetail ? (
+                  <div className="text-sm text-muted-foreground py-8 text-center">Loading template fields…</div>
+                ) : (
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground mb-1">Fields &amp; stock</h3>
+                    <p className="text-xs text-muted-foreground mb-3">
+                      Use <strong className="text-foreground">Add stock batch</strong> for bulk lines. Pick a field to
+                      list or edit rows.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {sortedFields.map((field) =>
+                        field.type === "group" ? (
+                          <div
+                            key={field.name}
+                            className="flex items-center gap-3 px-4 py-3 bg-muted/40 border border-dashed border-input rounded-lg text-left text-xs text-muted-foreground"
+                          >
+                            {field.label} (group)
+                          </div>
+                        ) : (
+                          <button
+                            key={field.name}
+                            type="button"
+                            onClick={() => {
+                              setStockField(field);
+                              setStockModalOpen(true);
+                            }}
+                            className="flex items-center gap-3 px-4 py-3 bg-secondary hover:bg-secondary/80 border border-input rounded-lg transition-colors text-left"
+                          >
+                            <div className="flex flex-col">
+                              <span className="font-medium text-foreground">{field.label}</span>
+                              <span className="font-mono text-xs text-muted-foreground">
+                                {field.type}
+                                {field.required ? " · required" : ""}
+                              </span>
+                            </div>
+                          </button>
+                        )
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </>
           )}
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
 
       {selected && templateDetail && stockField && (
         <InventoryProductStockModal

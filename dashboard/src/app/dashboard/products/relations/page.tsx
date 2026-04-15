@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 
@@ -8,6 +8,8 @@ interface Product {
   id: string;
   name: string;
   slug: string;
+  inventoryTemplateId?: string | null;
+  inventoryCatalogItemId?: string | null;
 }
 
 interface RelationRow {
@@ -19,6 +21,13 @@ interface RelationRow {
   relatedSlug: string;
 }
 
+interface CatalogProductRow {
+  id: string;
+  templateId: string;
+  name: string;
+  templateName: string;
+}
+
 export default function ProductRelationsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [productId, setProductId] = useState("");
@@ -26,6 +35,14 @@ export default function ProductRelationsPage() {
   const [relatedId, setRelatedId] = useState("");
   const [relationType, setRelationType] = useState("related");
   const [loading, setLoading] = useState(false);
+  const [productDetail, setProductDetail] = useState<{
+    inventoryTemplateId: string | null;
+    inventoryCatalogItemId: string | null;
+  } | null>(null);
+  const [catalogRows, setCatalogRows] = useState<CatalogProductRow[]>([]);
+  const [catalogPick, setCatalogPick] = useState("");
+  const [attachStock, setAttachStock] = useState(true);
+  const [savingCatalog, setSavingCatalog] = useState(false);
 
   useEffect(() => {
     fetch("/api/products?limit=500")
@@ -37,19 +54,48 @@ export default function ProductRelationsPage() {
   }, []);
 
   useEffect(() => {
+    fetch("/api/inventory/catalog-products")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.success && Array.isArray(d.data)) setCatalogRows(d.data);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
     if (!productId) {
       setRelations([]);
+      setProductDetail(null);
+      setCatalogPick("");
       return;
     }
     setLoading(true);
-    fetch(`/api/products/${productId}/relations`)
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.success) setRelations(d.data || []);
-        else toast.error(d.error || "Failed to load relations");
+    Promise.all([
+      fetch(`/api/products/${productId}/relations`).then((r) => r.json()),
+      fetch(`/api/products/${productId}`).then((r) => r.json()),
+    ])
+      .then(([relRes, prodRes]) => {
+        if (relRes.success) setRelations(relRes.data || []);
+        else toast.error(relRes.error || "Failed to load relations");
+        if (prodRes.success && prodRes.data) {
+          const d = prodRes.data;
+          setProductDetail({
+            inventoryTemplateId: d.inventoryTemplateId ?? null,
+            inventoryCatalogItemId: d.inventoryCatalogItemId ?? null,
+          });
+          setCatalogPick(d.inventoryCatalogItemId ?? "");
+        } else {
+          setProductDetail(null);
+        }
       })
       .finally(() => setLoading(false));
   }, [productId]);
+
+  const catalogOptions = useMemo(() => {
+    const tid = productDetail?.inventoryTemplateId;
+    if (!tid) return [];
+    return catalogRows.filter((c) => c.templateId === tid);
+  }, [catalogRows, productDetail?.inventoryTemplateId]);
 
   const addRelation = async () => {
     if (!productId || !relatedId) {
@@ -84,8 +130,38 @@ export default function ProductRelationsPage() {
     }
   };
 
+  const saveInventoryLink = async () => {
+    if (!productId) return;
+    setSavingCatalog(true);
+    try {
+      const body: Record<string, unknown> = {
+        inventoryCatalogItemId: catalogPick || null,
+        attachStockToRows: attachStock && Boolean(catalogPick),
+      };
+      const res = await fetch(`/api/products/${productId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success("Inventory link saved");
+        setProductDetail({
+          inventoryTemplateId: data.data?.inventoryTemplateId ?? null,
+          inventoryCatalogItemId: data.data?.inventoryCatalogItemId ?? null,
+        });
+      } else {
+        toast.error(data.error || "Failed");
+      }
+    } catch {
+      toast.error("Network error");
+    } finally {
+      setSavingCatalog(false);
+    }
+  };
+
   return (
-    <div className="max-w-3xl">
+    <div className="max-w-3xl space-y-8">
       <div className="mb-6">
         <Link href="/dashboard/products" className="text-sm text-primary hover:underline">
           ← Products
@@ -176,6 +252,64 @@ export default function ProductRelationsPage() {
                 </ul>
               )}
             </div>
+          </>
+        )}
+      </div>
+
+      <div className="bg-card border border-border rounded-lg p-6 space-y-4">
+        <h2 className="text-lg font-semibold text-foreground">Storefront ↔ inventory catalog SKU</h2>
+        <p className="text-muted-foreground text-sm">
+          Tie this product to one internal inventory SKU (same template as the product). Optional: attach existing
+          unlinked stock rows on that SKU to this product.
+        </p>
+        {!productId ? (
+          <p className="text-xs text-muted-foreground">Select a product above first.</p>
+        ) : !productDetail?.inventoryTemplateId ? (
+          <p className="text-sm text-amber-600 dark:text-amber-400">
+            This product has no inventory template. Set one on the product edit page, then pick a catalog SKU here.
+          </p>
+        ) : (
+          <>
+            <div>
+              <label className="block text-sm font-medium text-muted-foreground mb-2">Inventory catalog SKU</label>
+              <select
+                value={catalogPick}
+                onChange={(e) => setCatalogPick(e.target.value)}
+                className="w-full px-4 py-2 bg-muted border border-input rounded-lg"
+              >
+                <option value="">None (clear link)</option>
+                {catalogOptions.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.templateName})
+                  </option>
+                ))}
+              </select>
+              {catalogOptions.length === 0 && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  No catalog SKUs for this template. Create one under Inventory → Products.
+                </p>
+              )}
+            </div>
+            <label className="flex items-start gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={attachStock}
+                onChange={(e) => setAttachStock(e.target.checked)}
+              />
+              <span>
+                Attach available stock rows for this SKU that have no storefront product yet (
+                <code className="text-xs">product_id</code> null → this product)
+              </span>
+            </label>
+            <button
+              type="button"
+              disabled={savingCatalog}
+              onClick={() => void saveInventoryLink()}
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg disabled:opacity-50"
+            >
+              {savingCatalog ? "Saving…" : "Save inventory link"}
+            </button>
           </>
         )}
       </div>

@@ -6,10 +6,38 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { orders, orderItems, inventoryItems, products, orderDeliverySnapshots } from "@/db/schema";
+import { orders, orderItems, inventoryItems, products, orderDeliverySnapshots, deliveries } from "@/db/schema";
 import { requirePermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
 import { eq, sql, inArray } from "drizzle-orm";
+
+function mapDeliveriesFromRows(
+  rows: Array<{
+    id: string;
+    orderItemId: string;
+    type: string;
+    content: string;
+    sentAt: Date | null;
+  }>
+) {
+  return rows.map((d) => {
+    let content: Record<string, unknown> = {};
+    try {
+      content = JSON.parse(d.content) as Record<string, unknown>;
+    } catch {
+      content = { text: d.content };
+    }
+    const invRaw = content.inventoryItemId ?? content.inventory_item_id;
+    const inventoryItemId = typeof invRaw === "string" ? invRaw : null;
+    return {
+      id: d.id,
+      type: d.type,
+      sentAt: d.sentAt ? d.sentAt.toISOString() : null,
+      content,
+      inventoryItemId,
+    };
+  });
+}
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -53,6 +81,20 @@ export async function GET(request: NextRequest, context: RouteContext) {
       .where(eq(orders.id, orderId))
       .limit(1);
 
+    const deliveryRows = await db
+      .select({
+        id: deliveries.id,
+        orderItemId: deliveries.orderItemId,
+        type: deliveries.type,
+        content: deliveries.content,
+        sentAt: deliveries.sentAt,
+      })
+      .from(deliveries)
+      .innerJoin(orderItems, eq(deliveries.orderItemId, orderItems.id))
+      .where(eq(orderItems.orderId, orderId));
+
+    const deliveriesPayload = mapDeliveriesFromRows(deliveryRows);
+
     if (snapshot && snapshot.payload && snapshot.payload.items && snapshot.payload.items.length > 0) {
       return NextResponse.json({
         success: true,
@@ -60,6 +102,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
           order: orderData || null,
           deliveryItems: snapshot.payload.items,
           fromSnapshot: true,
+          deliveries: deliveriesPayload,
         },
       });
     }
@@ -110,6 +153,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
         order: orderData || null,
         deliveryItems,
         fromSnapshot: false,
+        deliveries: deliveriesPayload,
       },
     });
   } catch (error) {

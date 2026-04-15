@@ -13,10 +13,21 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { products, orders, orderItems, inventoryItems, orderDeliverySnapshots, productPricing, bundleItems } from "@/db/schema";
+import {
+  products,
+  orders,
+  orderItems,
+  inventoryItems,
+  orderDeliverySnapshots,
+  productPricing,
+  bundleItems,
+  customers,
+  productVariants,
+} from "@/db/schema";
 import { requirePermission } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
-import { eq, sql, inArray } from "drizzle-orm";
+import { eq, and, sql, inArray } from "drizzle-orm";
+import type { UserWithPermissions } from "@/types";
 import { logActivity, logOrderCompleted } from "@/services/activityLog";
 import {
   pickOneInventoryLine,
@@ -123,11 +134,17 @@ async function checkInventoryAvailability(
       const subProductCounts = new Map<string, number>();
 
       for (const subProductId of subProductIds) {
+        const [sp] = await db
+          .select({ inventoryCatalogItemId: products.inventoryCatalogItemId })
+          .from(products)
+          .where(eq(products.id, subProductId))
+          .limit(1);
+        const subCid = sp?.inventoryCatalogItemId ?? null;
         const countResult = await db.execute(
           sql`
             SELECT COUNT(*) as count
             FROM inventory_items
-            WHERE ${sqlInventoryRowsForProduct(subProductId)}
+            WHERE ${sqlInventoryRowsForProduct(subProductId, subCid)}
               AND status = 'available'
               AND deleted_at IS NULL
           `
@@ -161,11 +178,12 @@ async function checkInventoryAvailability(
       }
     } else {
       // Regular product - count available inventory
+      const lineCid = product.inventoryCatalogItemId ?? null;
       const countResult = await db.execute(
         sql`
           SELECT COUNT(*) as count
           FROM inventory_items
-          WHERE ${sqlInventoryRowsForProduct(requestItem.productId)}
+          WHERE ${sqlInventoryRowsForProduct(requestItem.productId, lineCid)}
             AND status = 'available'
             AND deleted_at IS NULL
         `
@@ -211,7 +229,8 @@ async function fulfillItems(
   deliveredItems: DeliveryItem;
   shortage: number;
 }> {
-  await resetExpiredMultisellCooldowns(tx, productId, variantId ?? undefined);
+  const cid = product?.inventoryCatalogItemId ?? null;
+  await resetExpiredMultisellCooldowns(tx, productId, variantId ?? undefined, cid);
 
   const soldItems: Array<{
     inventoryId: string;
@@ -220,7 +239,7 @@ async function fulfillItems(
   const soldIds: string[] = [];
 
   for (let q = 0; q < requestedQuantity; q++) {
-    const row = await pickOneInventoryLine(tx, productId, variantId ?? undefined);
+    const row = await pickOneInventoryLine(tx, productId, variantId ?? undefined, cid);
     if (!row) break;
 
     const { decrementStock } = await applySaleToInventoryLine(
@@ -271,7 +290,8 @@ async function fulfillItemsWithOptionalIds(
   deliveredItems: DeliveryItem;
   shortage: number;
 }> {
-  await resetExpiredMultisellCooldowns(tx, productId, variantId ?? undefined);
+  const cid = product?.inventoryCatalogItemId ?? null;
+  await resetExpiredMultisellCooldowns(tx, productId, variantId ?? undefined, cid);
 
   const soldItems: Array<{
     inventoryId: string;
@@ -285,7 +305,7 @@ async function fulfillItemsWithOptionalIds(
   for (const id of orderedIds) {
     if (q >= requestedQuantity) break;
     if (usedExplicit.has(id)) continue;
-    const row = await lockInventoryRowById(tx, productId, id, variantId ?? undefined);
+    const row = await lockInventoryRowById(tx, productId, id, variantId ?? undefined, cid);
     if (!row) continue;
     usedExplicit.add(id);
     const { decrementStock } = await applySaleToInventoryLine(
@@ -301,7 +321,7 @@ async function fulfillItemsWithOptionalIds(
   }
 
   while (q < requestedQuantity) {
-    const row = await pickOneInventoryLine(tx, productId, variantId ?? undefined);
+    const row = await pickOneInventoryLine(tx, productId, variantId ?? undefined, cid);
     if (!row) break;
     const { decrementStock } = await applySaleToInventoryLine(
       tx,
@@ -421,10 +441,16 @@ async function fulfillBundleItems(
     try {
       const batch: Array<{ row: InventoryRowPick; subPid: string }> = [];
       for (const subItem of withPid) {
-        await resetExpiredMultisellCooldowns(tx, subItem.productId);
+        const subCid = subItem.inventoryCatalogItemId ?? null;
+        await resetExpiredMultisellCooldowns(tx, subItem.productId, subItem.variantId ?? undefined, subCid);
         const need = subItem.quantity || 1;
         for (let n = 0; n < need; n++) {
-          const row = (await pickOneInventoryLine(tx, subItem.productId)) as InventoryRowPick | null;
+          const row = (await pickOneInventoryLine(
+            tx,
+            subItem.productId,
+            subItem.variantId ?? undefined,
+            subCid
+          )) as InventoryRowPick | null;
           if (!row) throw new Error("shortage");
           batch.push({ row, subPid: subItem.productId });
         }
@@ -475,11 +501,329 @@ async function fulfillBundleItems(
   };
 }
 
+// ── POS cart checkout (explicit unit price + fulfillmentMode per line) ─────
+
+interface PosCartLine {
+  productId: string;
+  variantId: string;
+  quantity: number;
+  unitPrice: number;
+  fulfillmentMode: "auto" | "manual";
+  manualInventoryIds?: string[];
+}
+
+interface PosCartRequestBody {
+  items: PosCartLine[];
+  customerId?: string;
+  customerEmail?: string;
+  customerName?: string;
+  notes?: string;
+  currency?: string;
+  customerType?: "retail" | "merchant";
+}
+
+function isPosCartBody(body: unknown): body is PosCartRequestBody {
+  if (!body || typeof body !== "object") return false;
+  const b = body as Record<string, unknown>;
+  if (Array.isArray(b.directItems) && b.directItems.length > 0) return false;
+  const items = b.items;
+  if (!Array.isArray(items) || items.length === 0) return false;
+  return items.every((raw) => {
+    if (!raw || typeof raw !== "object") return false;
+    const i = raw as Record<string, unknown>;
+    return (
+      typeof i.productId === "string" &&
+      typeof i.variantId === "string" &&
+      typeof i.quantity === "number" &&
+      i.quantity > 0 &&
+      typeof i.unitPrice === "number" &&
+      (i.fulfillmentMode === "auto" || i.fulfillmentMode === "manual")
+    );
+  });
+}
+
+async function handlePosCartSale(user: UserWithPermissions, body: PosCartRequestBody) {
+  const db = getDb();
+  const customerType = body.customerType || "retail";
+  let customerEmail = body.customerEmail?.trim() || "";
+  let customerName = body.customerName || "";
+
+  if (body.customerId) {
+    const [cust] = await db
+      .select({ email: customers.email, name: customers.name })
+      .from(customers)
+      .where(eq(customers.id, body.customerId))
+      .limit(1);
+    if (!cust) {
+      return NextResponse.json({ success: false, error: "Customer not found" }, { status: 404 });
+    }
+    if (!customerEmail) customerEmail = cust.email;
+    if (!customerName && cust.name) customerName = cust.name;
+  }
+
+  if (!customerEmail) {
+    return NextResponse.json({ success: false, error: "Customer email is required" }, { status: 400 });
+  }
+
+  const productIds = [...new Set(body.items.map((i) => i.productId))];
+  const productsData = await db
+    .select({
+      id: products.id,
+      name: products.name,
+      slug: products.slug,
+      price: products.basePrice,
+      deliveryType: products.deliveryType,
+      inventoryTemplateId: products.inventoryTemplateId,
+      inventoryCatalogItemId: products.inventoryCatalogItemId,
+      isBundle: products.isBundle,
+    })
+    .from(products)
+    .where(inArray(products.id, productIds));
+
+  if (productsData.length !== productIds.length) {
+    return NextResponse.json({ success: false, error: "One or more products not found" }, { status: 404 });
+  }
+
+  for (const line of body.items) {
+    const product = productsData.find((p) => p.id === line.productId)!;
+    if (product.isBundle) {
+      return NextResponse.json(
+        { success: false, error: "Bundle products are not supported in POS cart checkout yet." },
+        { status: 400 }
+      );
+    }
+    const [vRow] = await db
+      .select({ id: productVariants.id })
+      .from(productVariants)
+      .where(and(eq(productVariants.id, line.variantId), eq(productVariants.productId, line.productId)))
+      .limit(1);
+    if (!vRow) {
+      return NextResponse.json({ success: false, error: "Invalid variant for product" }, { status: 400 });
+    }
+
+    if (line.fulfillmentMode === "manual") {
+      const ids = line.manualInventoryIds || [];
+      if (ids.length !== line.quantity) {
+        return NextResponse.json(
+          { success: false, error: "manualInventoryIds length must equal quantity for manual fulfillment" },
+          { status: 400 }
+        );
+      }
+    } else if (product.inventoryTemplateId) {
+      const countResult = await db.execute(sql`
+        SELECT COUNT(*)::int AS c
+        FROM inventory_items
+        WHERE ${sqlInventoryRowsForProduct(line.productId, product.inventoryCatalogItemId ?? null)}
+          AND status = 'available'
+          AND deleted_at IS NULL
+          AND variant_id = ${line.variantId}
+      `);
+      const available = parseInt(String((countResult.rows[0] as { c: number })?.c ?? 0), 10);
+      if (available < line.quantity) {
+        return NextResponse.json(
+          {
+            success: false,
+            code: "INSUFFICIENT_STOCK",
+            available,
+            requested: line.quantity,
+            productId: line.productId,
+            variantId: line.variantId,
+          },
+          { status: 409 }
+        );
+      }
+    }
+  }
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      const packed: Array<{ delivery: DeliveryItem; variantId: string }> = [];
+
+      for (const line of body.items) {
+        const product = productsData.find((p) => p.id === line.productId)!;
+        const unitPrice = line.unitPrice;
+
+        if (!product.inventoryTemplateId) {
+          const noStockItem: DeliveryItem = {
+            productId: product.id,
+            productName: product.name,
+            quantity: line.quantity,
+            requestedQuantity: line.quantity,
+            unitPrice,
+            items: [],
+          };
+          packed.push({ delivery: noStockItem, variantId: line.variantId });
+          continue;
+        }
+
+        const explicitIds =
+          line.fulfillmentMode === "manual" ? line.manualInventoryIds : undefined;
+
+        const { deliveredItems, shortage } =
+          explicitIds && explicitIds.length > 0
+            ? await fulfillItemsWithOptionalIds(
+                tx,
+                line.productId,
+                line.quantity,
+                product,
+                unitPrice,
+                line.variantId,
+                explicitIds,
+                null,
+                null,
+                user.id
+              )
+            : await fulfillItems(
+                tx,
+                line.productId,
+                line.quantity,
+                product,
+                unitPrice,
+                line.variantId,
+                null,
+                null,
+                user.id
+              );
+
+        if (shortage > 0) {
+          throw new Error("POS_STOCK_RACE");
+        }
+
+        (deliveredItems as { requestedQuantity?: number }).requestedQuantity = line.quantity;
+        packed.push({ delivery: deliveredItems, variantId: line.variantId });
+      }
+
+      let actualTotal = 0;
+      for (const { delivery } of packed) {
+        actualTotal += delivery.quantity * delivery.unitPrice;
+      }
+
+      const hasManualDelivery = packed.some(({ delivery: di }) => {
+        const p = productsData.find((x) => x.id === di.productId);
+        return p?.deliveryType === "manual";
+      });
+
+      let orderStatus: "pending" | "completed" = "completed";
+      let fulfillmentStatus: "pending" | "delivered" = "delivered";
+      if (hasManualDelivery) {
+        orderStatus = "pending";
+        fulfillmentStatus = "pending";
+      }
+
+      const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+      const [order] = await tx
+        .insert(orders)
+        .values({
+          orderNumber,
+          customerEmail,
+          customerName: customerName || null,
+          customerId: body.customerId || null,
+          subtotal: actualTotal.toString(),
+          discount: "0",
+          total: actualTotal.toString(),
+          status: orderStatus,
+          fulfillmentStatus,
+          paymentMethod: "manual",
+          paymentStatus: "completed",
+          processedBy: user.id,
+          deliveredAt: fulfillmentStatus === "delivered" ? new Date() : null,
+          currency: body.currency || "USD",
+          customerType,
+          pricingTierUsed: customerType === "merchant" ? "wholesale" : "retail",
+          notes: body.notes || null,
+          metadata: { saleSource: "pos_cart" },
+        })
+        .returning();
+
+      for (const { delivery: deliveryItem, variantId } of packed) {
+        const unitPrice = deliveryItem.unitPrice;
+        const product = productsData.find((p) => p.id === deliveryItem.productId);
+
+        const [orderItem] = await tx
+          .insert(orderItems)
+          .values({
+            orderId: order.id,
+            productId: deliveryItem.productId,
+            productName: product?.name || deliveryItem.productName,
+            productSlug: product?.slug || deliveryItem.productId,
+            deliveryType: product?.deliveryType || "manual",
+            price: unitPrice.toString(),
+            quantity: deliveryItem.quantity,
+            subtotal: (unitPrice * deliveryItem.quantity).toString(),
+            cost: null,
+            variantId,
+            deliveredInventoryIds: sql`${JSON.stringify(
+              deliveryItem.items.map((i) => i.inventoryId)
+            )}::jsonb`,
+          })
+          .returning();
+
+        for (const soldItem of deliveryItem.items) {
+          await tx
+            .update(inventoryItems)
+            .set({ orderItemId: orderItem.id })
+            .where(eq(inventoryItems.id, soldItem.inventoryId));
+        }
+      }
+
+      const deliveryItems = packed.map((p) => p.delivery);
+
+      await tx.insert(orderDeliverySnapshots).values({
+        orderId: order.id,
+        payload: { items: deliveryItems },
+        createdBy: user.id,
+      });
+
+      if (orderStatus === "completed") {
+        await logOrderCompleted(user.id, order.id, actualTotal.toString());
+      } else {
+        await logActivity({
+          userId: user.id,
+          action: "order_created",
+          entity: "order",
+          entityId: order.id,
+          metadata: { total: actualTotal.toString(), posCart: true },
+        });
+      }
+
+      return { order, deliveryItems };
+    });
+
+    return NextResponse.json(
+      {
+        success: true,
+        action: "pos_cart",
+        data: {
+          orderId: result.order.id,
+          order: result.order,
+          deliveryItems: result.deliveryItems,
+          shortageItems: [],
+          hasShortage: false,
+          extraInventoryCreated: [],
+        },
+      },
+      { status: 201 }
+    );
+  } catch (e) {
+    if (e instanceof Error && e.message === "POS_STOCK_RACE") {
+      return NextResponse.json(
+        { success: false, error: "Stock changed while checkout ran. Retry." },
+        { status: 409 }
+      );
+    }
+    throw e;
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const user = await requirePermission(PERMISSIONS.PROCESS_ORDERS);
 
     const body: ManualSellRequest = await request.json();
+
+    if (isPosCartBody(body)) {
+      return handlePosCartSale(user, body);
+    }
     const {
       items,
       directItems,
@@ -519,6 +863,7 @@ export async function POST(request: NextRequest) {
         price: products.basePrice,
         deliveryType: products.deliveryType,
         inventoryTemplateId: products.inventoryTemplateId,
+        inventoryCatalogItemId: products.inventoryCatalogItemId,
         isBundle: products.isBundle,
       })
       .from(products)
@@ -531,12 +876,15 @@ export async function POST(request: NextRequest) {
           .select({
             bundleProductId: bundleItems.bundleProductId,
             productId: bundleItems.productId,
+            variantId: bundleItems.variantId,
             productName: bundleItems.productName,
             quantity: bundleItems.quantity,
             templateFieldId: bundleItems.templateFieldId,
             lineIndex: bundleItems.lineIndex,
+            inventoryCatalogItemId: products.inventoryCatalogItemId,
           })
           .from(bundleItems)
+          .leftJoin(products, eq(bundleItems.productId, products.id))
           .where(inArray(bundleItems.bundleProductId, bundleProductIds))
       : [];
 

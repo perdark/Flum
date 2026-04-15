@@ -91,6 +91,7 @@ export async function GET(request: NextRequest) {
         compareAtPrice: products.compareAtPrice,
         deliveryType: products.deliveryType,
         inventoryTemplateId: products.inventoryTemplateId,
+        inventoryCatalogItemId: products.inventoryCatalogItemId,
         isActive: products.isActive,
         isFeatured: products.isFeatured,
         isNew: products.isNew,

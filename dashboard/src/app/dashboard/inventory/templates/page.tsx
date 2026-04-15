@@ -407,8 +407,8 @@ function CreateTemplateModal({ onClose, onCreate, editingTemplate }: any) {
         name: name.trim(),
         description: description.trim() || "",
         fieldsSchema: fields,
-        color: color.trim() || null,
-        icon: icon.trim() || null,
+        color: editingTemplate ? color.trim() || null : null,
+        icon: editingTemplate ? icon.trim() || null : null,
         multiSellEnabled,
         multiSellMax: Number(multiSellMax),
         cooldownEnabled,
@@ -463,34 +463,38 @@ function CreateTemplateModal({ onClose, onCreate, editingTemplate }: any) {
                   className="w-full px-3 py-2 bg-secondary border border-input rounded"
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Color Stripe (Hex)</label>
-                <div className="flex gap-2">
-                   <input
-                     type="color"
-                     value={color || "#000000"}
-                     onChange={(e) => setColor(e.target.value)}
-                     className="w-10 h-10 rounded cursor-pointer"
-                   />
-                   <input
-                     type="text"
-                     value={color}
-                     onChange={(e) => setColor(e.target.value)}
-                     placeholder="#3b82f6"
-                     className="flex-1 px-3 py-2 bg-secondary border border-input rounded"
-                   />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Icon (Emoji/Text)</label>
-                <input
-                  type="text"
-                  value={icon}
-                  onChange={(e) => setIcon(e.target.value)}
-                  placeholder="🎮"
-                  className="w-full px-3 py-2 bg-secondary border border-input rounded"
-                />
-              </div>
+              {editingTemplate && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Color Stripe (Hex)</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="color"
+                        value={color || "#000000"}
+                        onChange={(e) => setColor(e.target.value)}
+                        className="w-10 h-10 rounded cursor-pointer"
+                      />
+                      <input
+                        type="text"
+                        value={color}
+                        onChange={(e) => setColor(e.target.value)}
+                        placeholder="#3b82f6"
+                        className="flex-1 px-3 py-2 bg-secondary border border-input rounded"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Icon (Emoji/Text)</label>
+                    <input
+                      type="text"
+                      value={icon}
+                      onChange={(e) => setIcon(e.target.value)}
+                      placeholder="🎮"
+                      className="w-full px-3 py-2 bg-secondary border border-input rounded"
+                    />
+                  </div>
+                </>
+              )}
             </div>
           </div>
 

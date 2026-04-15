@@ -12,7 +12,7 @@ import { getCurrentUser, getEffectivePermissions } from "@/lib/auth";
 import { PERMISSIONS } from "@/types";
 import { getDb } from "@/db";
 import { orders, products, reviews, users, inventoryItems } from "@/db/schema";
-import { eq, and, count, gte, sql } from "drizzle-orm";
+import { eq, and, count, gte, sql, desc } from "drizzle-orm";
 import Link from "next/link";
 import {
   TrendingUp,
@@ -120,12 +120,30 @@ async function getOverviewStats() {
     .where(sql`${users.role} IS NOT NULL`);
   const totalStaff = Number(staffResult?.count || 0);
 
-  // Get recent orders (last 5)
-  const recentOrders = await db
-    .select()
+  // Explicit columns only — avoids SELECT * breaking when DB is behind schema (e.g. new columns not migrated yet).
+  const recentRows = await db
+    .select({
+      id: orders.id,
+      orderNumber: orders.orderNumber,
+      customerEmail: orders.customerEmail,
+      customerName: orders.customerName,
+      total: orders.total,
+      status: orders.status,
+      createdAt: orders.createdAt,
+    })
     .from(orders)
-    .orderBy(orders.createdAt)
+    .orderBy(desc(orders.createdAt))
     .limit(5);
+
+  const recentOrders = recentRows.map((r) => ({
+    id: r.id,
+    orderNumber: r.orderNumber,
+    customerEmail: r.customerEmail,
+    customerName: r.customerName,
+    total: String(r.total ?? "0"),
+    status: r.status,
+    createdAt: r.createdAt instanceof Date ? r.createdAt.toISOString() : String(r.createdAt),
+  }));
 
   return {
     totalOrders,

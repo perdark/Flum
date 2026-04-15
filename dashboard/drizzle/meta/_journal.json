@@ -57,6 +57,27 @@
       "when": 1775500000000,
       "tag": "0014_inventory_catalog_items",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1775600000000,
+      "tag": "0017_product_tags",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1775700000000,
+      "tag": "0018_customer_sessions_newsletter",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1775800000000,
+      "tag": "0019_products_inventory_catalog_item",
+      "breakpoints": true
     }
   ]
 }

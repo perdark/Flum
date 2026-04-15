@@ -4,7 +4,20 @@
       "Bash(grep -l \"stockTypes\\\\|productPurchaseOptions\\\\|productRegionPrices\\\\|inventoryItemProductLinks\" /home/mint/Desktop/Flum/Flum/dashboard/src/**/*.ts /home/mint/Desktop/Flum/Flum/dashboard/src/**/*.tsx)",
       "mcp__filesystem__read_text_file",
       "mcp__claude_ai_Figma__get_figjam",
-      "mcp__claude_ai_Figma__generate_diagram"
+      "mcp__claude_ai_Figma__generate_diagram",
+      "Bash(wc -l /home/mint/Desktop/Flum/Flum/dashboard/src/components/dashboard/*.tsx)",
+      "Bash(ls src/app/api/products/[id]/option-groups/)",
+      "Bash(ls src/app/api/products/[id]/variants/generate/)",
+      "Bash(ls src/app/api/orders/[id]/approve/)",
+      "mcp__filesystem__list_directory",
+      "Bash(ls /home/mint/Desktop/Flum/Flum/dashboard/src/app/api/products/[id]/)",
+      "Bash(ls /home/mint/Desktop/Flum/Flum/dashboard/next.config*)",
+      "Bash(npx tsc:*)",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__navigate_page",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__take_screenshot",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__resize_page",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__take_snapshot",
+      "Bash(npm run:*)"
     ]
   }
 }
